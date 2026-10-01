@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using BCrypt.Net;
 using SportsCenterManagement.DAL.Entities;
 
 namespace SportsCenterManagement.DAL.Context;
@@ -8,8 +9,13 @@ namespace SportsCenterManagement.DAL.Context;
 /// </summary>
 public static class DbInitializer
 {
-    public static async Task SeedAsync(SportsCenterDbContext context)
+    public static async Task SeedAsync(SportsCenterDbContext context, bool baselineLegacySchema = false)
     {
+        if (baselineLegacySchema)
+        {
+            await BaselineLegacySchemaAsync(context);
+        }
+
         await context.Database.MigrateAsync();
 
         // 1. Tạo Center mẫu nếu chưa có
@@ -71,8 +77,8 @@ public static class DbInitializer
                 {
                     RoleId = role.Id,
                     Username = "member01",
-                    Email = "member01@example.com",
-                    PasswordHash = "AQAAAAEAACcQAAAAEJ...", // hash test
+                    Email = "member@scms.vn",
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("password123"),
                     Phone = "0912345678",
                     Status = "Active",
                     CreatedAt = DateTime.UtcNow
@@ -91,5 +97,63 @@ public static class DbInitializer
                 await context.SaveChangesAsync();
             }
         }
+
+        var seededUser = await context.Users.SingleOrDefaultAsync(user => user.Username == "member01");
+        if (seededUser is not null && !seededUser.PasswordHash.StartsWith("$2", StringComparison.Ordinal))
+        {
+            seededUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword("password123");
+            seededUser.UpdatedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
+        }
+    }
+
+    private static async Task BaselineLegacySchemaAsync(SportsCenterDbContext context)
+    {
+        var connection = context.Database.GetDbConnection();
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT CASE
+                WHEN OBJECT_ID(N'[dbo].[centers]', N'U') IS NULL THEN 0
+                WHEN OBJECT_ID(N'[dbo].[__EFMigrationsHistory]', N'U') IS NULL THEN 1
+                WHEN NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory]) THEN 2
+                ELSE 0
+            END
+            """;
+
+        var state = Convert.ToInt32(await command.ExecuteScalarAsync());
+        if (state == 0)
+        {
+            return;
+        }
+
+        if (state == 1)
+        {
+            await context.Database.ExecuteSqlRawAsync("""
+            CREATE TABLE [dbo].[__EFMigrationsHistory] (
+                [MigrationId] nvarchar(150) NOT NULL,
+                [ProductVersion] nvarchar(32) NOT NULL,
+                CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
+            );
+            """);
+        }
+
+        await context.Database.ExecuteSqlRawAsync("""
+            IF NOT EXISTS (
+                SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+                WHERE [MigrationId] = N'20260929152157_InitialCreate')
+            BEGIN
+                INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+                VALUES (N'20260929152157_InitialCreate', N'10.0.12');
+            END
+
+            IF NOT EXISTS (
+                SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+                WHERE [MigrationId] = N'20260929165224_CoreFlowUniqueness')
+            BEGIN
+                INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+                VALUES (N'20260929165224_CoreFlowUniqueness', N'10.0.12');
+            END
+            """);
     }
 }

@@ -1,21 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
-using SportsCenterManagement.Services.Features.CoreFlows;
+using SportsCenterManagement.BLL.DTOs.MembershipPackages;
+using SportsCenterManagement.BLL.Interfaces;
 
 namespace SportsCenterManagement.API.Controllers;
 
-public sealed record MembershipPackageResponse(
-    long Id,
-    long CenterId,
-    string Name,
-    string? Description,
-    int DurationDays,
-    decimal Price,
-    int? MaxClasses,
-    string? AccessType);
-
 [ApiController]
 [Route("api/centers/{centerId:long}/membership-packages")]
-public sealed class MembershipPackagesController(CoreFlowService coreFlowService) : ControllerBase
+public sealed class MembershipPackagesController(IMembershipPackageService packageService) : ControllerBase
 {
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<MembershipPackageResponse>), StatusCodes.Status200OK)]
@@ -23,15 +14,7 @@ public sealed class MembershipPackagesController(CoreFlowService coreFlowService
         long centerId,
         CancellationToken cancellationToken)
     {
-        var packages = await coreFlowService.GetActivePackagesAsync(centerId, cancellationToken);
-        return Ok(packages.Select(package => new MembershipPackageResponse(
-            package.Id,
-            package.CenterId,
-            package.Name,
-            package.Description,
-            package.DurationDays,
-            package.Price,
-            package.MaxClasses,
-            package.AccessType)).ToList());
+        var packages = await packageService.GetActivePackagesAsync(centerId, cancellationToken);
+        return Ok(packages);
     }
 }

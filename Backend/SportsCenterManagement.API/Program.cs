@@ -31,9 +31,8 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<IClassService, ClassService>();
 builder.Services.AddScoped<IMembershipPackageService, MembershipPackageService>();
 builder.Services.AddScoped<ICoreFlowService, CoreFlowService>();
-
-// >>> ĐĂNG KÝ SERVICE THANH TOÁN VNPAY <<<
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IRolePermissionService, RolePermissionService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

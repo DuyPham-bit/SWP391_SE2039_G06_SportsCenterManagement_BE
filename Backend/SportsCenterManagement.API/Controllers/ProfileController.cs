@@ -78,6 +78,56 @@ public sealed class ProfileController(SportsCenterDbContext dbContext) : Control
             staffProfile.UpdatedAt = DateTime.UtcNow;
         }
 
+        if (memberProfile is null && coachProfile is null && staffProfile is null)
+        {
+            var roleName = await dbContext.Roles
+                .Where(r => r.Id == user.RoleId)
+                .Select(r => r.Name)
+                .FirstOrDefaultAsync(cancellationToken) ?? "Member";
+
+            var defaultCenter = await dbContext.Centers.FirstOrDefaultAsync(cancellationToken);
+            var centerId = defaultCenter?.Id ?? 1;
+
+            if (string.Equals(roleName, "Coach", StringComparison.OrdinalIgnoreCase))
+            {
+                coachProfile = new CoachProfile
+                {
+                    UserId = user.Id,
+                    CenterId = centerId,
+                    CoachCode = $"CH{user.Id:D5}",
+                    FullName = fullName,
+                    Status = "Active",
+                    CreatedAt = DateTime.UtcNow
+                };
+                await dbContext.CoachProfiles.AddAsync(coachProfile, cancellationToken);
+            }
+            else if (string.Equals(roleName, "Member", StringComparison.OrdinalIgnoreCase))
+            {
+                memberProfile = new MemberProfile
+                {
+                    UserId = user.Id,
+                    MemberCode = $"MB{user.Id:D5}",
+                    FullName = fullName,
+                    CreatedAt = DateTime.UtcNow
+                };
+                await dbContext.MemberProfiles.AddAsync(memberProfile, cancellationToken);
+            }
+            else
+            {
+                staffProfile = new StaffProfile
+                {
+                    UserId = user.Id,
+                    CenterId = centerId,
+                    StaffCode = $"ST{user.Id:D5}",
+                    FullName = fullName,
+                    Position = roleName,
+                    Status = "Active",
+                    CreatedAt = DateTime.UtcNow
+                };
+                await dbContext.StaffProfiles.AddAsync(staffProfile, cancellationToken);
+            }
+        }
+
         user.UpdatedAt = DateTime.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
         return Ok(await BuildResponseAsync(user, cancellationToken));

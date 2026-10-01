@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using BCrypt.Net;
 using SportsCenterManagement.DAL.Entities;
@@ -5,7 +7,7 @@ using SportsCenterManagement.DAL.Entities;
 namespace SportsCenterManagement.DAL.Context;
 
 /// <summary>
-/// Khởi tạo dữ liệu mẫu cho Database nếu bảng đang trống để phục vụ test tính năng.
+/// Khởi tạo và đồng bộ dữ liệu mẫu cho Database theo đúng nghiệp vụ hệ thống.
 /// </summary>
 public static class DbInitializer
 {
@@ -19,9 +21,10 @@ public static class DbInitializer
         await context.Database.MigrateAsync();
 
         // 1. Tạo Center mẫu nếu chưa có
-        if (!await context.Centers.AnyAsync())
+        var center = await context.Centers.FirstOrDefaultAsync();
+        if (center == null)
         {
-            var center = new Center
+            center = new Center
             {
                 Name = "Sports Center Quận 1",
                 Address = "123 Nguyễn Thị Minh Khai, Quận 1, TP.HCM",
@@ -32,53 +35,107 @@ public static class DbInitializer
             };
             await context.Centers.AddAsync(center);
             await context.SaveChangesAsync();
+        }
 
-            // 2. Tạo Gói tập mẫu (Membership Package)
-            if (!await context.MembershipPackages.AnyAsync())
+        // 2. Định nghĩa danh sách 4 Gói tập chuẩn từ giao diện Frontend
+        var packagesToSync = new List<MembershipPackage>
+        {
+            new()
             {
-                await context.MembershipPackages.AddRangeAsync(
-                    new MembershipPackage
-                    {
-                        CenterId = center.Id,
-                        Name = "Gói Gym & Yoga 1 Tháng",
-                        Description = "Tập luyện không giới hạn trong 30 ngày",
-                        DurationDays = 30,
-                        Price = 500000,
-                        Status = "Active",
-                        CreatedAt = DateTime.UtcNow
-                    },
-                    new MembershipPackage
-                    {
-                        CenterId = center.Id,
-                        Name = "Gói VIP Premium 3 Tháng",
-                        Description = "Toàn quyền sử dụng dịch vụ và huấn luyện viên trong 90 ngày",
-                        DurationDays = 90,
-                        Price = 1200000,
-                        Status = "Active",
-                        CreatedAt = DateTime.UtcNow
-                    }
-                );
-                await context.SaveChangesAsync();
+                CenterId = center.Id,
+                Name = "Gói Basic Thể Thao",
+                Description = "Rèn luyện 1 bộ môn tự chọn, phù hợp cho người mới bắt đầu hoặc lịch tập cố định.",
+                DurationDays = 30,
+                Price = 650000,
+                MaxClasses = 1,
+                AccessType = "1 môn tự chọn",
+                Status = "Active",
+                CreatedAt = DateTime.UtcNow
+            },
+            new()
+            {
+                CenterId = center.Id,
+                Name = "Gói Pro Bứt Phá",
+                Description = "Lựa chọn 3 bộ môn kết hợp (ví dụ: Gym + Bơi lội + Cầu lông), kèm 1 buổi kiểm tra InBody.",
+                DurationDays = 90,
+                Price = 1800000,
+                MaxClasses = 3,
+                AccessType = "3 môn tự chọn",
+                Status = "Active",
+                CreatedAt = DateTime.UtcNow
+            },
+            new()
+            {
+                CenterId = center.Id,
+                Name = "Gói Elite Chuyên Nghiệp",
+                Description = "Trải nghiệm thể thao đa năng toàn diện, hỗ trợ đặt sân ưu tiên và quyền vào phòng xông hơi Sauna.",
+                DurationDays = 180,
+                Price = 3200000,
+                MaxClasses = 6,
+                AccessType = "6 môn tự chọn",
+                Status = "Active",
+                CreatedAt = DateTime.UtcNow
+            },
+            new()
+            {
+                CenterId = center.Id,
+                Name = "Gói All-Access Olympic Pass",
+                Description = "Toàn quyền sử dụng 15 bộ môn và 9 sân thi đấu đẳng cấp quốc tế 365 ngày.",
+                DurationDays = 365,
+                Price = 5800000,
+                MaxClasses = 15,
+                AccessType = "Toàn quyền 15 môn",
+                Status = "Active",
+                CreatedAt = DateTime.UtcNow
             }
+        };
 
-            // 3. Tạo Role & User Member mẫu
-            if (!await context.Roles.AnyAsync(r => r.Name == "Member"))
+        var existingPackages = await context.MembershipPackages.ToListAsync();
+        foreach (var pkg in packagesToSync)
+        {
+            var existing = existingPackages.FirstOrDefault(p => p.Name == pkg.Name);
+            if (existing != null)
             {
-                var role = new Role
-                {
-                    Name = "Member",
-                    Description = "Khách hàng hội viên",
-                    CreatedAt = DateTime.UtcNow
-                };
+                existing.Description = pkg.Description;
+                existing.DurationDays = pkg.DurationDays;
+                existing.Price = pkg.Price;
+                existing.MaxClasses = pkg.MaxClasses;
+                existing.AccessType = pkg.AccessType;
+                existing.Status = "Active";
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+            else
+            {
+                await context.MembershipPackages.AddAsync(pkg);
+            }
+        }
+        await context.SaveChangesAsync();
+
+        // 3. Khởi tạo danh sách các vai trò (Roles) chuẩn
+        var defaultRoles = new List<Role>
+        {
+            new() { Name = "Admin", Description = "Quản trị viên toàn hệ thống", CreatedAt = DateTime.UtcNow },
+            new() { Name = "Manager", Description = "Quản lý cơ sở trung tâm", CreatedAt = DateTime.UtcNow },
+            new() { Name = "Receptionist", Description = "Nhân viên lễ tân tiếp đón & thanh toán", CreatedAt = DateTime.UtcNow },
+            new() { Name = "Coach", Description = "Huấn luyện viên thể thao", CreatedAt = DateTime.UtcNow },
+            new() { Name = "Member", Description = "Khách hàng hội viên", CreatedAt = DateTime.UtcNow }
+        };
+
+        foreach (var role in defaultRoles)
+        {
+            if (!await context.Roles.AnyAsync(r => r.Name == role.Name))
+            {
                 await context.Roles.AddAsync(role);
-                await context.SaveChangesAsync();
+            }
+        }
+        await context.SaveChangesAsync();
 
                 var user = new User
                 {
                     RoleId = role.Id,
                     Username = "member01",
-                    Email = "member@scms.vn",
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("password123"),
+                    Email = "member01@example.com",
+                    PasswordHash = "AQAAAAEAACcQAAAAEJ...", // hash test
                     Phone = "0912345678",
                     Status = "Active",
                     CreatedAt = DateTime.UtcNow
@@ -97,63 +154,5 @@ public static class DbInitializer
                 await context.SaveChangesAsync();
             }
         }
-
-        var seededUser = await context.Users.SingleOrDefaultAsync(user => user.Username == "member01");
-        if (seededUser is not null && !seededUser.PasswordHash.StartsWith("$2", StringComparison.Ordinal))
-        {
-            seededUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword("password123");
-            seededUser.UpdatedAt = DateTime.UtcNow;
-            await context.SaveChangesAsync();
-        }
-    }
-
-    private static async Task BaselineLegacySchemaAsync(SportsCenterDbContext context)
-    {
-        var connection = context.Database.GetDbConnection();
-        await connection.OpenAsync();
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT CASE
-                WHEN OBJECT_ID(N'[dbo].[centers]', N'U') IS NULL THEN 0
-                WHEN OBJECT_ID(N'[dbo].[__EFMigrationsHistory]', N'U') IS NULL THEN 1
-                WHEN NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory]) THEN 2
-                ELSE 0
-            END
-            """;
-
-        var state = Convert.ToInt32(await command.ExecuteScalarAsync());
-        if (state == 0)
-        {
-            return;
-        }
-
-        if (state == 1)
-        {
-            await context.Database.ExecuteSqlRawAsync("""
-            CREATE TABLE [dbo].[__EFMigrationsHistory] (
-                [MigrationId] nvarchar(150) NOT NULL,
-                [ProductVersion] nvarchar(32) NOT NULL,
-                CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
-            );
-            """);
-        }
-
-        await context.Database.ExecuteSqlRawAsync("""
-            IF NOT EXISTS (
-                SELECT 1 FROM [dbo].[__EFMigrationsHistory]
-                WHERE [MigrationId] = N'20260929152157_InitialCreate')
-            BEGIN
-                INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
-                VALUES (N'20260929152157_InitialCreate', N'10.0.12');
-            END
-
-            IF NOT EXISTS (
-                SELECT 1 FROM [dbo].[__EFMigrationsHistory]
-                WHERE [MigrationId] = N'20260929165224_CoreFlowUniqueness')
-            BEGIN
-                INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
-                VALUES (N'20260929165224_CoreFlowUniqueness', N'10.0.12');
-            END
-            """);
     }
 }

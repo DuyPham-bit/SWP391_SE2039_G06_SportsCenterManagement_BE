@@ -37,11 +37,16 @@ public class PaymentsController : ControllerBase
     {
         try
         {
-            // Lấy MemberId: Ưu tiên lấy từ JWT Claims nếu đã đăng nhập, hoặc fallback lấy từ Header để test
-            long memberId = 1; // Giá trị mặc định khi test
+            // Lấy MemberId: Ưu tiên lấy từ JWT Claims (claim 'memberId' hoặc NameIdentifier), hoặc fallback lấy từ Header X-Member-Id
+            long memberId = 1; // Giá trị mặc định khi test trực tiếp trên Swagger không truyền header
+            var memberIdClaim = User.FindFirst("memberId")?.Value;
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-            if (!string.IsNullOrEmpty(userIdClaim) && long.TryParse(userIdClaim, out var parsedId))
+            if (!string.IsNullOrEmpty(memberIdClaim) && long.TryParse(memberIdClaim, out var parsedMemberId))
+            {
+                memberId = parsedMemberId;
+            }
+            else if (!string.IsNullOrEmpty(userIdClaim) && long.TryParse(userIdClaim, out var parsedId))
             {
                 memberId = parsedId;
             }

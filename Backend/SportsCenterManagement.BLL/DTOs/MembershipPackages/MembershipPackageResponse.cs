@@ -8,4 +8,6 @@ public sealed record MembershipPackageResponse(
     int DurationDays,
     decimal Price,
     int? MaxClasses,
-    string? AccessType);
+    string? AccessType,
+    string Status);
+

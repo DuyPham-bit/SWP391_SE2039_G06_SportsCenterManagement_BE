@@ -23,7 +23,9 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
                 package.DurationDays,
                 package.Price,
                 package.MaxClasses,
-                package.AccessType))
+                package.AccessType,
+                package.Status))
             .ToListAsync(cancellationToken);
     }
 }
+

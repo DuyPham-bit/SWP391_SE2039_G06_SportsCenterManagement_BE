@@ -1,7 +1,7 @@
-using System.Text;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.DataProtection;
+using SportsCenterManagement.API.Authentication;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.BLL.Services;
 using SportsCenterManagement.DAL.Context;
@@ -12,17 +12,15 @@ var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("SportsCenter")
     ?? throw new InvalidOperationException(
         "Connection string 'SportsCenter' is not configured.");
-var jwtKey = builder.Configuration["Jwt:Key"]
-    ?? throw new InvalidOperationException("Jwt:Key is not configured.");
-
-if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
-{
-    throw new InvalidOperationException("Jwt:Key must be at least 256 bits.");
-}
 
 // Layer 3: DAL (DbContext & Repository / Unit of Work Pattern)
 builder.Services.AddDbContext<SportsCenterDbContext>(options =>
     options.UseSqlServer(connectionString));
+builder.Services.AddDataProtection().SetApplicationName("SportsCenterManagement");
+builder.Services.AddSingleton<BearerTokenIssuer>();
+builder.Services.AddAuthentication("Bearer")
+    .AddScheme<AuthenticationSchemeOptions, ProtectedBearerHandler>("Bearer", _ => { });
+builder.Services.AddAuthorization();
 
 builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -31,35 +29,11 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<IClassService, ClassService>();
 builder.Services.AddScoped<IMembershipPackageService, MembershipPackageService>();
 builder.Services.AddScoped<ICoreFlowService, CoreFlowService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IMemberService, MemberService>();
 
 // >>> ĐĂNG KÝ SERVICE THANH TOÁN VNPAY <<<
 builder.Services.AddScoped<IPaymentService, PaymentService>();
-
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-            ValidateIssuer = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-            ValidateAudience = true,
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.FromSeconds(30)
-        };
-    });
-builder.Services.AddAuthorization();
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("Frontend", policy =>
-    {
-        policy.WithOrigins("http://127.0.0.1:3003", "http://localhost:3003")
-            .AllowAnyHeader()
-            .AllowAnyMethod();
-    });
-});
 
 // Layer 1: Presentation (API Controllers & Swagger UI)
 builder.Services.AddControllers();
@@ -72,8 +46,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<SportsCenterDbContext>();
-    var baselineLegacySchema = builder.Configuration.GetValue<bool>("Database:BaselineLegacySchema");
-    await DbInitializer.SeedAsync(dbContext, baselineLegacySchema);
+    await DbInitializer.SeedAsync(dbContext);
 }
 
 if (app.Environment.IsDevelopment())
@@ -82,8 +55,6 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseRouting();
-app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

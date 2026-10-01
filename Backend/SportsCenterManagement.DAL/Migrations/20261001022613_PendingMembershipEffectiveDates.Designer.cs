@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SportsCenterManagement.DAL.Context;
 
@@ -11,9 +12,11 @@ using SportsCenterManagement.DAL.Context;
 namespace SportsCenterManagement.DAL.Migrations
 {
     [DbContext(typeof(SportsCenterDbContext))]
-    partial class SportsCenterDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261001022613_PendingMembershipEffectiveDates")]
+    partial class PendingMembershipEffectiveDates
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1081,10 +1084,6 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("datetime2")
                         .HasColumnName("booking_suspended_until");
 
-                    b.Property<long?>("CenterId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("center_id");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("created_at");
@@ -1154,8 +1153,6 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnName("weight_kg");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("CenterId");
 
                     b.HasIndex("MemberCode")
                         .IsUnique();
@@ -1347,8 +1344,7 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CenterId", "Name")
-                        .IsUnique();
+                    b.HasIndex("CenterId");
 
                     b.ToTable("membership_packages", "dbo");
                 });
@@ -2196,10 +2192,6 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.HasIndex("Phone")
-                        .IsUnique()
-                        .HasFilter("[phone] IS NOT NULL");
-
                     b.HasIndex("RoleId");
 
                     b.HasIndex("Username")
@@ -2560,11 +2552,6 @@ namespace SportsCenterManagement.DAL.Migrations
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.MemberProfile", b =>
                 {
-                    b.HasOne("SportsCenterManagement.DAL.Entities.Center", null)
-                        .WithMany()
-                        .HasForeignKey("CenterId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
                         .WithOne()
                         .HasForeignKey("SportsCenterManagement.DAL.Entities.MemberProfile", "UserId")

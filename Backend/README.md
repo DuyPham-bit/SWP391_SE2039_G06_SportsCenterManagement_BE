@@ -41,13 +41,28 @@ dotnet ef database update --project .\SportsCenterManagement.DAL\SportsCenterMan
 dotnet run --project .\SportsCenterManagement.API\SportsCenterManagement.API.csproj
 ```
 
-API được xây bằng ASP.NET Core MVC Controllers và trả JSON; không dùng Razor Views vì repository này là backend cho frontend riêng. Các route GET hiện có:
+API được xây bằng ASP.NET Core MVC Controllers và trả JSON; không dùng Razor Views vì repository này là backend cho frontend riêng. Các route Flow 1 đã triển khai:
 
 | Method | Route | Mục đích |
 |---|---|---|
 | GET | `/health` hoặc `/api/health` | Health check, trả `{ "status": "ok" }` |
 | GET | `/api/centers/{centerId}/membership-packages` | Danh sách gói Active của center |
 | GET | `/api/centers/{centerId}/classes` | Danh sách lớp Published của center |
+| POST | `/api/auth/register` | Tạo Member, hash mật khẩu và profile trong một transaction |
+| POST | `/api/auth/login` | Đăng nhập và nhận bearer token 1 giờ |
+| GET/PATCH | `/api/members/me` | Xem/cập nhật hồ sơ của chính member |
+| GET/POST | `/api/centers/{centerId}/members` | Receptionist/Manager tra cứu hoặc tạo member tại quầy |
+| POST | `/api/members/me/subscriptions` | Tạo subscription PendingPayment, invoice và invoice item |
+| POST/GET | `/api/members/{memberId}/subscriptions` | Bán gói tại quầy hoặc xem lịch sử theo quyền |
+| POST | `/api/centers/{centerId}/membership-packages` | Manager tạo gói |
+| PATCH | `/api/membership-packages/{packageId}` | Manager cập nhật gói |
+| POST | `/api/payments/create-vnpay-url` | Tạo hoặc tiếp tục thanh toán gói của Member |
+| GET | `/api/payments/vnpay-callback` | Xác thực kết quả callback VNPay |
+| POST | `/api/invoices/{invoiceId}/payments` | Manager/Receptionist ghi nhận tiền mặt; chỉ kích hoạt khi đã thu đủ |
+
+MVP tắt email verification; mật khẩu cần ít nhất 12 ký tự gồm chữ hoa, chữ thường, số và ký tự đặc biệt. Token bearer dùng ASP.NET Core Data Protection, hết hạn sau 1 giờ; API kiểm tra lại trạng thái và role trên mỗi request. Subscription chỉ bắt đầu khi invoice được thanh toán đủ.
+
+Manager/Receptionist cần có `StaffProfile` trạng thái `Active` tại center được giao. Tài khoản nhân sự và staff assignment do quản trị viên bootstrap trong DB.
 
 Cổng được in ra khi chạy ứng dụng.
 

@@ -10,4 +10,3 @@ public sealed record MembershipPackageResponse(
     int? MaxClasses,
     string? AccessType,
     string Status);
-

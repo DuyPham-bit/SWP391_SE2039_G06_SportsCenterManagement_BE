@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Mvc;
 using SportsCenterManagement.BLL.DTOs.Payments;
 using SportsCenterManagement.BLL.Interfaces;
@@ -13,10 +15,17 @@ namespace SportsCenterManagement.API.Controllers;
 public class PaymentsController : ControllerBase
 {
     private readonly IPaymentService _paymentService;
+    private readonly IMemberService _memberService;
+    private readonly ICoreFlowService _coreFlowService;
 
-    public PaymentsController(IPaymentService paymentService)
+    public PaymentsController(
+        IPaymentService paymentService,
+        IMemberService memberService,
+        ICoreFlowService coreFlowService)
     {
         _paymentService = paymentService;
+        _memberService = memberService;
+        _coreFlowService = coreFlowService;
     }
 
     /// <summary>
@@ -24,41 +33,28 @@ public class PaymentsController : ControllerBase
     /// Frontend gọi API này khi Member bấm nút "Thanh toán gói".
     /// </summary>
     /// <param name="request">Chứa PackageId và BankCode (tùy chọn)</param>
-    /// <param name="memberIdHeader">MemberId tạm thời (dùng header X-Member-Id hoặc lấy từ JWT)</param>
     /// <param name="cancellationToken">Token hủy request</param>
     /// <returns>Trả về đường dẫn URL của VNPay để Frontend chuyển trang</returns>
     [HttpPost("create-vnpay-url")]
+    [Authorize(Roles = "Member")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreatePaymentUrl(
         [FromBody] CreatePaymentRequest request,
-        [FromHeader(Name = "X-Member-Id")] long? memberIdHeader,
         CancellationToken cancellationToken)
     {
         try
         {
-            // Lấy MemberId: Ưu tiên lấy từ JWT Claims (claim 'memberId' hoặc NameIdentifier), hoặc fallback lấy từ Header X-Member-Id
-            long memberId = 1; // Giá trị mặc định khi test trực tiếp trên Swagger không truyền header
-            var memberIdClaim = User.FindFirst("memberId")?.Value;
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-            if (!string.IsNullOrEmpty(memberIdClaim) && long.TryParse(memberIdClaim, out var parsedMemberId))
+            if (string.IsNullOrWhiteSpace(userIdClaim) || !long.TryParse(userIdClaim, out var userId))
             {
-                memberId = parsedMemberId;
+                return Unauthorized(new { success = false, message = "Cần đăng nhập để tạo yêu cầu thanh toán." });
             }
-            else if (!string.IsNullOrEmpty(userIdClaim) && long.TryParse(userIdClaim, out var parsedId))
-            {
-                memberId = parsedId;
-            }
-            else if (memberIdHeader.HasValue)
-            {
-                memberId = memberIdHeader.Value;
-            }
-
+            await _memberService.EnsureCanBuyPackageAsync(userId, request.PackageId, cancellationToken);
             var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
 
             var paymentUrl = await _paymentService.CreatePaymentUrlAsync(
-                memberId,
+                userId,
                 request,
                 ipAddress,
                 cancellationToken);
@@ -69,13 +65,25 @@ public class PaymentsController : ControllerBase
                 paymentUrl = paymentUrl
             });
         }
-        catch (Exception ex)
+        catch (InvalidOperationException)
         {
-            return BadRequest(new
+            return Conflict(new
             {
                 success = false,
-                message = ex.Message
+                message = "Không thể tạo yêu cầu thanh toán với thông tin hiện tại."
             });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound(new { success = false, message = "Không tìm thấy hồ sơ hoặc gói tập." });
+        }
+        catch (ValidationException exception)
+        {
+            return BadRequest(new { success = false, message = exception.Message });
         }
     }
 
@@ -85,6 +93,7 @@ public class PaymentsController : ControllerBase
     /// <param name="cancellationToken">Token hủy request</param>
     /// <returns>Kết quả giao dịch chi tiết (Thành công / Thất bại)</returns>
     [HttpGet("vnpay-callback")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(PaymentResultResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<PaymentResultResponse>> PaymentCallback(CancellationToken cancellationToken)
     {
@@ -92,5 +101,35 @@ public class PaymentsController : ControllerBase
         var result = await _paymentService.ProcessPaymentCallbackAsync(queryDictionary, cancellationToken);
         return Ok(result);
     }
-}
 
+    [HttpPost("/api/invoices/{invoiceId:long}/payments")]
+    [Authorize(Roles = "Manager,Receptionist")]
+    [ProducesResponseType(typeof(CashPaymentResponse), StatusCodes.Status201Created)]
+    public async Task<IActionResult> RecordCashPayment(
+        long invoiceId,
+        RecordCashPaymentRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var actorId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            await _memberService.EnsureCanProcessInvoiceAsync(actorId, invoiceId, cancellationToken);
+            var payment = await _coreFlowService.RecordCashPaymentAsync(
+                invoiceId, actorId, request.Amount, cancellationToken);
+            return StatusCode(StatusCodes.Status201Created, new CashPaymentResponse(
+                payment.Id, payment.InvoiceId, payment.Amount, payment.PaymentStatus, payment.PaidAt));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (KeyNotFoundException)
+        {
+            return NotFound();
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Conflict(new { message = exception.Message });
+        }
+    }
+}

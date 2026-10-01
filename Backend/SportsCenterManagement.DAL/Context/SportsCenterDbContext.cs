@@ -82,8 +82,10 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
         modelBuilder.Entity<Permission>().HasIndex(entity => entity.Code).IsUnique();
         modelBuilder.Entity<User>().HasIndex(entity => entity.Username).IsUnique();
         modelBuilder.Entity<User>().HasIndex(entity => entity.Email).IsUnique();
+        modelBuilder.Entity<User>().HasIndex(entity => entity.Phone).IsUnique().HasFilter("[phone] IS NOT NULL");
         modelBuilder.Entity<MemberProfile>().HasIndex(entity => entity.UserId).IsUnique();
         modelBuilder.Entity<MemberProfile>().HasIndex(entity => entity.MemberCode).IsUnique();
+        modelBuilder.Entity<MembershipPackage>().HasIndex(entity => new { entity.CenterId, entity.Name }).IsUnique();
         modelBuilder.Entity<CoachProfile>().HasIndex(entity => entity.UserId).IsUnique();
         modelBuilder.Entity<CoachProfile>().HasIndex(entity => entity.CoachCode).IsUnique();
         modelBuilder.Entity<StaffProfile>().HasIndex(entity => entity.UserId).IsUnique();
@@ -130,6 +132,12 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .HasOne<User>()
             .WithOne()
             .HasForeignKey<MemberProfile>(entity => entity.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<MemberProfile>()
+            .HasOne<Center>()
+            .WithMany()
+            .HasForeignKey(entity => entity.CenterId)
             .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<CoachProfile>()

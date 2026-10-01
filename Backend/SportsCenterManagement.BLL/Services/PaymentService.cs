@@ -27,89 +27,131 @@ public class PaymentService : IPaymentService
     /// 2. Đóng gói các tham số và ký mã SHA512 để sinh URL VNPay.
     /// </summary>
     public async Task<string> CreatePaymentUrlAsync(
-        long memberId,
+        long userId,
         CreatePaymentRequest request,
         string ipAddress,
         CancellationToken cancellationToken = default)
     {
-        // 1. Kiểm tra Member tồn tại
-        var memberExists = await _unitOfWork.Repository<MemberProfile>()
-            .AnyAsync(m => m.Id == memberId, cancellationToken);
-        if (!memberExists)
+        if (userId <= 0 || request.PackageId <= 0)
         {
-            throw new InvalidOperationException("Không tìm thấy thông tin thành viên.");
+            throw new InvalidOperationException("Thông tin thành viên hoặc gói tập không hợp lệ.");
         }
 
-        // 2. Lấy thông tin gói tập đang Active từ Database (Lấy giá gốc niêm yết)
-        var package = await _unitOfWork.Repository<MembershipPackage>()
-            .Find(p => p.Id == request.PackageId && p.Status == "Active")
-            .SingleOrDefaultAsync(cancellationToken)
-            ?? throw new InvalidOperationException("Gói tập không tồn tại hoặc đã ngừng hoạt động.");
-
-        // 3. Bắt đầu Transaction để lưu Subscription & Invoice tạm thời
-        await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
-
-        var now = DateTime.UtcNow;
-        var today = DateOnly.FromDateTime(now);
-
-        // Tạo bản ghi Subscription với trạng thái PendingPayment
-        var subscription = new MemberSubscription
-        {
-            MemberId = memberId,
-            PackageId = package.Id,
-            StartDate = today,
-            EndDate = today.AddDays(package.DurationDays),
-            Price = package.Price,
-            Status = "PendingPayment",
-            AutoRenew = false,
-            CreatedAt = now
-        };
-        await _unitOfWork.Repository<MemberSubscription>().AddAsync(subscription, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        // Tạo mã hóa đơn duy nhất
-        var invoiceNumber = $"SC-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..30];
-        var invoice = new Invoice
-        {
-            InvoiceNumber = invoiceNumber,
-            MemberId = memberId,
-            CenterId = package.CenterId,
-            Subtotal = package.Price,
-            Discount = 0,
-            Tax = 0,
-            TotalAmount = package.Price,
-            Status = "Issued",
-            IssuedAt = now
-        };
-        await _unitOfWork.Repository<Invoice>().AddAsync(invoice, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        // Lưu chi tiết hóa đơn
-        var invoiceItem = new InvoiceItem
-        {
-            InvoiceId = invoice.Id,
-            PackageId = package.Id,
-            SubscriptionId = subscription.Id,
-            Description = $"Thanh toán gói tập: {package.Name}",
-            Quantity = 1,
-            UnitPrice = package.Price,
-            Amount = package.Price
-        };
-        await _unitOfWork.Repository<InvoiceItem>().AddAsync(invoiceItem, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        // Commit lưu DB thành công
-        await transaction.CommitAsync(cancellationToken);
-
-        // 4. Khởi tạo VNPay Helper và nạp các tham số cấu hình
-        var vnpay = new VnPayLibrary();
         var tmnCode = _configuration["VnPay:TmnCode"] ?? throw new InvalidOperationException("Chưa cấu hình VnPay:TmnCode");
         var hashSecret = _configuration["VnPay:HashSecret"] ?? throw new InvalidOperationException("Chưa cấu hình VnPay:HashSecret");
         var baseUrl = _configuration["VnPay:BaseUrl"] ?? throw new InvalidOperationException("Chưa cấu hình VnPay:BaseUrl");
         var returnUrl = _configuration["VnPay:ReturnUrl"] ?? throw new InvalidOperationException("Chưa cấu hình VnPay:ReturnUrl");
 
+        // Claims chứa UserId; chuyển qua profile server-side để không tin member id từ client.
+        var member = await _unitOfWork.Repository<MemberProfile>()
+            .Find(profile => profile.UserId == userId)
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException("Không tìm thấy thông tin thành viên.");
+
+        // Dùng serializable để request retry song song cùng tái sử dụng invoice chờ hiện có.
+        await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+        var now = DateTime.UtcNow;
+        var db = _unitOfWork.Context;
+        var pending = await (
+            from item in db.InvoiceItems
+            join invoiceRow in db.Invoices on item.InvoiceId equals invoiceRow.Id
+            join subscriptionRow in db.MemberSubscriptions on item.SubscriptionId equals subscriptionRow.Id
+            join packageRow in db.MembershipPackages on item.PackageId equals (long?)packageRow.Id
+            where invoiceRow.MemberId == member.Id
+                  && (invoiceRow.Status == "Issued" || invoiceRow.Status == "PartiallyPaid")
+                  && item.PackageId == request.PackageId
+                  && subscriptionRow.Status == "PendingPayment"
+            orderby invoiceRow.IssuedAt descending
+            select new { Invoice = invoiceRow, Package = packageRow })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        Invoice invoice;
+        MembershipPackage package;
+        if (pending is not null)
+        {
+            invoice = pending.Invoice;
+            package = pending.Package;
+        }
+        else
+        {
+            package = await _unitOfWork.Repository<MembershipPackage>()
+                .Find(item => item.Id == request.PackageId && item.Status == "Active")
+                .SingleOrDefaultAsync(cancellationToken)
+                ?? throw new InvalidOperationException("Gói tập không tồn tại hoặc đã ngừng hoạt động.");
+
+            if (package.Price <= 0 || package.DurationDays <= 0)
+            {
+                throw new InvalidOperationException("Gói tập có giá hoặc thời hạn không hợp lệ.");
+            }
+
+            var subscription = new MemberSubscription
+            {
+                MemberId = member.Id,
+                PackageId = package.Id,
+                StartDate = null,
+                EndDate = null,
+                DurationDays = package.DurationDays,
+                Price = package.Price,
+                Status = "PendingPayment",
+                AutoRenew = false,
+                CreatedAt = now
+            };
+            await _unitOfWork.Repository<MemberSubscription>().AddAsync(subscription, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var newInvoiceNumber = $"SC-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..30];
+            invoice = new Invoice
+            {
+                InvoiceNumber = newInvoiceNumber,
+                MemberId = member.Id,
+                CenterId = package.CenterId,
+                Subtotal = package.Price,
+                Discount = 0,
+                Tax = 0,
+                TotalAmount = package.Price,
+                Status = "Issued",
+                IssuedAt = now
+            };
+            await _unitOfWork.Repository<Invoice>().AddAsync(invoice, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            await _unitOfWork.Repository<InvoiceItem>().AddAsync(new InvoiceItem
+            {
+                InvoiceId = invoice.Id,
+                PackageId = package.Id,
+                SubscriptionId = subscription.Id,
+                Description = $"Thanh toán gói tập: {package.Name}",
+                Quantity = 1,
+                UnitPrice = package.Price,
+                Amount = package.Price
+            }, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        if (member.CenterId.HasValue && member.CenterId.Value != package.CenterId)
+        {
+            throw new UnauthorizedAccessException("Gói tập không thuộc trung tâm của thành viên.");
+        }
+        if (!member.CenterId.HasValue)
+        {
+            member.CenterId = package.CenterId;
+            member.UpdatedAt = now;
+            _unitOfWork.Repository<MemberProfile>().Update(member);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        var invoiceNumber = invoice.InvoiceNumber;
+
+        // Cấu hình đã được kiểm tra trước khi ghi pending invoice/subscription.
+        var vnpay = new VnPayLibrary();
+
         // Đơn vị tiền tệ của VNPay tính bằng đồng và phải nhân với 100
-        var amountInVnpayFormat = ((long)(package.Price * 100)).ToString();
+        var paidAmount = await _unitOfWork.Repository<Payment>()
+            .Find(payment => payment.InvoiceId == invoice.Id && payment.PaymentStatus == "Succeeded")
+            .SumAsync(payment => (decimal?)payment.Amount, cancellationToken) ?? 0m;
+        var amountInVnpayFormat = ((long)((invoice.TotalAmount - paidAmount) * 100)).ToString();
 
         var clientIp = (string.IsNullOrEmpty(ipAddress) || ipAddress == "::1" || ipAddress.Contains(':')) 
             ? "127.0.0.1" 
@@ -181,64 +223,141 @@ public class PaymentService : IPaymentService
         var invoiceNumber = vnpay.GetResponseData("vnp_TxnRef");
         var vnpResponseCode = vnpay.GetResponseData("vnp_ResponseCode");
         var vnpTransactionNo = vnpay.GetResponseData("vnp_TransactionNo");
-        var vnpAmount = Convert.ToDecimal(vnpay.GetResponseData("vnp_Amount")) / 100;
-
-        // 2. Tìm hóa đơn trong Database
-        var invoice = await _unitOfWork.Repository<Invoice>()
-            .Find(i => i.InvoiceNumber == invoiceNumber)
-            .SingleOrDefaultAsync(cancellationToken);
-
-        if (invoice == null)
+        if (string.IsNullOrWhiteSpace(invoiceNumber)
+            || !decimal.TryParse(vnpay.GetResponseData("vnp_Amount"), out var amountInVnpayFormat)
+            || amountInVnpayFormat <= 0)
         {
+            return new PaymentResultResponse { Success = false, Message = "Dữ liệu thanh toán không hợp lệ." };
+        }
+
+        var vnpAmount = amountInVnpayFormat / 100m;
+        // Serializable tránh hai callback đồng thời cùng cộng một giao dịch và kích hoạt hai lần.
+        await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+
+        var invoice = await _unitOfWork.Repository<Invoice>()
+            .Find(item => item.InvoiceNumber == invoiceNumber)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (invoice is null)
+        {
+            return new PaymentResultResponse { Success = false, Message = "Không tìm thấy hóa đơn tương ứng với giao dịch." };
+        }
+
+        if (!string.IsNullOrWhiteSpace(vnpTransactionNo))
+        {
+            var existingPayment = await _unitOfWork.Repository<Payment>()
+                .Find(item => item.TransactionCode == vnpTransactionNo)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (existingPayment is not null)
+            {
+                var sameInvoice = existingPayment.InvoiceId == invoice.Id;
+                await transaction.CommitAsync(cancellationToken);
+                return new PaymentResultResponse
+                {
+                    Success = sameInvoice && existingPayment.PaymentStatus == "Succeeded",
+                    Message = sameInvoice ? "Giao dịch đã được xử lý." : "Mã giao dịch đã được sử dụng.",
+                    InvoiceNumber = invoiceNumber,
+                    TransactionId = vnpTransactionNo,
+                    Amount = existingPayment.Amount
+                };
+            }
+        }
+
+        if (invoice.Status is "Paid" or "Cancelled")
+        {
+            await transaction.CommitAsync(cancellationToken);
             return new PaymentResultResponse
             {
                 Success = false,
-                Message = "Không tìm thấy hóa đơn tương ứng với giao dịch."
+                Message = invoice.Status == "Paid" ? "Hóa đơn đã được thanh toán bằng giao dịch khác." : "Hóa đơn đã bị hủy.",
+                InvoiceNumber = invoiceNumber,
+                Amount = vnpAmount
             };
         }
 
-        // Tìm chi tiết hóa đơn để lấy SubscriptionId liên kết
-        var invoiceItem = await _unitOfWork.Repository<InvoiceItem>()
+        var invoiceItems = await _unitOfWork.Repository<InvoiceItem>()
             .Find(item => item.InvoiceId == invoice.Id)
-            .SingleOrDefaultAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
 
-        // 3. Kiểm tra mã phản hồi: "00" = Giao dịch thành công
         if (vnpResponseCode == "00")
         {
-            await using var transaction = await _unitOfWork.BeginTransactionAsync(cancellationToken);
-            var now = DateTime.UtcNow;
+            if (string.IsNullOrWhiteSpace(vnpTransactionNo))
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return new PaymentResultResponse { Success = false, Message = "Thiếu mã giao dịch thanh toán." };
+            }
 
-            // Cập nhật Invoice -> Paid
-            invoice.Status = "Paid";
-            invoice.PaidAt = now;
+            var payments = await _unitOfWork.Repository<Payment>()
+                .Find(item => item.InvoiceId == invoice.Id && item.PaymentStatus == "Succeeded")
+                .ToListAsync(cancellationToken);
+            var paidBefore = payments.Sum(item => item.Amount);
+            var outstanding = invoice.TotalAmount - paidBefore;
+
+            if (vnpAmount > outstanding || outstanding <= 0)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return new PaymentResultResponse
+                {
+                    Success = false,
+                    Message = "Số tiền thanh toán vượt quá số dư hóa đơn.",
+                    InvoiceNumber = invoiceNumber,
+                    TransactionId = vnpTransactionNo,
+                    Amount = vnpAmount
+                };
+            }
+
+            var now = DateTime.UtcNow;
+            await _unitOfWork.Repository<Payment>().AddAsync(new Payment
+            {
+                InvoiceId = invoice.Id,
+                MemberId = invoice.MemberId,
+                PaymentMethod = "VNPAY",
+                TransactionCode = string.IsNullOrWhiteSpace(vnpTransactionNo) ? null : vnpTransactionNo,
+                Amount = vnpAmount,
+                PaymentStatus = "Succeeded",
+                PaidAt = now,
+                Note = "Thanh toán qua cổng VNPay Sandbox"
+            }, cancellationToken);
+
+            var paidTotal = paidBefore + vnpAmount;
+            invoice.Status = paidTotal == invoice.TotalAmount ? "Paid" : "PartiallyPaid";
+            invoice.PaidAt = invoice.Status == "Paid" ? now : null;
             _unitOfWork.Repository<Invoice>().Update(invoice);
 
-            // Kích hoạt Subscription -> Active
-            if (invoiceItem?.SubscriptionId != null)
+            if (invoice.Status == "Paid")
             {
-                var subscription = await _unitOfWork.Repository<MemberSubscription>()
-                    .GetByIdAsync(invoiceItem.SubscriptionId.Value, cancellationToken);
-                if (subscription != null)
+                foreach (var subscriptionId in invoiceItems
+                             .Where(item => item.SubscriptionId.HasValue)
+                             .Select(item => item.SubscriptionId!.Value)
+                             .Distinct())
                 {
+                    var subscription = await _unitOfWork.Repository<MemberSubscription>()
+                        .GetByIdAsync(subscriptionId, cancellationToken);
+                    if (subscription is null || subscription.Status != "PendingPayment")
+                    {
+                        continue;
+                    }
+
+                    if (subscription.DurationDays <= 0)
+                    {
+                        throw new InvalidOperationException("Không thể kích hoạt subscription vì thời hạn snapshot không hợp lệ.");
+                    }
+
+                    var today = DateOnly.FromDateTime(now);
+                    var currentEnd = await _unitOfWork.Repository<MemberSubscription>()
+                        .Find(item => item.MemberId == subscription.MemberId
+                                      && item.Status == "Active"
+                                      && item.EndDate >= today)
+                        .MaxAsync(item => item.EndDate, cancellationToken);
+                    // Gia hạn nối tiếp subscription đang còn hạn; ngày kết thúc được tính inclusive.
+                    var startDate = currentEnd.HasValue ? currentEnd.Value.AddDays(1) : today;
+                    subscription.StartDate = startDate;
+                    subscription.EndDate = startDate.AddDays(subscription.DurationDays - 1);
                     subscription.Status = "Active";
                     subscription.UpdatedAt = now;
                     _unitOfWork.Repository<MemberSubscription>().Update(subscription);
                 }
             }
-
-            // Ghi nhận bản ghi Payment thành công
-            var payment = new Payment
-            {
-                InvoiceId = invoice.Id,
-                MemberId = invoice.MemberId,
-                PaymentMethod = "VNPAY",
-                TransactionCode = vnpTransactionNo,
-                Amount = vnpAmount,
-                PaymentStatus = "Completed",
-                PaidAt = now,
-                Note = "Thanh toán qua cổng VNPay Sandbox"
-            };
-            await _unitOfWork.Repository<Payment>().AddAsync(payment, cancellationToken);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -246,37 +365,21 @@ public class PaymentService : IPaymentService
             return new PaymentResultResponse
             {
                 Success = true,
-                Message = "Thanh toán gói tập thành công!",
+                Message = invoice.Status == "Paid" ? "Thanh toán đủ hóa đơn thành công." : "Đã ghi nhận thanh toán một phần; subscription vẫn chờ thanh toán.",
                 InvoiceNumber = invoiceNumber,
                 TransactionId = vnpTransactionNo,
                 Amount = vnpAmount
             };
         }
-        else
+
+        await transaction.CommitAsync(cancellationToken);
+        return new PaymentResultResponse
         {
-            // Giao dịch không thành công hoặc người dùng hủy
-            invoice.Status = "Cancelled";
-            _unitOfWork.Repository<Invoice>().Update(invoice);
-
-            if (invoiceItem?.SubscriptionId != null)
-            {
-                var subscription = await _unitOfWork.Repository<MemberSubscription>()
-                    .GetByIdAsync(invoiceItem.SubscriptionId.Value, cancellationToken);
-                if (subscription != null)
-                {
-                    subscription.Status = "Cancelled";
-                    _unitOfWork.Repository<MemberSubscription>().Update(subscription);
-                }
-            }
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            return new PaymentResultResponse
-            {
-                Success = false,
-                Message = $"Thanh toán không thành công. Mã lỗi VNPay: {vnpResponseCode}",
-                InvoiceNumber = invoiceNumber,
-                Amount = vnpAmount
-            };
-        }
+            Success = false,
+            Message = $"Thanh toán không thành công. Mã lỗi VNPay: {vnpResponseCode}",
+            InvoiceNumber = invoiceNumber,
+            TransactionId = vnpTransactionNo,
+            Amount = vnpAmount
+        };
     }
 }

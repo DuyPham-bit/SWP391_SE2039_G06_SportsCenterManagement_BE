@@ -21,6 +21,16 @@ Ngoài phạm vi bắt buộc của tài liệu này: AI, giáo án/tiến độ
 
 **Quy tắc phân quyền nền:** API phải kiểm tra role và phạm vi center cho mọi thao tác; không dựa vào việc frontend ẩn nút. Không trả password hash hoặc dữ liệu nhạy cảm qua API.
 
+### Quyết định triển khai Flow 1
+
+- Mỗi User có một role theo `User.RoleId`; mỗi MemberProfile và StaffProfile gắn tối đa một center. Member chưa chọn center được gắn vào center của gói mua đầu tiên trong transaction.
+- MVP không bắt buộc email verification; tài khoản được kích hoạt sau đăng ký. Mật khẩu tối thiểu 12 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt; khóa 15 phút sau 5 lần đăng nhập sai.
+- Subscription bắt đầu sau khi invoice được thanh toán đủ. Khi còn một subscription Active chưa hết hạn, lần mua/gia hạn mới bắt đầu vào ngày kế tiếp ngày hết hạn đó; nếu không, bắt đầu vào ngày nhận đủ tiền.
+- Ngày kết thúc là inclusive: `end_date = start_date + duration_days - 1`. `duration_days` được chụp trên subscription lúc mua và các ngày hiệu lực để trống khi PendingPayment.
+- Token Bearer được bảo vệ bằng ASP.NET Core Data Protection, hết hạn sau 1 giờ; mỗi request đọc lại trạng thái tài khoản và role hiện tại.
+- Lịch sử center cũ chỉ được gán tự động khi invoice/subscription xác định duy nhất một center; dữ liệu mơ hồ giữ nguyên không gán để tránh mở rộng sai phạm vi PII.
+- `AccessType` hiện chỉ bị giới hạn độ dài; các giá trị enum hợp lệ cần được chốt trước khi siết validation.
+
 ## 3. Thuật ngữ và trạng thái đề xuất
 
 - **User:** thông tin đăng nhập và trạng thái tài khoản.
@@ -308,4 +318,3 @@ Quy tắc: dùng DTO thay vì trả EF entity trực tiếp; API mutation có va
 | Manager quản lý lớp, bộ môn, phòng, lịch, coach | F2 | ClassEntity, Sport, Room, ClassSchedule, ClassSession, ClassCoach |
 | Member đăng ký/hủy lớp; Coach xem lịch/roster | F2 | ClassEnrollment, SessionBooking, ClassWaitlist, Attendance |
 | Receptionist thanh toán/xuất hóa đơn; Manager báo cáo doanh thu | F3 | Invoice, InvoiceItem, Payment, AuditLog |
-

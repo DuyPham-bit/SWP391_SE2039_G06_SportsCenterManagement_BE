@@ -93,3 +93,16 @@ dotnet run --project SportsCenterManagement.API
 1. **Bảo mật giá tiền:** Backend luôn tự truy vấn giá gốc từ Database bảng `membership_packages`, không bao giờ tin tưởng giá tiền từ Frontend gửi lên.
 2. **Kiến trúc 3 tầng sạch:** Tầng `BLL` là thư viện C# độc lập, không chứa `HttpContext` hay `IQueryCollection`. Tầng `API Controller` nhận request và chuyển đổi dữ liệu xuống.
 3. **Quản lý Migration:** Tất cả thay đổi Database thực hiện qua `SportsCenterManagement.DAL` và do Integration Owner quản lý.
+
+---
+
+## 🎨 5. TIÊU CHUẨN THIẾT KẾ & FRONTEND (DESIGN-TASTE & FRONTEND-DESIGNER)
+Hệ thống tích hợp 2 bộ quy chuẩn tại `.agents/skills/` và `.agents/rules/`:
+1. **`design-taste` (Thẩm mỹ cao cấp):**
+   - **Chống "AI Slop":** Không dùng gradient tím-hồng generic; radius tinh tế (`rounded-lg`, `rounded-xl`); border sắc nét (`border-black/5` hoặc `border-white/10`) thay vì bóng mờ xám đục.
+   - **Typography & Rhythm:** Font sans hình học thể thao mạnh mẽ (Inter, Outfit, Plus Jakarta Sans); tương phản rõ rệt giữa Heading, Body và Metadata.
+   - **Màu sắc 60-30-10:** 60% nền trung tính, 30% cấu trúc thẻ/khung, 10% accent dẫn mắt; tôn trọng khoảng trắng (white space).
+2. **`frontend-designer` (Kỹ thuật Component):**
+   - **Kiến trúc Atomic:** Layout ➔ Widgets ➔ Atoms. Tách biệt Custom Hooks (logic) và Presentational Components.
+   - **Tailwind CSS & Motion:** Hạn chế arbitrary values; micro-interactions mượt mà bằng Framer Motion (spring physics); responsive chuẩn Mobile, Tablet, Desktop.
+

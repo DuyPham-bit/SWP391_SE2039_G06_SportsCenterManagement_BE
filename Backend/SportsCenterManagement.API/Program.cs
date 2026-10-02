@@ -29,6 +29,7 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 // Layer 2: BLL (Business Logic Services)
 builder.Services.AddScoped<IClassService, ClassService>();
+builder.Services.AddScoped<IRolePermissionService, RolePermissionService>();
 builder.Services.AddScoped<IMembershipPackageService, MembershipPackageService>();
 builder.Services.AddScoped<ICoreFlowService, CoreFlowService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();

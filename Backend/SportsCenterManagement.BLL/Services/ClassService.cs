@@ -8,26 +8,106 @@ namespace SportsCenterManagement.BLL.Services;
 
 public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
 {
+    private const double MaxDailyTeachingHours = 8;
+
     public async Task<IReadOnlyList<ClassCatalogResponse>> GetPublishedClassesAsync(
-        long centerId,
-        CancellationToken cancellationToken = default)
-    {
-        return await unitOfWork.Repository<ClassEntity>()
+        long centerId, CancellationToken cancellationToken = default) =>
+        await unitOfWork.Repository<ClassEntity>()
             .Find(item => item.CenterId == centerId && item.Status == "Published")
             .OrderBy(item => item.Name)
-            .Select(item => new ClassCatalogResponse(
-                item.Id,
-                item.CenterId,
-                item.SportId,
-                item.RoomId,
-                item.Name,
-                item.Description,
-                item.Level,
-                item.Capacity,
-                item.DurationMinutes))
+            .Select(item => new ClassCatalogResponse(item.Id, item.CenterId, item.SportId, item.RoomId,
+                item.Name, item.Description, item.Level, item.Capacity, item.DurationMinutes))
+            .ToListAsync(cancellationToken);
+
+    public async Task<ClassCoachResponse> AssignCoachToClassAsync(long classId, AssignCoachRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var db = unitOfWork.Context;
+        var classEntity = await db.Classes.SingleOrDefaultAsync(x => x.Id == classId, cancellationToken)
+            ?? throw new InvalidOperationException("Lớp học không tồn tại.");
+        if (IsState(classEntity.Status, "Cancelled", "Completed"))
+            throw new InvalidOperationException("Không thể phân công HLV cho lớp đã hủy hoặc hoàn thành.");
+
+        var coach = await db.CoachProfiles.SingleOrDefaultAsync(x => x.Id == request.CoachId, cancellationToken)
+            ?? throw new InvalidOperationException("Huấn luyện viên không tồn tại.");
+        var coachUser = await db.Users.SingleOrDefaultAsync(x => x.Id == coach.UserId, cancellationToken);
+        if (!IsState(coach.Status, "Active") || coachUser is null || !IsState(coachUser.Status, "Active") ||
+            (coachUser.LockedUntil.HasValue && coachUser.LockedUntil > DateTime.UtcNow))
+            throw new InvalidOperationException("Huấn luyện viên không ở trạng thái hoạt động.");
+        if (coach.CenterId != classEntity.CenterId)
+            throw new InvalidOperationException("Huấn luyện viên và lớp học phải thuộc cùng trung tâm.");
+
+        var sport = await db.Sports.SingleOrDefaultAsync(x => x.Id == classEntity.SportId, cancellationToken);
+        if (sport is not null && !string.IsNullOrWhiteSpace(coach.Specialization) &&
+            !coach.Specialization.Contains(sport.Name, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Chuyên môn của huấn luyện viên không phù hợp với lớp học.");
+
+        var targetSchedules = await db.ClassSchedules
+            .Where(x => x.ClassId == classId && x.Status == "Active")
+            .ToListAsync(cancellationToken);
+        var assignments = await db.ClassCoaches.Where(x => x.CoachId == coach.Id && x.ClassId != classId)
+            .ToListAsync(cancellationToken);
+        var assignedClassIds = assignments.Select(x => x.ClassId).ToArray();
+        var existingSchedules = assignedClassIds.Length == 0
+            ? []
+            : await db.ClassSchedules.Where(x => assignedClassIds.Contains(x.ClassId) && x.Status == "Active")
+                .ToListAsync(cancellationToken);
+
+        foreach (var day in targetSchedules.Select(x => x.DayOfWeek).Distinct())
+        {
+            var targetsForDay = targetSchedules.Where(x => x.DayOfWeek == day).ToArray();
+            var existingForDay = existingSchedules.Where(existing => existing.DayOfWeek == day &&
+                targetsForDay.Any(target => DateRangesOverlap(existing, target))).ToArray();
+            if (targetsForDay.Any(target => existingForDay.Any(existing =>
+                    target.StartTime < existing.EndTime && target.EndTime > existing.StartTime)))
+                throw new InvalidOperationException("Huấn luyện viên bị trùng lịch dạy với lớp khác.");
+
+            var hoursForDay = targetsForDay.Sum(DurationHours) + existingForDay.Sum(DurationHours);
+            if (hoursForDay > MaxDailyTeachingHours)
+            {
+                throw new InvalidOperationException("Phân công này làm huấn luyện viên vượt quá 8 giờ dạy trong ngày.");
+            }
+        }
+
+        var classAssignments = await db.ClassCoaches.Where(x => x.ClassId == classId).ToListAsync(cancellationToken);
+        var current = classAssignments.SingleOrDefault(x => x.CoachId == coach.Id);
+        if (current is null && classAssignments.Count > 0)
+            throw new InvalidOperationException("Lớp đã có HLV; hãy gỡ HLV hiện tại trước khi phân công người khác.");
+
+        if (current is null)
+        {
+            current = new ClassCoach { ClassId = classId, CoachId = coach.Id, IsPrimary = request.IsPrimary,
+                AssignedDate = DateOnly.FromDateTime(DateTime.UtcNow) };
+            db.ClassCoaches.Add(current);
+        }
+        else
+        {
+            current.IsPrimary = request.IsPrimary;
+            current.AssignedDate = DateOnly.FromDateTime(DateTime.UtcNow);
+        }
+
+        if (request.IsPrimary)
+            foreach (var other in classAssignments.Where(x => x.CoachId != coach.Id)) other.IsPrimary = false;
+
+        await db.SaveChangesAsync(cancellationToken);
+        return new ClassCoachResponse(classId, coach.Id, coach.FullName, coach.CoachCode, current.IsPrimary,
+            current.AssignedDate, coach.Specialization);
+    }
+
+    public async Task<IReadOnlyList<ClassCoachResponse>> GetAssignedCoachesAsync(long classId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!await unitOfWork.Context.Classes.AnyAsync(x => x.Id == classId, cancellationToken))
+            throw new InvalidOperationException("Lớp học không tồn tại.");
+        return await (from link in unitOfWork.Context.ClassCoaches
+                      join coach in unitOfWork.Context.CoachProfiles on link.CoachId equals coach.Id
+                      where link.ClassId == classId
+                      select new ClassCoachResponse(link.ClassId, coach.Id, coach.FullName, coach.CoachCode,
+                          link.IsPrimary, link.AssignedDate, coach.Specialization))
             .ToListAsync(cancellationToken);
     }
 
+<<<<<<< Updated upstream
     private const double MaxWeeklyTeachingHours = 30.0;
 
     public async Task<ClassCoachResponse> AssignCoachToClassAsync(
@@ -236,4 +316,25 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
         var e2 = end2 ?? DateOnly.MaxValue;
         return s1 <= e2 && s2 <= e1;
     }
+=======
+    public async Task UnassignCoachFromClassAsync(long classId, long coachId,
+        CancellationToken cancellationToken = default)
+    {
+        var link = await unitOfWork.Context.ClassCoaches.SingleOrDefaultAsync(
+            x => x.ClassId == classId && x.CoachId == coachId, cancellationToken)
+            ?? throw new InvalidOperationException("Huấn luyện viên chưa được phân công vào lớp này.");
+        unitOfWork.Context.ClassCoaches.Remove(link);
+        await unitOfWork.Context.SaveChangesAsync(cancellationToken);
+    }
+
+    private static bool IsState(string value, params string[] accepted) =>
+        accepted.Any(state => string.Equals(value, state, StringComparison.OrdinalIgnoreCase));
+
+    private static double DurationHours(ClassSchedule schedule) =>
+        (schedule.EndTime.ToTimeSpan() - schedule.StartTime.ToTimeSpan()).TotalHours;
+
+    private static bool DateRangesOverlap(ClassSchedule first, ClassSchedule second) =>
+        (first.StartDate ?? DateOnly.MinValue) <= (second.EndDate ?? DateOnly.MaxValue) &&
+        (second.StartDate ?? DateOnly.MinValue) <= (first.EndDate ?? DateOnly.MaxValue);
+>>>>>>> Stashed changes
 }

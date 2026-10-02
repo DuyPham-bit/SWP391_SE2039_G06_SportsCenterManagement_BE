@@ -80,6 +80,7 @@ public static class DbInitializer
                 await context.SaveChangesAsync();
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
                 var user = new User
                 {
                     RoleId = role.Id,
@@ -113,6 +114,78 @@ public static class DbInitializer
             {
                 await context.Permissions.AddAsync(perm);
             }
+=======
+        var defaultPermissions = new[]
+        {
+            new Permission { Code = "CLASS_VIEW", Name = "View classes" },
+            new Permission { Code = "CLASS_CREATE", Name = "Create classes" },
+            new Permission { Code = "CLASS_EDIT", Name = "Edit classes" },
+            new Permission { Code = "CLASS_DELETE", Name = "Delete classes" },
+            new Permission { Code = "MEMBER_VIEW", Name = "View members" },
+            new Permission { Code = "MEMBER_CREATE", Name = "Create members" },
+            new Permission { Code = "MEMBER_EDIT", Name = "Edit members" },
+            new Permission { Code = "MEMBER_DELETE", Name = "Delete members" },
+            new Permission { Code = "ROLE_VIEW", Name = "View roles and permissions" },
+            new Permission { Code = "ROLE_MANAGE", Name = "Manage roles and permissions" },
+            new Permission { Code = "PAYMENT_VIEW", Name = "View payments" },
+            new Permission { Code = "PAYMENT_PROCESS", Name = "Process payments" },
+            new Permission { Code = "REPORT_VIEW", Name = "View reports" }
+        };
+        foreach (var permission in defaultPermissions)
+        {
+            if (!await context.Permissions.AnyAsync(x => x.Code == permission.Code))
+                await context.Permissions.AddAsync(permission);
+        }
+        await context.SaveChangesAsync();
+
+        var administratorRoles = await context.Roles
+            .Where(x => x.Name == "Admin" || x.Name == "Manager").ToListAsync();
+        var allPermissions = await context.Permissions.ToListAsync();
+        foreach (var role in administratorRoles)
+        foreach (var permission in allPermissions)
+        {
+            if (!await context.RolePermissions.AnyAsync(x =>
+                    x.RoleId == role.Id && x.PermissionId == permission.Id))
+                context.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = permission.Id });
+        }
+        await context.SaveChangesAsync();
+
+        var memberRole = await context.Roles.SingleAsync(role => role.Name == "Member");
+        var user = await context.Users.FirstOrDefaultAsync(
+            item => item.Username == "member01" || item.Email == "member01@example.com");
+        if (user is null)
+        {
+            user = new User
+            {
+                RoleId = memberRole.Id,
+                Username = "member01",
+                Email = "member01@example.com",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("password123"),
+                Phone = "0912345678",
+                Status = "Active",
+                CreatedAt = DateTime.UtcNow
+            };
+            await context.Users.AddAsync(user);
+            await context.SaveChangesAsync();
+        }
+        else if (!user.PasswordHash.StartsWith("$2", StringComparison.Ordinal))
+        {
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword("password123");
+            user.UpdatedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync();
+        }
+
+        if (!await context.MemberProfiles.AnyAsync(profile => profile.UserId == user.Id))
+        {
+            await context.MemberProfiles.AddAsync(new MemberProfile
+            {
+                UserId = user.Id,
+                MemberCode = "MB00001",
+                FullName = "Nguyễn Văn A",
+                CreatedAt = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync();
+>>>>>>> Stashed changes
         }
 <<<<<<< Updated upstream
 
@@ -304,5 +377,52 @@ public static class DbInitializer
         });
         await context.SaveChangesAsync();
 >>>>>>> Stashed changes
+    }
+
+    private static async Task BaselineLegacySchemaAsync(SportsCenterDbContext context)
+    {
+        var connection = context.Database.GetDbConnection();
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT CASE
+                WHEN OBJECT_ID(N'[dbo].[centers]', N'U') IS NULL THEN 0
+                WHEN OBJECT_ID(N'[dbo].[__EFMigrationsHistory]', N'U') IS NULL THEN 1
+                WHEN NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory]) THEN 2
+                ELSE 0
+            END
+            """;
+
+        var state = Convert.ToInt32(await command.ExecuteScalarAsync());
+        if (state == 0) return;
+
+        if (state == 1)
+        {
+            await context.Database.ExecuteSqlRawAsync("""
+                CREATE TABLE [dbo].[__EFMigrationsHistory] (
+                    [MigrationId] nvarchar(150) NOT NULL,
+                    [ProductVersion] nvarchar(32) NOT NULL,
+                    CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
+                );
+                """);
+        }
+
+        await context.Database.ExecuteSqlRawAsync("""
+            IF NOT EXISTS (
+                SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+                WHERE [MigrationId] = N'20260929152157_InitialCreate')
+            BEGIN
+                INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+                VALUES (N'20260929152157_InitialCreate', N'10.0.12');
+            END
+
+            IF NOT EXISTS (
+                SELECT 1 FROM [dbo].[__EFMigrationsHistory]
+                WHERE [MigrationId] = N'20260929165224_CoreFlowUniqueness')
+            BEGIN
+                INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+                VALUES (N'20260929165224_CoreFlowUniqueness', N'10.0.12');
+            END
+            """);
     }
 }

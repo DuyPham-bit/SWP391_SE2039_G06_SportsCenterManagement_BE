@@ -9,7 +9,7 @@ namespace SportsCenterManagement.DAL.Entities;
 public class TrainingPlan : Common.BaseEntity
 {
     [Column("member_id")]
-    public long MemberId { get; set; }
+    public long? MemberId { get; set; }
 
     [Column("class_id")]
     public long? ClassId { get; set; }

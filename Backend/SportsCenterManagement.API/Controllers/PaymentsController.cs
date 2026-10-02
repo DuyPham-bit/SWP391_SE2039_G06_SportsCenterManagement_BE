@@ -102,6 +102,13 @@ public class PaymentsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// API 3: Ghi nhận thanh toán tiền mặt trực tiếp tại quầy cho hóa đơn (Dành cho Quản lý / Lễ tân).
+    /// </summary>
+    /// <param name="invoiceId">Mã định danh hóa đơn cần thanh toán.</param>
+    /// <param name="request">Số tiền thu và khóa chống trùng giao dịch (Idempotency Key).</param>
+    /// <param name="cancellationToken">Token hủy request.</param>
+    /// <returns>Thông tin giao dịch thanh toán tiền mặt thành công.</returns>
     [HttpPost("/api/invoices/{invoiceId:long}/payments")]
     [Authorize(Roles = "Manager,Receptionist")]
     [ProducesResponseType(typeof(CashPaymentResponse), StatusCodes.Status201Created)]
@@ -115,9 +122,9 @@ public class PaymentsController : ControllerBase
             var actorId = long.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
             await _memberService.EnsureCanProcessInvoiceAsync(actorId, invoiceId, cancellationToken);
             var payment = await _coreFlowService.RecordCashPaymentAsync(
-                invoiceId, actorId, request.Amount, cancellationToken);
+                invoiceId, actorId, request.Amount, request.IdempotencyKey, cancellationToken);
             return StatusCode(StatusCodes.Status201Created, new CashPaymentResponse(
-                payment.Id, payment.InvoiceId, payment.Amount, payment.PaymentStatus, payment.PaidAt));
+                payment.Id, payment.InvoiceId, payment.Amount, payment.PaymentStatus, payment.PaidAt!.Value));
         }
         catch (UnauthorizedAccessException)
         {

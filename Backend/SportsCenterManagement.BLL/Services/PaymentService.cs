@@ -316,6 +316,7 @@ public class PaymentService : IPaymentService
                 Amount = vnpAmount,
                 PaymentStatus = "Succeeded",
                 PaidAt = now,
+                CreatedAt = now,
                 Note = "Thanh toán qua cổng VNPay Sandbox"
             }, cancellationToken);
 

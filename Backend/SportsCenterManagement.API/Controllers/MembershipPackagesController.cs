@@ -7,10 +7,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace SportsCenterManagement.API.Controllers;
 
+/// <summary>
+/// Controller quản lý danh mục và thông tin các gói tập thể thao tại trung tâm.
+/// </summary>
 [ApiController]
 [Route("api/centers/{centerId:long}/membership-packages")]
 public sealed class MembershipPackagesController(IMembershipPackageService packageService) : ControllerBase
 {
+    /// <summary>
+    /// Lấy danh sách các gói tập thể thao đang ở trạng thái hoạt động (Active) tại trung tâm.
+    /// </summary>
+    /// <param name="centerId">Mã định danh trung tâm thể thao.</param>
+    /// <param name="cancellationToken">Token hủy request.</param>
+    /// <returns>Danh sách các gói tập có thể đăng ký.</returns>
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<MembershipPackageResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<MembershipPackageResponse>>> GetActive(
@@ -28,6 +37,13 @@ public sealed class MembershipPackagesController(IMembershipPackageService packa
         }
     }
 
+    /// <summary>
+    /// Tạo mới một gói tập thể thao cho trung tâm (Dành cho Quản lý trung tâm).
+    /// </summary>
+    /// <param name="centerId">Mã định danh trung tâm thể thao.</param>
+    /// <param name="request">Thông tin cấu hình gói tập (Tên, Giá, Thời hạn, Quyền lợi,...).</param>
+    /// <param name="cancellationToken">Token hủy request.</param>
+    /// <returns>Thông tin chi tiết gói tập vừa tạo.</returns>
     [Authorize(Roles = "Manager")]
     [HttpPost]
     [ProducesResponseType(typeof(MembershipPackageResponse), StatusCodes.Status201Created)]
@@ -59,6 +75,13 @@ public sealed class MembershipPackagesController(IMembershipPackageService packa
         }
     }
 
+    /// <summary>
+    /// Cập nhật thông tin cấu hình một gói tập thể thao (Dành cho Quản lý trung tâm).
+    /// </summary>
+    /// <param name="packageId">Mã định danh gói tập cần sửa.</param>
+    /// <param name="request">Thông tin cập nhật mới.</param>
+    /// <param name="cancellationToken">Token hủy request.</param>
+    /// <returns>Thông tin gói tập sau khi cập nhật.</returns>
     [Authorize(Roles = "Manager")]
     [HttpPatch("/api/membership-packages/{packageId:long}")]
     public async Task<IActionResult> Update(

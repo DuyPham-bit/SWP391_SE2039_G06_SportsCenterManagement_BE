@@ -1866,3 +1866,555 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    IF EXISTS (SELECT 1 FROM dbo.attendance GROUP BY session_id, member_id HAVING COUNT(*) > 1)
+        THROW 51000, 'Schema hardening blocked: duplicate attendance rows exist for a session/member.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.user_notifications GROUP BY notification_id, user_id HAVING COUNT(*) > 1)
+        THROW 51000, 'Schema hardening blocked: duplicate notification recipients exist.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.center_checkins WHERE check_out_time IS NULL GROUP BY center_id, member_id HAVING COUNT(*) > 1)
+        THROW 51000, 'Schema hardening blocked: duplicate open member check-ins exist.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.class_coaches WHERE is_primary = 1 GROUP BY class_id HAVING COUNT(*) > 1)
+        THROW 51000, 'Schema hardening blocked: a class has multiple primary coaches.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.classes WHERE capacity <= 0 OR duration_minutes <= 0)
+        THROW 51000, 'Schema hardening blocked: class capacity/duration must be positive.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.class_schedules WHERE day_of_week NOT BETWEEN 0 AND 6 OR start_time >= end_time OR (start_date IS NULL AND end_date IS NOT NULL) OR (start_date IS NOT NULL AND end_date IS NULL) OR start_date > end_date)
+        THROW 51000, 'Schema hardening blocked: class schedule date/time values are invalid.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.class_sessions WHERE start_time >= end_time)
+        THROW 51000, 'Schema hardening blocked: class session end time must follow start time.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.rooms WHERE capacity <= 0)
+        THROW 51000, 'Schema hardening blocked: room capacity must be positive.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.membership_packages WHERE duration_days <= 0 OR price < 0 OR max_classes <= 0)
+        THROW 51000, 'Schema hardening blocked: membership package values are invalid.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.member_subscriptions WHERE duration_days <= 0 OR price < 0 OR (start_date IS NULL AND end_date IS NOT NULL) OR (start_date IS NOT NULL AND end_date IS NULL) OR start_date > end_date)
+        THROW 51000, 'Schema hardening blocked: member subscription values are invalid.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.invoices WHERE subtotal < 0 OR discount < 0 OR tax < 0 OR total_amount < 0 OR discount > subtotal OR total_amount <> subtotal - discount + tax)
+        THROW 51000, 'Schema hardening blocked: invoice totals do not match their components.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.invoice_items WHERE quantity <= 0 OR unit_price < 0 OR amount < 0)
+        THROW 51000, 'Schema hardening blocked: invoice item values are invalid.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.payments WHERE amount <= 0)
+        THROW 51000, 'Schema hardening blocked: payment amount must be positive.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.attendance WHERE check_in_time IS NOT NULL AND check_out_time IS NOT NULL AND check_in_time > check_out_time)
+        THROW 51000, 'Schema hardening blocked: attendance checkout precedes check-in.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.center_checkins WHERE check_out_time IS NOT NULL AND check_in_time > check_out_time)
+        THROW 51000, 'Schema hardening blocked: center checkout precedes check-in.', 1;
+    IF EXISTS (SELECT 1 FROM dbo.training_plans WHERE end_date IS NOT NULL AND end_date < start_date)
+        THROW 51000, 'Schema hardening blocked: training plan end date precedes start date.', 1;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    DROP INDEX [IX_user_notifications_notification_id] ON [dbo].[user_notifications];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    DROP INDEX [IX_payments_invoice_id] ON [dbo].[payments];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    DROP INDEX [IX_center_checkins_center_id] ON [dbo].[center_checkins];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    DROP INDEX [IX_attendance_session_id] ON [dbo].[attendance];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    DECLARE @var3 nvarchar(max);
+    SELECT @var3 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[dbo].[training_plans]') AND [c].[name] = N'member_id');
+    IF @var3 IS NOT NULL EXEC(N'ALTER TABLE [dbo].[training_plans] DROP CONSTRAINT ' + @var3 + ';');
+    ALTER TABLE [dbo].[training_plans] ALTER COLUMN [member_id] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    DECLARE @var4 nvarchar(max);
+    SELECT @var4 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[dbo].[payments]') AND [c].[name] = N'paid_at');
+    IF @var4 IS NOT NULL EXEC(N'ALTER TABLE [dbo].[payments] DROP CONSTRAINT ' + @var4 + ';');
+    ALTER TABLE [dbo].[payments] ALTER COLUMN [paid_at] datetime2 NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    ALTER TABLE [dbo].[payments] ADD [created_at] datetime2 NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    UPDATE dbo.payments SET created_at = COALESCE(paid_at, SYSUTCDATETIME()) WHERE created_at IS NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    DECLARE @var5 nvarchar(max);
+    SELECT @var5 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[dbo].[payments]') AND [c].[name] = N'created_at');
+    IF @var5 IS NOT NULL EXEC(N'ALTER TABLE [dbo].[payments] DROP CONSTRAINT ' + @var5 + ';');
+    ALTER TABLE [dbo].[payments] ALTER COLUMN [created_at] datetime2 NOT NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    ALTER TABLE [dbo].[payments] ADD [idempotency_key] nvarchar(100) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    CREATE TABLE [dbo].[payment_refunds] (
+        [Id] bigint NOT NULL IDENTITY,
+        [payment_id] bigint NOT NULL,
+        [amount] decimal(12,2) NOT NULL,
+        [status] nvarchar(30) NOT NULL,
+        [reason] nvarchar(500) NULL,
+        [requested_by] bigint NULL,
+        [approved_by] bigint NULL,
+        [transaction_code] nvarchar(150) NULL,
+        [created_at] datetime2 NOT NULL,
+        [processed_at] datetime2 NULL,
+        CONSTRAINT [PK_payment_refunds] PRIMARY KEY ([Id]),
+        CONSTRAINT [CK_payment_refunds_amount_positive] CHECK ([amount] > 0),
+        CONSTRAINT [FK_payment_refunds_payments_payment_id] FOREIGN KEY ([payment_id]) REFERENCES [dbo].[payments] ([Id]) ON DELETE NO ACTION,
+        CONSTRAINT [FK_payment_refunds_users_approved_by] FOREIGN KEY ([approved_by]) REFERENCES [dbo].[users] ([Id]) ON DELETE NO ACTION,
+        CONSTRAINT [FK_payment_refunds_users_requested_by] FOREIGN KEY ([requested_by]) REFERENCES [dbo].[users] ([Id]) ON DELETE NO ACTION
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_user_notifications_notification_id_user_id] ON [dbo].[user_notifications] ([notification_id], [user_id]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[training_plans] ADD CONSTRAINT [CK_training_plans_date_range] CHECK ([end_date] IS NULL OR [start_date] <= [end_date])');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[training_plans] ADD CONSTRAINT [CK_training_plans_target_required] CHECK ([member_id] IS NOT NULL OR [class_id] IS NOT NULL)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[rooms] ADD CONSTRAINT [CK_rooms_capacity_positive] CHECK ([capacity] > 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_payments_invoice_id_idempotency_key] ON [dbo].[payments] ([invoice_id], [idempotency_key]) WHERE [idempotency_key] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[payments] ADD CONSTRAINT [CK_payments_amount_positive] CHECK ([amount] > 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[membership_packages] ADD CONSTRAINT [CK_membership_packages_duration_positive] CHECK ([duration_days] > 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[membership_packages] ADD CONSTRAINT [CK_membership_packages_max_classes_positive] CHECK ([max_classes] IS NULL OR [max_classes] > 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[membership_packages] ADD CONSTRAINT [CK_membership_packages_price_nonnegative] CHECK ([price] >= 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[member_subscriptions] ADD CONSTRAINT [CK_member_subscriptions_date_range] CHECK (([start_date] IS NULL AND [end_date] IS NULL) OR ([start_date] IS NOT NULL AND [end_date] IS NOT NULL AND [start_date] <= [end_date]))');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[member_subscriptions] ADD CONSTRAINT [CK_member_subscriptions_duration_positive] CHECK ([duration_days] > 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[member_subscriptions] ADD CONSTRAINT [CK_member_subscriptions_price_nonnegative] CHECK ([price] >= 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[invoices] ADD CONSTRAINT [CK_invoices_amounts_nonnegative] CHECK ([subtotal] >= 0 AND [discount] >= 0 AND [tax] >= 0 AND [total_amount] >= 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[invoices] ADD CONSTRAINT [CK_invoices_discount_within_subtotal] CHECK ([discount] <= [subtotal])');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[invoices] ADD CONSTRAINT [CK_invoices_total_matches_components] CHECK ([total_amount] = [subtotal] - [discount] + [tax])');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[invoice_items] ADD CONSTRAINT [CK_invoice_items_amounts_nonnegative] CHECK ([unit_price] >= 0 AND [amount] >= 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[invoice_items] ADD CONSTRAINT [CK_invoice_items_quantity_positive] CHECK ([quantity] > 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[classes] ADD CONSTRAINT [CK_classes_capacity_positive] CHECK ([capacity] > 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[classes] ADD CONSTRAINT [CK_classes_duration_positive] CHECK ([duration_minutes] > 0)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[class_sessions] ADD CONSTRAINT [CK_class_sessions_time_range] CHECK ([start_time] < [end_time])');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[class_schedules] ADD CONSTRAINT [CK_class_schedules_date_range] CHECK ([start_date] IS NULL OR [end_date] IS NULL OR [start_date] <= [end_date])');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[class_schedules] ADD CONSTRAINT [CK_class_schedules_day_of_week] CHECK ([day_of_week] BETWEEN 0 AND 6)');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[class_schedules] ADD CONSTRAINT [CK_class_schedules_time_range] CHECK ([start_time] < [end_time])');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_class_coaches_class_id] ON [dbo].[class_coaches] ([class_id]) WHERE [is_primary] = 1');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_center_checkins_center_id_member_id] ON [dbo].[center_checkins] ([center_id], [member_id]) WHERE [check_out_time] IS NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[center_checkins] ADD CONSTRAINT [CK_center_checkins_time_range] CHECK ([check_out_time] IS NULL OR [check_in_time] <= [check_out_time])');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_attendance_session_id_member_id] ON [dbo].[attendance] ([session_id], [member_id]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[attendance] ADD CONSTRAINT [CK_attendance_time_range] CHECK ([check_out_time] IS NULL OR [check_in_time] IS NULL OR [check_in_time] <= [check_out_time])');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    CREATE INDEX [IX_payment_refunds_approved_by] ON [dbo].[payment_refunds] ([approved_by]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    CREATE INDEX [IX_payment_refunds_payment_id] ON [dbo].[payment_refunds] ([payment_id]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    CREATE INDEX [IX_payment_refunds_requested_by] ON [dbo].[payment_refunds] ([requested_by]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_payment_refunds_transaction_code] ON [dbo].[payment_refunds] ([transaction_code]) WHERE [transaction_code] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001184541_BackendRequirementSchemaHardening'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261001184541_BackendRequirementSchemaHardening', N'10.0.12');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001185342_AuditNotificationCenterMetadata'
+)
+BEGIN
+    DROP INDEX [IX_payment_refunds_payment_id] ON [dbo].[payment_refunds];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001185342_AuditNotificationCenterMetadata'
+)
+BEGIN
+    ALTER TABLE [dbo].[payment_refunds] ADD [idempotency_key] nvarchar(100) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001185342_AuditNotificationCenterMetadata'
+)
+BEGIN
+    ALTER TABLE [dbo].[notifications] ADD [deduplication_key] nvarchar(150) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001185342_AuditNotificationCenterMetadata'
+)
+BEGIN
+    ALTER TABLE [dbo].[centers] ADD [time_zone_id] nvarchar(100) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001185342_AuditNotificationCenterMetadata'
+)
+BEGIN
+    ALTER TABLE [dbo].[audit_logs] ADD [center_id] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001185342_AuditNotificationCenterMetadata'
+)
+BEGIN
+    ALTER TABLE [dbo].[audit_logs] ADD [correlation_id] nvarchar(100) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001185342_AuditNotificationCenterMetadata'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_payment_refunds_payment_id_idempotency_key] ON [dbo].[payment_refunds] ([payment_id], [idempotency_key]) WHERE [idempotency_key] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001185342_AuditNotificationCenterMetadata'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_notifications_deduplication_key] ON [dbo].[notifications] ([deduplication_key]) WHERE [deduplication_key] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001185342_AuditNotificationCenterMetadata'
+)
+BEGIN
+    CREATE INDEX [IX_audit_logs_center_id_created_at] ON [dbo].[audit_logs] ([center_id], [created_at]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001185342_AuditNotificationCenterMetadata'
+)
+BEGIN
+    ALTER TABLE [dbo].[audit_logs] ADD CONSTRAINT [FK_audit_logs_centers_center_id] FOREIGN KEY ([center_id]) REFERENCES [dbo].[centers] ([Id]) ON DELETE NO ACTION;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001185342_AuditNotificationCenterMetadata'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261001185342_AuditNotificationCenterMetadata', N'10.0.12');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001190053_StrictClassScheduleDateBounds'
+)
+BEGIN
+    ALTER TABLE [dbo].[class_schedules] DROP CONSTRAINT [CK_class_schedules_date_range];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001190053_StrictClassScheduleDateBounds'
+)
+BEGIN
+    EXEC(N'ALTER TABLE [dbo].[class_schedules] ADD CONSTRAINT [CK_class_schedules_date_range] CHECK (([start_date] IS NULL AND [end_date] IS NULL) OR ([start_date] IS NOT NULL AND [end_date] IS NOT NULL AND [start_date] <= [end_date]))');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001190053_StrictClassScheduleDateBounds'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261001190053_StrictClassScheduleDateBounds', N'10.0.12');
+END;
+
+COMMIT;
+GO
+

@@ -34,6 +34,10 @@ public class Center : Common.BaseEntity
     [Column("closing_time")]
     public TimeOnly? ClosingTime { get; set; }
 
+    [MaxLength(100)]
+    [Column("time_zone_id")]
+    public string? TimeZoneId { get; set; }
+
     [MaxLength(30)]
     [Column("status")]
     public string Status { get; set; } = null!;

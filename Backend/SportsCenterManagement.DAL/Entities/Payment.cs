@@ -25,6 +25,10 @@ public class Payment : Common.BaseEntity
     [Column("transaction_code")]
     public string? TransactionCode { get; set; }
 
+    [MaxLength(100)]
+    [Column("idempotency_key")]
+    public string? IdempotencyKey { get; set; }
+
     [Precision(12, 2)]
     [Column("amount")]
     public decimal Amount { get; set; }
@@ -34,7 +38,10 @@ public class Payment : Common.BaseEntity
     public string PaymentStatus { get; set; } = null!;
 
     [Column("paid_at")]
-    public DateTime PaidAt { get; set; }
+    public DateTime? PaidAt { get; set; }
+
+    [Column("created_at")]
+    public DateTime CreatedAt { get; set; }
 
     [MaxLength(500)]
     [Column("note")]

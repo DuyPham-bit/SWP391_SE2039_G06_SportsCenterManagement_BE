@@ -330,9 +330,13 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("MemberId");
 
-                    b.HasIndex("SessionId");
+                    b.HasIndex("SessionId", "MemberId")
+                        .IsUnique();
 
-                    b.ToTable("attendance", "dbo");
+                    b.ToTable("attendance", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_attendance_time_range", "[check_out_time] IS NULL OR [check_in_time] IS NULL OR [check_in_time] <= [check_out_time]");
+                        });
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.AuditLog", b =>
@@ -348,6 +352,15 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)")
                         .HasColumnName("action");
+
+                    b.Property<long?>("CenterId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("center_id");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("correlation_id");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2")
@@ -388,6 +401,8 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("CenterId", "CreatedAt");
 
                     b.ToTable("audit_logs", "dbo");
                 });
@@ -445,6 +460,11 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("nvarchar(30)")
                         .HasColumnName("status");
 
+                    b.Property<string>("TimeZoneId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("time_zone_id");
+
                     b.HasKey("Id");
 
                     b.ToTable("centers", "dbo");
@@ -484,13 +504,18 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CenterId");
-
                     b.HasIndex("CheckedInBy");
 
                     b.HasIndex("MemberId");
 
-                    b.ToTable("center_checkins", "dbo");
+                    b.HasIndex("CenterId", "MemberId")
+                        .IsUnique()
+                        .HasFilter("[check_out_time] IS NULL");
+
+                    b.ToTable("center_checkins", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_center_checkins_time_range", "[check_out_time] IS NULL OR [check_in_time] <= [check_out_time]");
+                        });
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.ClassCoach", b =>
@@ -515,6 +540,10 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnName("is_primary");
 
                     b.HasKey("ClassId", "CoachId");
+
+                    b.HasIndex("ClassId")
+                        .IsUnique()
+                        .HasFilter("[is_primary] = 1");
 
                     b.HasIndex("CoachId");
 
@@ -644,7 +673,12 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("SportId");
 
-                    b.ToTable("classes", "dbo");
+                    b.ToTable("classes", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_classes_capacity_positive", "[capacity] > 0");
+
+                            t.HasCheckConstraint("CK_classes_duration_positive", "[duration_minutes] > 0");
+                        });
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.ClassSchedule", b =>
@@ -695,7 +729,14 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("RoomId");
 
-                    b.ToTable("class_schedules", "dbo");
+                    b.ToTable("class_schedules", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_class_schedules_date_range", "([start_date] IS NULL AND [end_date] IS NULL) OR ([start_date] IS NOT NULL AND [end_date] IS NOT NULL AND [start_date] <= [end_date])");
+
+                            t.HasCheckConstraint("CK_class_schedules_day_of_week", "[day_of_week] BETWEEN 0 AND 6");
+
+                            t.HasCheckConstraint("CK_class_schedules_time_range", "[start_time] < [end_time]");
+                        });
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.ClassSession", b =>
@@ -759,7 +800,10 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("ScheduleId");
 
-                    b.ToTable("class_sessions", "dbo");
+                    b.ToTable("class_sessions", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_class_sessions_time_range", "[start_time] < [end_time]");
+                        });
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.ClassWaitlist", b =>
@@ -1004,7 +1048,14 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("MemberId");
 
-                    b.ToTable("invoices", "dbo");
+                    b.ToTable("invoices", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_invoices_amounts_nonnegative", "[subtotal] >= 0 AND [discount] >= 0 AND [tax] >= 0 AND [total_amount] >= 0");
+
+                            t.HasCheckConstraint("CK_invoices_discount_within_subtotal", "[discount] <= [subtotal]");
+
+                            t.HasCheckConstraint("CK_invoices_total_matches_components", "[total_amount] = [subtotal] - [discount] + [tax]");
+                        });
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.InvoiceItem", b =>
@@ -1061,7 +1112,12 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("SubscriptionId");
 
-                    b.ToTable("invoice_items", "dbo");
+                    b.ToTable("invoice_items", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_invoice_items_amounts_nonnegative", "[unit_price] >= 0 AND [amount] >= 0");
+
+                            t.HasCheckConstraint("CK_invoice_items_quantity_positive", "[quantity] > 0");
+                        });
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.MemberProfile", b =>
@@ -1287,7 +1343,14 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("PackageId");
 
-                    b.ToTable("member_subscriptions", "dbo");
+                    b.ToTable("member_subscriptions", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_member_subscriptions_date_range", "([start_date] IS NULL AND [end_date] IS NULL) OR ([start_date] IS NOT NULL AND [end_date] IS NOT NULL AND [start_date] <= [end_date])");
+
+                            t.HasCheckConstraint("CK_member_subscriptions_duration_positive", "[duration_days] > 0");
+
+                            t.HasCheckConstraint("CK_member_subscriptions_price_nonnegative", "[price] >= 0");
+                        });
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.MembershipPackage", b =>
@@ -1350,7 +1413,14 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.HasIndex("CenterId", "Name")
                         .IsUnique();
 
-                    b.ToTable("membership_packages", "dbo");
+                    b.ToTable("membership_packages", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_membership_packages_duration_positive", "[duration_days] > 0");
+
+                            t.HasCheckConstraint("CK_membership_packages_max_classes_positive", "[max_classes] IS NULL OR [max_classes] > 0");
+
+                            t.HasCheckConstraint("CK_membership_packages_price_nonnegative", "[price] >= 0");
+                        });
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.Notification", b =>
@@ -1364,6 +1434,11 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("created_at");
+
+                    b.Property<string>("DeduplicationKey")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("deduplication_key");
 
                     b.Property<string>("Message")
                         .IsRequired()
@@ -1391,6 +1466,10 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnName("title");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DeduplicationKey")
+                        .IsUnique()
+                        .HasFilter("[deduplication_key] IS NOT NULL");
 
                     b.HasIndex("SenderId");
 
@@ -1450,6 +1529,15 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("decimal(12,2)")
                         .HasColumnName("amount");
 
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("idempotency_key");
+
                     b.Property<long>("InvoiceId")
                         .HasColumnType("bigint")
                         .HasColumnName("invoice_id");
@@ -1463,7 +1551,7 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("nvarchar(500)")
                         .HasColumnName("note");
 
-                    b.Property<DateTime>("PaidAt")
+                    b.Property<DateTime?>("PaidAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("paid_at");
 
@@ -1494,8 +1582,6 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("InvoiceId");
-
                     b.HasIndex("MemberId");
 
                     b.HasIndex("ProcessedBy");
@@ -1506,7 +1592,88 @@ namespace SportsCenterManagement.DAL.Migrations
                         .IsUnique()
                         .HasFilter("[transaction_code] IS NOT NULL");
 
-                    b.ToTable("payments", "dbo");
+                    b.HasIndex("InvoiceId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("[idempotency_key] IS NOT NULL");
+
+                    b.ToTable("payments", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_payments_amount_positive", "[amount] > 0");
+                        });
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.PaymentRefund", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<long?>("ApprovedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("approved_by");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<long>("PaymentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("payment_id");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("processed_at");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("reason");
+
+                    b.Property<long?>("RequestedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("requested_by");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TransactionCode")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("transaction_code");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovedBy");
+
+                    b.HasIndex("RequestedBy");
+
+                    b.HasIndex("TransactionCode")
+                        .IsUnique()
+                        .HasFilter("[transaction_code] IS NOT NULL");
+
+                    b.HasIndex("PaymentId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("[idempotency_key] IS NOT NULL");
+
+                    b.ToTable("payment_refunds", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_payment_refunds_amount_positive", "[amount] > 0");
+                        });
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.Permission", b =>
@@ -1636,7 +1803,10 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("CenterId");
 
-                    b.ToTable("rooms", "dbo");
+                    b.ToTable("rooms", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_rooms_capacity_positive", "[capacity] > 0");
+                        });
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.SessionBooking", b =>
@@ -1941,7 +2111,7 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("nvarchar(500)")
                         .HasColumnName("goal");
 
-                    b.Property<long>("MemberId")
+                    b.Property<long?>("MemberId")
                         .HasColumnType("bigint")
                         .HasColumnName("member_id");
 
@@ -1979,7 +2149,12 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("MemberId");
 
-                    b.ToTable("training_plans", "dbo");
+                    b.ToTable("training_plans", "dbo", t =>
+                        {
+                            t.HasCheckConstraint("CK_training_plans_date_range", "[end_date] IS NULL OR [start_date] <= [end_date]");
+
+                            t.HasCheckConstraint("CK_training_plans_target_required", "[member_id] IS NOT NULL OR [class_id] IS NOT NULL");
+                        });
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.TrainingPlanExercise", b =>
@@ -2238,9 +2413,10 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("NotificationId");
-
                     b.HasIndex("UserId");
+
+                    b.HasIndex("NotificationId", "UserId")
+                        .IsUnique();
 
                     b.ToTable("user_notifications", "dbo");
                 });
@@ -2352,6 +2528,11 @@ namespace SportsCenterManagement.DAL.Migrations
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.AuditLog", b =>
                 {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.Center", null)
+                        .WithMany()
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
@@ -2659,6 +2840,25 @@ namespace SportsCenterManagement.DAL.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.PaymentRefund", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.Payment", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("RequestedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.RolePermission", b =>
                 {
                     b.HasOne("SportsCenterManagement.DAL.Entities.Permission", null)
@@ -2771,8 +2971,7 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.HasOne("SportsCenterManagement.DAL.Entities.MemberProfile", null)
                         .WithMany()
                         .HasForeignKey("MemberId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.TrainingPlanExercise", b =>

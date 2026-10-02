@@ -244,14 +244,29 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
         long invoiceId,
         long processedBy,
         decimal amount,
+        string idempotencyKey,
         CancellationToken cancellationToken = default)
     {
-        if (amount <= 0)
+        idempotencyKey = idempotencyKey?.Trim() ?? string.Empty;
+        if (amount <= 0 || idempotencyKey.Length is 0 or > 100)
         {
-            throw new InvalidOperationException("Payment amount must be greater than zero.");
+            throw new InvalidOperationException("Payment amount or idempotency key is invalid.");
         }
 
         await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var existingPayment = await _unitOfWork.Repository<Payment>()
+            .Find(payment => payment.InvoiceId == invoiceId && payment.IdempotencyKey == idempotencyKey)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (existingPayment is not null)
+        {
+            if (existingPayment.Amount != amount)
+            {
+                throw new InvalidOperationException("Idempotency key was already used with a different payment amount.");
+            }
+
+            return existingPayment;
+        }
+
         var invoice = await _unitOfWork.Repository<Invoice>().GetByIdAsync(invoiceId, cancellationToken)
             ?? throw new InvalidOperationException("Invoice was not found.");
         if (invoice.Status is "Paid" or "Cancelled" or "Voided" or "Refunded")
@@ -276,9 +291,11 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
             ProcessedBy = processedBy,
             PaymentMethod = "Cash",
             TransactionCode = $"CASH-{Guid.NewGuid():N}",
+            IdempotencyKey = idempotencyKey,
             Amount = amount,
             PaymentStatus = "Succeeded",
-            PaidAt = now
+            PaidAt = now,
+            CreatedAt = now
         };
         await _unitOfWork.Repository<Payment>().AddAsync(payment, cancellationToken);
 
@@ -335,9 +352,20 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
             join invoice in db.Invoices on payment.InvoiceId equals invoice.Id
             where invoice.CenterId == centerId
                 && payment.PaymentStatus == "Succeeded"
-                && payment.PaidAt >= start && payment.PaidAt < endExclusive
+                && payment.PaidAt.HasValue
+                && payment.PaidAt.Value >= start && payment.PaidAt.Value < endExclusive
             select (decimal?)payment.Amount).SumAsync(cancellationToken) ?? 0m;
 
-        return new RevenueSummary(centerId, from, to, gross, 0m, gross);
+        var refunds = await (
+            from refund in db.PaymentRefunds
+            join payment in db.Payments on refund.PaymentId equals payment.Id
+            join invoice in db.Invoices on payment.InvoiceId equals invoice.Id
+            where invoice.CenterId == centerId
+                && refund.Status == "Succeeded"
+                && refund.ProcessedAt.HasValue
+                && refund.ProcessedAt.Value >= start && refund.ProcessedAt.Value < endExclusive
+            select (decimal?)refund.Amount).SumAsync(cancellationToken) ?? 0m;
+
+        return new RevenueSummary(centerId, from, to, gross, refunds, gross - refunds);
     }
 }

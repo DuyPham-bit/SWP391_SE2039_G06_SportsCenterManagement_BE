@@ -1,0 +1,682 @@
+// Database Markup Language (DBML) for dbdiagram.io
+// Project: Sports Center Management System (SCMS) - SWP391_SE2039_G06
+// Generated from EF Core / SQL Server Schema
+
+Project SportsCenterManagement {
+  database_type: 'SQL Server'
+  Note: 'Hệ thống Quản lý Trung tâm Thể thao - Sports Center Management System'
+}
+
+Table ai_conversations {
+  Id bigint [pk, increment]
+  user_id bigint [not null]
+  member_id bigint
+  title nvarchar(200) [not null]
+  conversation_type nvarchar(50) [not null]
+  created_at datetime2 [not null]
+  updated_at datetime2 [not null]
+}
+
+Table ai_exercise_recommendations {
+  Id bigint [pk, increment]
+  member_id bigint [not null]
+  conversation_id bigint
+  exercise_id bigint
+  training_plan_id bigint
+  requested_by bigint
+  recommendation_reason nvarchar(max)
+  target_goal nvarchar(500)
+  difficulty_level nvarchar(50)
+  ai_model nvarchar(100)
+  confidence_score decimal(5,4)
+  accepted bit
+  created_at datetime2 [not null]
+}
+
+Table ai_messages {
+  Id bigint [pk, increment]
+  conversation_id bigint [not null]
+  sender_type nvarchar(30) [not null]
+  message nvarchar(max) [not null]
+  created_at datetime2 [not null]
+}
+
+Table assignment_submissions {
+  Id bigint [pk, increment]
+  assignment_id bigint [not null]
+  member_id bigint [not null]
+  submitted_at datetime2
+  content nvarchar(max)
+  score decimal(5,2)
+  coach_feedback nvarchar(1000)
+  status nvarchar(30) [not null]
+}
+
+Table assignments {
+  Id bigint [pk, increment]
+  coach_id bigint
+  class_id bigint
+  member_id bigint
+  title nvarchar(200) [not null]
+  description nvarchar(max)
+  due_date datetime2
+  created_at datetime2 [not null]
+  status nvarchar(30) [not null]
+}
+
+Table attendance {
+  Id bigint [pk, increment]
+  session_id bigint [not null]
+  member_id bigint [not null]
+  checked_in_by bigint
+  attendance_status nvarchar(30) [not null]
+  check_in_time datetime2
+  check_out_time datetime2
+  note nvarchar(500)
+  created_at datetime2 [not null]
+}
+
+Table audit_logs {
+  Id bigint [pk, increment]
+  user_id bigint
+  center_id bigint
+  correlation_id nvarchar(100)
+  action nvarchar(100) [not null]
+  entity_type nvarchar(100) [not null]
+  entity_id bigint
+  old_values nvarchar(max)
+  new_values nvarchar(max)
+  ip_address nvarchar(45)
+  user_agent nvarchar(500)
+  created_at datetime2 [not null]
+}
+
+Table center_checkins {
+  Id bigint [pk, increment]
+  member_id bigint [not null]
+  center_id bigint [not null]
+  checked_in_by bigint
+  check_in_time datetime2 [not null]
+  check_out_time datetime2
+  created_at datetime2 [not null]
+}
+
+Table centers {
+  Id bigint [pk, increment]
+  name nvarchar(150) [not null]
+  address nvarchar(255) [not null]
+  phone nvarchar(20)
+  email nvarchar(150)
+  description nvarchar(500)
+  opening_time time
+  closing_time time
+  time_zone_id nvarchar(100)
+  status nvarchar(30) [not null]
+  created_at datetime2 [not null]
+}
+
+Table class_coaches {
+  class_id bigint [pk]
+  coach_id bigint [pk]
+  assigned_date date
+  is_primary bit [not null]
+  Id bigint [not null]
+}
+
+Table class_enrollments {
+  Id bigint [pk, increment]
+  class_id bigint [not null]
+  member_id bigint [not null]
+  subscription_id bigint
+  registered_by bigint
+  registered_at datetime2 [not null]
+  cancelled_at datetime2
+  status nvarchar(30) [not null]
+  cancellation_reason nvarchar(500)
+}
+
+Table class_schedules {
+  Id bigint [pk, increment]
+  class_id bigint [not null]
+  room_id bigint
+  day_of_week int [not null]
+  start_time time [not null]
+  end_time time [not null]
+  start_date date
+  end_date date
+  status nvarchar(30) [not null]
+}
+
+Table class_sessions {
+  Id bigint [pk, increment]
+  class_id bigint [not null]
+  schedule_id bigint
+  room_id bigint
+  coach_id bigint
+  session_date date [not null]
+  start_time time [not null]
+  end_time time [not null]
+  session_status nvarchar(30) [not null]
+  notes nvarchar(1000)
+  created_at datetime2 [not null]
+}
+
+Table class_waitlist {
+  Id bigint [pk, increment]
+  class_id bigint [not null]
+  member_id bigint [not null]
+  joined_at datetime2 [not null]
+  status nvarchar(30) [not null]
+}
+
+Table classes {
+  Id bigint [pk, increment]
+  center_id bigint [not null]
+  sport_id bigint [not null]
+  room_id bigint
+  name nvarchar(150) [not null]
+  description nvarchar(1000)
+  level nvarchar(50)
+  capacity int [not null]
+  duration_minutes int [not null]
+  status nvarchar(30) [not null]
+  created_at datetime2 [not null]
+  updated_at datetime2
+}
+
+Table coach_profiles {
+  Id bigint [pk, increment]
+  user_id bigint [not null]
+  center_id bigint [not null]
+  coach_code nvarchar(50) [not null]
+  full_name nvarchar(150) [not null]
+  specialization nvarchar(255)
+  certification nvarchar(500)
+  experience_years int
+  bio nvarchar(max)
+  hire_date date
+  status nvarchar(30) [not null]
+  created_at datetime2 [not null]
+  updated_at datetime2
+}
+
+Table exercises {
+  Id bigint [pk, increment]
+  sport_id bigint
+  name nvarchar(150) [not null]
+  description nvarchar(1000)
+  muscle_group nvarchar(100)
+  difficulty_level nvarchar(50)
+  instructions nvarchar(max)
+  video_url nvarchar(500)
+  status nvarchar(30) [not null]
+  created_at datetime2 [not null]
+}
+
+Table invoice_items {
+  Id bigint [pk, increment]
+  invoice_id bigint [not null]
+  package_id bigint
+  subscription_id bigint
+  enrollment_id bigint
+  description nvarchar(500) [not null]
+  quantity int [not null]
+  unit_price decimal(12,2) [not null]
+  amount decimal(12,2) [not null]
+}
+
+Table invoices {
+  Id bigint [pk, increment]
+  invoice_number nvarchar(50) [not null]
+  member_id bigint [not null]
+  center_id bigint [not null]
+  created_by bigint
+  subtotal decimal(12,2) [not null]
+  discount decimal(12,2) [not null]
+  tax decimal(12,2) [not null]
+  total_amount decimal(12,2) [not null]
+  status nvarchar(30) [not null]
+  issued_at datetime2 [not null]
+  paid_at datetime2
+}
+
+Table member_profiles {
+  Id bigint [pk, increment]
+  user_id bigint [not null]
+  center_id bigint
+  member_code nvarchar(50) [not null]
+  full_name nvarchar(150) [not null]
+  date_of_birth date
+  gender nvarchar(20)
+  address nvarchar(255)
+  emergency_contact_name nvarchar(150)
+  emergency_contact_phone nvarchar(20)
+  fitness_goal nvarchar(500)
+  fitness_level nvarchar(50)
+  medical_note nvarchar(1000)
+  height_cm decimal(5,2)
+  weight_kg decimal(5,2)
+  booking_suspended_until datetime2
+  created_at datetime2 [not null]
+  updated_at datetime2
+}
+
+Table member_progress_reviews {
+  Id bigint [pk, increment]
+  member_id bigint [not null]
+  coach_id bigint [not null]
+  training_plan_id bigint
+  review_date date [not null]
+  progress_score decimal(5,2)
+  weight decimal(8,2)
+  body_fat_percentage decimal(5,2)
+  review_note nvarchar(2000)
+  next_goal nvarchar(1000)
+  created_at datetime2 [not null]
+}
+
+Table member_subscriptions {
+  Id bigint [pk, increment]
+  member_id bigint [not null]
+  package_id bigint [not null]
+  start_date date
+  end_date date
+  duration_days int [not null]
+  price decimal(12,2) [not null]
+  status nvarchar(30) [not null]
+  auto_renew bit [not null]
+  created_at datetime2 [not null]
+  updated_at datetime2
+}
+
+Table membership_packages {
+  Id bigint [pk, increment]
+  center_id bigint [not null]
+  name nvarchar(150) [not null]
+  description nvarchar(500)
+  duration_days int [not null]
+  price decimal(12,2) [not null]
+  max_classes int
+  access_type nvarchar(50)
+  status nvarchar(30) [not null]
+  created_at datetime2 [not null]
+  updated_at datetime2
+}
+
+Table notifications {
+  Id bigint [pk, increment]
+  sender_id bigint [not null]
+  title nvarchar(200) [not null]
+  message nvarchar(max) [not null]
+  notification_type nvarchar(50) [not null]
+  deduplication_key nvarchar(150)
+  created_at datetime2 [not null]
+  scheduled_at datetime2
+}
+
+Table password_reset_tokens {
+  Id bigint [pk, increment]
+  user_id bigint [not null]
+  token nvarchar(255) [not null]
+  expires_at datetime2 [not null]
+  used_at datetime2
+  created_at datetime2 [not null]
+}
+
+Table payment_refunds {
+  Id bigint [pk, increment]
+  payment_id bigint [not null]
+  idempotency_key nvarchar(100)
+  amount decimal(12,2) [not null]
+  status nvarchar(30) [not null]
+  reason nvarchar(500)
+  requested_by bigint
+  approved_by bigint
+  transaction_code nvarchar(150)
+  created_at datetime2 [not null]
+  processed_at datetime2
+}
+
+Table payments {
+  Id bigint [pk, increment]
+  invoice_id bigint [not null]
+  member_id bigint [not null]
+  processed_by bigint
+  payment_method nvarchar(50) [not null]
+  transaction_code nvarchar(150)
+  idempotency_key nvarchar(100)
+  amount decimal(12,2) [not null]
+  payment_status nvarchar(30) [not null]
+  paid_at datetime2
+  created_at datetime2 [not null]
+  note nvarchar(500)
+  refund_approved_by bigint
+}
+
+Table permissions {
+  Id bigint [pk, increment]
+  code nvarchar(100) [not null]
+  name nvarchar(100) [not null]
+  description nvarchar(255)
+}
+
+Table role_permissions {
+  role_id bigint [pk]
+  permission_id bigint [pk]
+}
+
+Table roles {
+  Id bigint [pk, increment]
+  name nvarchar(50) [not null]
+  description nvarchar(255)
+  created_at datetime2 [not null]
+}
+
+Table rooms {
+  Id bigint [pk, increment]
+  center_id bigint [not null]
+  name nvarchar(100) [not null]
+  room_type nvarchar(100)
+  capacity int [not null]
+  location_description nvarchar(255)
+  status nvarchar(30) [not null]
+  created_at datetime2 [not null]
+}
+
+Table session_bookings {
+  Id bigint [pk, increment]
+  session_id bigint [not null]
+  member_id bigint [not null]
+  enrollment_id bigint
+  booked_at datetime2 [not null]
+  status nvarchar(30) [not null]
+}
+
+Table sports {
+  Id bigint [pk, increment]
+  name nvarchar(100) [not null]
+  description nvarchar(500)
+  status nvarchar(30) [not null]
+}
+
+Table staff_profiles {
+  Id bigint [pk, increment]
+  user_id bigint [not null]
+  center_id bigint [not null]
+  staff_code nvarchar(50) [not null]
+  full_name nvarchar(150) [not null]
+  position nvarchar(100) [not null]
+  hire_date date
+  status nvarchar(30) [not null]
+  created_at datetime2 [not null]
+  updated_at datetime2
+}
+
+Table support_request_messages {
+  Id bigint [pk, increment]
+  request_id bigint [not null]
+  sender_id bigint [not null]
+  message nvarchar(max) [not null]
+  created_at datetime2 [not null]
+}
+
+Table support_requests {
+  Id bigint [pk, increment]
+  member_id bigint [not null]
+  handled_by bigint
+  subject nvarchar(200) [not null]
+  description nvarchar(max) [not null]
+  priority nvarchar(30) [not null]
+  status nvarchar(30) [not null]
+  created_at datetime2 [not null]
+  resolved_at datetime2
+}
+
+Table system_settings {
+  Id bigint [pk, increment]
+  setting_key nvarchar(100) [not null]
+  setting_value nvarchar(max)
+  description nvarchar(500)
+  updated_by bigint
+  updated_at datetime2
+}
+
+Table training_plan_exercises {
+  Id bigint [pk, increment]
+  training_plan_id bigint [not null]
+  exercise_id bigint [not null]
+  day_number int
+  sets int
+  repetitions int
+  duration_seconds int
+  rest_seconds int
+  target_weight decimal(8,2)
+  notes nvarchar(1000)
+  sort_order int
+}
+
+Table training_plans {
+  Id bigint [pk, increment]
+  member_id bigint
+  class_id bigint
+  coach_id bigint [not null]
+  name nvarchar(150) [not null]
+  description nvarchar(1000)
+  goal nvarchar(500)
+  start_date date [not null]
+  end_date date
+  plan_type nvarchar(30) [not null]
+  status nvarchar(30) [not null]
+  created_at datetime2 [not null]
+  updated_at datetime2
+}
+
+Table training_results {
+  Id bigint [pk, increment]
+  member_id bigint [not null]
+  coach_id bigint [not null]
+  session_id bigint
+  training_plan_exercise_id bigint
+  exercise_id bigint
+  training_plan_id bigint
+  result_date date [not null]
+  sets_completed int
+  repetitions_completed int
+  weight decimal(8,2)
+  duration_seconds int
+  calories_burned decimal(8,2)
+  performance_score decimal(5,2)
+  notes nvarchar(1000)
+  created_at datetime2 [not null]
+}
+
+Table user_notifications {
+  Id bigint [pk, increment]
+  notification_id bigint [not null]
+  user_id bigint [not null]
+  is_read bit [not null]
+  read_at datetime2
+  created_at datetime2 [not null]
+}
+
+Table users {
+  Id bigint [pk, increment]
+  username nvarchar(100) [not null]
+  email nvarchar(150) [not null]
+  password_hash nvarchar(255) [not null]
+  phone nvarchar(20)
+  role_id bigint [not null]
+  status nvarchar(30) [not null]
+  last_login_at datetime2
+  failed_login_attempts int [not null]
+  locked_until datetime2
+  created_at datetime2 [not null]
+  updated_at datetime2
+}
+
+// ==========================================
+// RELATIONSHIPS (FOREIGN KEYS)
+// ==========================================
+
+Ref: membership_packages.center_id > centers.Id
+Ref: rooms.center_id > centers.Id
+Ref: role_permissions.permission_id > permissions.Id
+Ref: role_permissions.role_id > roles.Id
+Ref: users.role_id > roles.Id
+Ref: exercises.sport_id > sports.Id
+Ref: classes.center_id > centers.Id
+Ref: classes.room_id > rooms.Id
+Ref: classes.sport_id > sports.Id
+Ref: audit_logs.center_id > centers.Id
+Ref: audit_logs.user_id > users.Id
+Ref: coach_profiles.center_id > centers.Id
+Ref: coach_profiles.user_id > users.Id
+Ref: member_profiles.center_id > centers.Id
+Ref: member_profiles.user_id > users.Id
+Ref: notifications.sender_id > users.Id
+Ref: password_reset_tokens.user_id > users.Id
+Ref: staff_profiles.center_id > centers.Id
+Ref: staff_profiles.user_id > users.Id
+Ref: system_settings.updated_by > users.Id
+Ref: class_schedules.class_id > classes.Id
+Ref: class_schedules.room_id > rooms.Id
+Ref: class_coaches.class_id > classes.Id
+Ref: class_coaches.coach_id > coach_profiles.Id
+Ref: ai_conversations.member_id > member_profiles.Id
+Ref: ai_conversations.user_id > users.Id
+Ref: assignments.class_id > classes.Id
+Ref: assignments.coach_id > coach_profiles.Id
+Ref: assignments.member_id > member_profiles.Id
+Ref: center_checkins.center_id > centers.Id
+Ref: center_checkins.member_id > member_profiles.Id
+Ref: center_checkins.checked_in_by > users.Id
+Ref: class_waitlist.class_id > classes.Id
+Ref: class_waitlist.member_id > member_profiles.Id
+Ref: invoices.center_id > centers.Id
+Ref: invoices.member_id > member_profiles.Id
+Ref: invoices.created_by > users.Id
+Ref: member_subscriptions.member_id > member_profiles.Id
+Ref: member_subscriptions.package_id > membership_packages.Id
+Ref: support_requests.member_id > member_profiles.Id
+Ref: support_requests.handled_by > users.Id
+Ref: training_plans.class_id > classes.Id
+Ref: training_plans.coach_id > coach_profiles.Id
+Ref: training_plans.member_id > member_profiles.Id
+Ref: user_notifications.notification_id > notifications.Id
+Ref: user_notifications.user_id > users.Id
+Ref: class_sessions.schedule_id > class_schedules.Id
+Ref: class_sessions.class_id > classes.Id
+Ref: class_sessions.coach_id > coach_profiles.Id
+Ref: class_sessions.room_id > rooms.Id
+Ref: ai_messages.conversation_id > ai_conversations.Id
+Ref: assignment_submissions.assignment_id > assignments.Id
+Ref: assignment_submissions.member_id > member_profiles.Id
+Ref: payments.invoice_id > invoices.Id
+Ref: payments.member_id > member_profiles.Id
+Ref: payments.processed_by > users.Id
+Ref: payments.refund_approved_by > users.Id
+Ref: class_enrollments.class_id > classes.Id
+Ref: class_enrollments.member_id > member_profiles.Id
+Ref: class_enrollments.subscription_id > member_subscriptions.Id
+Ref: class_enrollments.registered_by > users.Id
+Ref: support_request_messages.request_id > support_requests.Id
+Ref: support_request_messages.sender_id > users.Id
+Ref: ai_exercise_recommendations.conversation_id > ai_conversations.Id
+Ref: ai_exercise_recommendations.exercise_id > exercises.Id
+Ref: ai_exercise_recommendations.member_id > member_profiles.Id
+Ref: ai_exercise_recommendations.training_plan_id > training_plans.Id
+Ref: ai_exercise_recommendations.requested_by > users.Id
+Ref: member_progress_reviews.coach_id > coach_profiles.Id
+Ref: member_progress_reviews.member_id > member_profiles.Id
+Ref: member_progress_reviews.training_plan_id > training_plans.Id
+Ref: training_plan_exercises.exercise_id > exercises.Id
+Ref: training_plan_exercises.training_plan_id > training_plans.Id
+Ref: attendance.session_id > class_sessions.Id
+Ref: attendance.member_id > member_profiles.Id
+Ref: attendance.checked_in_by > users.Id
+Ref: payment_refunds.payment_id > payments.Id
+Ref: payment_refunds.approved_by > users.Id
+Ref: payment_refunds.requested_by > users.Id
+Ref: invoice_items.enrollment_id > class_enrollments.Id
+Ref: invoice_items.invoice_id > invoices.Id
+Ref: invoice_items.subscription_id > member_subscriptions.Id
+Ref: invoice_items.package_id > membership_packages.Id
+Ref: session_bookings.enrollment_id > class_enrollments.Id
+Ref: session_bookings.session_id > class_sessions.Id
+Ref: session_bookings.member_id > member_profiles.Id
+Ref: training_results.session_id > class_sessions.Id
+Ref: training_results.coach_id > coach_profiles.Id
+Ref: training_results.exercise_id > exercises.Id
+Ref: training_results.member_id > member_profiles.Id
+Ref: training_results.training_plan_exercise_id > training_plan_exercises.Id
+Ref: training_results.training_plan_id > training_plans.Id
+
+// ==========================================
+// TABLE GROUPS (ORGANIZED BY MODULE / CORE FLOW)
+// ==========================================
+
+TableGroup Flow1_Users_and_Roles {
+  users
+  roles
+  permissions
+  role_permissions
+  password_reset_tokens
+}
+
+TableGroup Flow1_Member_and_Profiles {
+  member_profiles
+  coach_profiles
+  staff_profiles
+}
+
+TableGroup Flow1_Memberships_and_Packages {
+  membership_packages
+  member_subscriptions
+}
+
+TableGroup Flow2_Class_and_Schedules {
+  classes
+  class_coaches
+  class_schedules
+  class_sessions
+  class_enrollments
+  session_bookings
+  class_waitlist
+  attendance
+}
+
+TableGroup Flow2_Facility_and_Sports {
+  sports
+  rooms
+}
+
+TableGroup Flow2_Training_and_Coaching {
+  exercises
+  training_plans
+  training_plan_exercises
+  training_results
+  member_progress_reviews
+  assignments
+  assignment_submissions
+}
+
+TableGroup Flow3_Payments_and_Invoices {
+  invoices
+  invoice_items
+  payments
+  payment_refunds
+}
+
+TableGroup Flow3_Center_and_Operations {
+  centers
+  center_checkins
+  audit_logs
+  system_settings
+  notifications
+  user_notifications
+  support_requests
+  support_request_messages
+  ai_conversations
+  ai_messages
+  ai_exercise_recommendations
+}

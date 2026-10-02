@@ -22,6 +22,10 @@ public class Notification : Common.BaseEntity
     [Column("notification_type")]
     public string NotificationType { get; set; } = null!;
 
+    [MaxLength(150)]
+    [Column("deduplication_key")]
+    public string? DeduplicationKey { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }
 

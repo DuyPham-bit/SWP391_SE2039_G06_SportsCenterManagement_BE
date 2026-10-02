@@ -25,8 +25,7 @@ Backend cho hệ thống quản lý trung tâm thể thao. Repository hiện dù
 │   ├── Migrations/                   # EF Core migrations
 │   └── Repositories/                 # Generic Repository & Unit of Work (IGenericRepository, IUnitOfWork,...)
 ├── database/                         # SQL schema sinh từ migrations
-├── docs/requirements/core-flows.md   # Ba flow bắt buộc, cases và DB đề xuất
-├── docs/requirements/team-implementation-plan.md # Gộp 4 role và chia task Duy/Huy/Thịnh
+├── docs/requirements/Backend.md     # Đặc tả hợp nhất, vai trò, 3 flow và unhappy paths
 └── SWP391_SE2039_G06_SportsCenterManagement1.slnx
 ```
 
@@ -59,6 +58,8 @@ API được xây bằng ASP.NET Core MVC Controllers và trả JSON; không dù
 | POST | `/api/payments/create-vnpay-url` | Tạo hoặc tiếp tục thanh toán gói của Member |
 | GET | `/api/payments/vnpay-callback` | Xác thực kết quả callback VNPay |
 | POST | `/api/invoices/{invoiceId}/payments` | Manager/Receptionist ghi nhận tiền mặt; chỉ kích hoạt khi đã thu đủ |
+| POST/GET/DELETE | `/api/classes/{classId}/coaches` | Manager phân công, xem hoặc gỡ coach; kiểm tra center và trùng lịch |
+| GET/POST/PUT/DELETE | `/api/roles`, `/api/permissions` | Manager quản lý role và permission |
 
 MVP tắt email verification; mật khẩu cần ít nhất 12 ký tự gồm chữ hoa, chữ thường, số và ký tự đặc biệt. Token bearer dùng ASP.NET Core Data Protection, hết hạn sau 1 giờ; API kiểm tra lại trạng thái và role trên mỗi request. Subscription chỉ bắt đầu khi invoice được thanh toán đủ.
 
@@ -84,7 +85,8 @@ Các entities đã được tách riêng từng file trong `SportsCenterManageme
 
 - **User & membership:** `User`, `Role`, `MemberProfile`, `MembershipPackage`, `MemberSubscription`.
 - **Class booking & schedule:** `ClassEntity`, `ClassSchedule`, `ClassSession`, `ClassCoach`, `ClassEnrollment`, `SessionBooking`, `ClassWaitlist`.
-- **Payment & report:** `Invoice`, `InvoiceItem`, `Payment`, `AuditLog`.
+- **Payment & report:** `Invoice`, `InvoiceItem`, `Payment`, `PaymentRefund`, `AuditLog`.
+- **Operational safeguards:** idempotency keys, center timezone, refund approvals, audit correlation, and database checks for schedule, capacity, and money values.
 
 Tạo migration mới sau khi cập nhật entity/DbContext:
 

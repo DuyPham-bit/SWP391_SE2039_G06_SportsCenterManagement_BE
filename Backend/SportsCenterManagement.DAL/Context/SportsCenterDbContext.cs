@@ -45,6 +45,7 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
     public DbSet<MemberProgressReview> MemberProgressReviews => Set<MemberProgressReview>();
     public DbSet<AssignmentSubmission> AssignmentSubmissions => Set<AssignmentSubmission>();
     public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<PaymentRefund> PaymentRefunds => Set<PaymentRefund>();
     public DbSet<SupportRequestMessage> SupportRequestMessages => Set<SupportRequestMessage>();
     public DbSet<AiMessage> AiMessages => Set<AiMessage>();
     public DbSet<AiExerciseRecommendation> AiExerciseRecommendations => Set<AiExerciseRecommendation>();
@@ -102,6 +103,90 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .HasIndex(entity => entity.TransactionCode)
             .IsUnique()
             .HasFilter("[transaction_code] IS NOT NULL");
+        modelBuilder.Entity<Payment>()
+            .HasIndex(entity => new { entity.InvoiceId, entity.IdempotencyKey })
+            .IsUnique()
+            .HasFilter("[idempotency_key] IS NOT NULL");
+        modelBuilder.Entity<PaymentRefund>()
+            .HasIndex(entity => entity.TransactionCode)
+            .IsUnique()
+            .HasFilter("[transaction_code] IS NOT NULL");
+        modelBuilder.Entity<PaymentRefund>()
+            .HasIndex(entity => new { entity.PaymentId, entity.IdempotencyKey })
+            .IsUnique()
+            .HasFilter("[idempotency_key] IS NOT NULL");
+        modelBuilder.Entity<Notification>()
+            .HasIndex(entity => entity.DeduplicationKey)
+            .IsUnique()
+            .HasFilter("[deduplication_key] IS NOT NULL");
+        modelBuilder.Entity<AuditLog>()
+            .HasIndex(entity => new { entity.CenterId, entity.CreatedAt });
+        modelBuilder.Entity<Attendance>()
+            .HasIndex(entity => new { entity.SessionId, entity.MemberId })
+            .IsUnique();
+        modelBuilder.Entity<UserNotification>()
+            .HasIndex(entity => new { entity.NotificationId, entity.UserId })
+            .IsUnique();
+        modelBuilder.Entity<ClassCoach>()
+            .HasIndex(entity => entity.ClassId)
+            .IsUnique()
+            .HasFilter("[is_primary] = 1");
+        modelBuilder.Entity<CenterCheckin>()
+            .HasIndex(entity => new { entity.CenterId, entity.MemberId })
+            .IsUnique()
+            .HasFilter("[check_out_time] IS NULL");
+
+        modelBuilder.Entity<ClassEntity>().ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_classes_capacity_positive", "[capacity] > 0");
+            table.HasCheckConstraint("CK_classes_duration_positive", "[duration_minutes] > 0");
+        });
+        modelBuilder.Entity<ClassSchedule>().ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_class_schedules_day_of_week", "[day_of_week] BETWEEN 0 AND 6");
+            table.HasCheckConstraint("CK_class_schedules_time_range", "[start_time] < [end_time]");
+            table.HasCheckConstraint("CK_class_schedules_date_range", "([start_date] IS NULL AND [end_date] IS NULL) OR ([start_date] IS NOT NULL AND [end_date] IS NOT NULL AND [start_date] <= [end_date])");
+        });
+        modelBuilder.Entity<ClassSession>().ToTable(table =>
+            table.HasCheckConstraint("CK_class_sessions_time_range", "[start_time] < [end_time]"));
+        modelBuilder.Entity<Room>().ToTable(table =>
+            table.HasCheckConstraint("CK_rooms_capacity_positive", "[capacity] > 0"));
+        modelBuilder.Entity<MembershipPackage>().ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_membership_packages_duration_positive", "[duration_days] > 0");
+            table.HasCheckConstraint("CK_membership_packages_price_nonnegative", "[price] >= 0");
+            table.HasCheckConstraint("CK_membership_packages_max_classes_positive", "[max_classes] IS NULL OR [max_classes] > 0");
+        });
+        modelBuilder.Entity<MemberSubscription>().ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_member_subscriptions_duration_positive", "[duration_days] > 0");
+            table.HasCheckConstraint("CK_member_subscriptions_price_nonnegative", "[price] >= 0");
+            table.HasCheckConstraint("CK_member_subscriptions_date_range", "([start_date] IS NULL AND [end_date] IS NULL) OR ([start_date] IS NOT NULL AND [end_date] IS NOT NULL AND [start_date] <= [end_date])");
+        });
+        modelBuilder.Entity<Invoice>().ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_invoices_amounts_nonnegative", "[subtotal] >= 0 AND [discount] >= 0 AND [tax] >= 0 AND [total_amount] >= 0");
+            table.HasCheckConstraint("CK_invoices_discount_within_subtotal", "[discount] <= [subtotal]");
+            table.HasCheckConstraint("CK_invoices_total_matches_components", "[total_amount] = [subtotal] - [discount] + [tax]");
+        });
+        modelBuilder.Entity<InvoiceItem>().ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_invoice_items_quantity_positive", "[quantity] > 0");
+            table.HasCheckConstraint("CK_invoice_items_amounts_nonnegative", "[unit_price] >= 0 AND [amount] >= 0");
+        });
+        modelBuilder.Entity<Payment>().ToTable(table =>
+            table.HasCheckConstraint("CK_payments_amount_positive", "[amount] > 0"));
+        modelBuilder.Entity<PaymentRefund>().ToTable(table =>
+            table.HasCheckConstraint("CK_payment_refunds_amount_positive", "[amount] > 0"));
+        modelBuilder.Entity<TrainingPlan>().ToTable(table =>
+        {
+            table.HasCheckConstraint("CK_training_plans_target_required", "[member_id] IS NOT NULL OR [class_id] IS NOT NULL");
+            table.HasCheckConstraint("CK_training_plans_date_range", "[end_date] IS NULL OR [start_date] <= [end_date]");
+        });
+        modelBuilder.Entity<Attendance>().ToTable(table =>
+            table.HasCheckConstraint("CK_attendance_time_range", "[check_out_time] IS NULL OR [check_in_time] IS NULL OR [check_in_time] <= [check_out_time]"));
+        modelBuilder.Entity<CenterCheckin>().ToTable(table =>
+            table.HasCheckConstraint("CK_center_checkins_time_range", "[check_out_time] IS NULL OR [check_in_time] <= [check_out_time]"));
         modelBuilder.Entity<SystemSetting>().HasIndex(entity => entity.SettingKey).IsUnique();
 
         modelBuilder.Entity<User>()
@@ -192,6 +277,11 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .HasOne<User>()
             .WithMany()
             .HasForeignKey(entity => entity.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<AuditLog>()
+            .HasOne<Center>()
+            .WithMany()
+            .HasForeignKey(entity => entity.CenterId)
             .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<SystemSetting>()
@@ -558,6 +648,22 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .HasOne<User>()
             .WithMany()
             .HasForeignKey(entity => entity.RefundApprovedBy)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<PaymentRefund>()
+            .HasOne<Payment>()
+            .WithMany()
+            .HasForeignKey(entity => entity.PaymentId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PaymentRefund>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(entity => entity.RequestedBy)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PaymentRefund>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(entity => entity.ApprovedBy)
             .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<SupportRequestMessage>()

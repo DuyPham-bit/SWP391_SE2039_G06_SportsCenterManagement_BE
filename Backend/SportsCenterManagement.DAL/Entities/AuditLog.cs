@@ -11,6 +11,13 @@ public class AuditLog : Common.BaseEntity
     [Column("user_id")]
     public long? UserId { get; set; }
 
+    [Column("center_id")]
+    public long? CenterId { get; set; }
+
+    [MaxLength(100)]
+    [Column("correlation_id")]
+    public string? CorrelationId { get; set; }
+
     [MaxLength(100)]
     [Column("action")]
     public string Action { get; set; } = null!;

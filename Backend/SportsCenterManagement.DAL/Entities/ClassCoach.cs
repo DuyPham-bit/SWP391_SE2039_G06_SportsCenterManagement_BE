@@ -6,7 +6,7 @@ using SportsCenterManagement.DAL.Entities.Common;
 namespace SportsCenterManagement.DAL.Entities;
 
 [Table("class_coaches")]
-public class ClassCoach : Common.BaseEntity
+public class ClassCoach
 {
     [Column("class_id")]
     public long ClassId { get; set; }

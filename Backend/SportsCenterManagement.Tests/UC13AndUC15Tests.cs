@@ -1,21 +1,16 @@
-<<<<<<< Updated upstream
-using System.Security.Claims;
+﻿using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using SportsCenterManagement.API.Controllers;
-=======
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
->>>>>>> Stashed changes
 using SportsCenterManagement.BLL.DTOs.Classes;
 using SportsCenterManagement.BLL.DTOs.Roles;
 using SportsCenterManagement.BLL.Services;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
 using SportsCenterManagement.DAL.Repositories.Implementations;
-<<<<<<< Updated upstream
 using Xunit;
 
 namespace SportsCenterManagement.Tests;
@@ -29,6 +24,60 @@ public class UC13AndUC15Tests
             .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
         return new SportsCenterDbContext(options);
+    }
+
+    private static async Task SeedTestDataAsync(SportsCenterDbContext db)
+    {
+        await DbInitializer.SeedAsync(db);
+
+        var roleNames = new[] { "Admin", "Super Admin", "Manager", "Receptionist", "Coach", "Member" };
+        foreach (var roleName in roleNames)
+        {
+            if (!await db.Roles.AnyAsync(role => role.Name == roleName))
+            {
+                db.Roles.Add(new Role { Name = roleName, Description = $"System role: {roleName}", CreatedAt = DateTime.UtcNow });
+            }
+        }
+
+        var permissionDefinitions = new Dictionary<string, (string Name, string Description)>
+        {
+            ["CLASS_VIEW"] = ("View classes", "View class data"),
+            ["CLASS_MANAGE"] = ("Manage classes", "Create and update classes"),
+            ["COACH_ASSIGN"] = ("Assign coaches", "Assign coaches to classes"),
+            ["MEMBER_VIEW"] = ("View members", "View member data"),
+            ["MEMBER_MANAGE"] = ("Manage members", "Create and update members"),
+            ["ROLE_MANAGE"] = ("Manage roles", "Manage roles and permissions")
+        };
+
+        foreach (var (code, definition) in permissionDefinitions)
+        {
+            if (!await db.Permissions.AnyAsync(permission => permission.Code == code))
+            {
+                db.Permissions.Add(new Permission
+                {
+                    Code = code,
+                    Name = definition.Name,
+                    Description = definition.Description
+                });
+            }
+        }
+
+        await db.SaveChangesAsync();
+
+        var adminRole = await db.Roles.SingleAsync(role => role.Name == "Admin");
+        if (!await db.Users.AnyAsync(user => user.Email == "admin@sportscenter.vn"))
+        {
+            db.Users.Add(new User
+            {
+                RoleId = adminRole.Id,
+                Username = "admin",
+                Email = "admin@sportscenter.vn",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@123456"),
+                Status = "Active",
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
     }
 
     private static void ControllerContextWithUser(ControllerBase controller, long userId, string role = "Admin")
@@ -51,7 +100,7 @@ public class UC13AndUC15Tests
     public async Task Test_AssignCoachToClass_Success_WhenNoOverlap()
     {
         var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
-        await DbInitializer.SeedAsync(db);
+        await SeedTestDataAsync(db);
 
         var center = await db.Centers.FirstAsync();
 
@@ -70,6 +119,15 @@ public class UC13AndUC15Tests
             CreatedAt = DateTime.UtcNow
         };
         await db.Classes.AddAsync(classEntity);
+        await db.SaveChangesAsync();
+        await db.ClassSchedules.AddAsync(new ClassSchedule
+        {
+            ClassId = classEntity.Id,
+            DayOfWeek = (int)DateTime.UtcNow.DayOfWeek,
+            StartTime = new TimeOnly(14, 0),
+            EndTime = new TimeOnly(15, 0),
+            Status = "Active"
+        });
         await db.SaveChangesAsync();
 
         var coachUser = new User
@@ -104,7 +162,8 @@ public class UC13AndUC15Tests
         var assignRequest = new AssignCoachRequest { CoachId = coachProfile.Id, IsPrimary = true };
         var result = await controller.AssignCoach(classEntity.Id, assignRequest, CancellationToken.None);
 
-        var okResult = Assert.IsType<OkObjectResult>(result.Result);
+        var okResult = result.Result as OkObjectResult;
+        Assert.True(okResult is not null, (result.Result as BadRequestObjectResult)?.Value?.ToString());
         var coachResponse = Assert.IsType<ClassCoachResponse>(okResult.Value);
 
         Assert.Equal(classEntity.Id, coachResponse.ClassId);
@@ -114,13 +173,43 @@ public class UC13AndUC15Tests
 
         var classCoachInDb = await db.ClassCoaches.SingleOrDefaultAsync(cc => cc.ClassId == classEntity.Id && cc.CoachId == coachProfile.Id);
         Assert.NotNull(classCoachInDb);
+
+        var secondCoachUser = new User
+        {
+            RoleId = coachUser.RoleId,
+            Username = "coach_swim_2",
+            Email = "coach_swim_2@scms.vn",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("CoachPass@123"),
+            Status = "Active",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.Users.Add(secondCoachUser);
+        await db.SaveChangesAsync();
+        var secondCoach = new CoachProfile
+        {
+            UserId = secondCoachUser.Id,
+            CenterId = center.Id,
+            CoachCode = "CH00002",
+            FullName = "HLV Bơi thứ hai",
+            Specialization = "Bơi Lội",
+            Status = "Active",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.CoachProfiles.Add(secondCoach);
+        await db.SaveChangesAsync();
+
+        var duplicateCoachAssignment = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            classService.AssignCoachToClassAsync(classEntity.Id, new AssignCoachRequest { CoachId = secondCoach.Id, IsPrimary = true }));
+        Assert.Contains("đã có HLV được phân công", duplicateCoachAssignment.Message);
+        Assert.Equal(1, await db.ClassCoaches.CountAsync(cc => cc.ClassId == classEntity.Id && cc.IsPrimary));
+        Assert.Single(await db.ClassCoaches.Where(cc => cc.ClassId == classEntity.Id).ToListAsync());
     }
 
     [Fact]
     public async Task Test_AssignCoachToClass_Fails_WhenScheduleOverlaps()
     {
         var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
-        await DbInitializer.SeedAsync(db);
+        await SeedTestDataAsync(db);
 
         var center = await db.Centers.FirstAsync();
         var sport = new Sport { Name = "Gym", Description = "Fitness", Status = "Active" };
@@ -207,6 +296,32 @@ public class UC13AndUC15Tests
         // 4. Phân công HLV vào Lớp 1 -> Thành công
         await classService.AssignCoachToClassAsync(class1.Id, new AssignCoachRequest { CoachId = coachProfile.Id }, CancellationToken.None);
 
+        var longDayClass = new ClassEntity
+        {
+            CenterId = center.Id,
+            SportId = sport.Id,
+            Name = "Lớp Gym Chiều Dài",
+            Capacity = 15,
+            DurationMinutes = 420,
+            Status = "Published",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.Classes.Add(longDayClass);
+        await db.SaveChangesAsync();
+        db.ClassSchedules.Add(new ClassSchedule
+        {
+            ClassId = longDayClass.Id,
+            DayOfWeek = 1,
+            StartTime = new TimeOnly(10, 0),
+            EndTime = new TimeOnly(17, 0),
+            Status = "Active"
+        });
+        await db.SaveChangesAsync();
+
+        var dailyLimitException = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            classService.AssignCoachToClassAsync(longDayClass.Id, new AssignCoachRequest { CoachId = coachProfile.Id }, CancellationToken.None));
+        Assert.Contains("8.0 giờ/ngày", dailyLimitException.Message);
+
         // 5. Thử phân công HLV đó vào Lớp 2 -> Phải bắt được ngoại lệ trùng lịch dạy
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             classService.AssignCoachToClassAsync(class2.Id, new AssignCoachRequest { CoachId = coachProfile.Id }, CancellationToken.None));
@@ -219,7 +334,7 @@ public class UC13AndUC15Tests
     public async Task Test_AssignCoachToClass_Fails_WhenSpecializationMismatch()
     {
         var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
-        await DbInitializer.SeedAsync(db);
+        await SeedTestDataAsync(db);
 
         var center = await db.Centers.FirstAsync();
         var sportSwim = new Sport { Name = "Bơi Lội", Description = "Swimming", Status = "Active" };
@@ -278,7 +393,7 @@ public class UC13AndUC15Tests
     public async Task Test_AssignCoachToClass_Fails_WhenClassCancelledOrCoachSuspended()
     {
         var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
-        await DbInitializer.SeedAsync(db);
+        await SeedTestDataAsync(db);
 
         var center = await db.Centers.FirstAsync();
         var sport = new Sport { Name = "Tennis", Description = "Tennis", Status = "Active" };
@@ -344,7 +459,7 @@ public class UC13AndUC15Tests
     public async Task Test_UC15_CreateRole_Fails_WhenDuplicateName()
     {
         var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
-        await DbInitializer.SeedAsync(db);
+        await SeedTestDataAsync(db);
 
         var unitOfWork = new UnitOfWork(db);
         var roleService = new RolePermissionService(unitOfWork);
@@ -357,10 +472,42 @@ public class UC13AndUC15Tests
     }
 
     [Fact]
+    public async Task Test_UC15_RejectsBlankRoleName_EmptyPermissions_AndSystemRolePermissionChanges()
+    {
+        Assert.NotEmpty(typeof(RolesController).GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true));
+
+        var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        await SeedTestDataAsync(db);
+        var service = new RolePermissionService(new UnitOfWork(db));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateRoleAsync(new CreateRoleRequest { Name = "   " }));
+
+        var managerRole = await db.Roles.SingleAsync(role => role.Name == "Manager");
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateRoleAsync(managerRole.Id, new UpdateRoleRequest { Name = "Manager Edited" }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteRoleAsync(managerRole.Id));
+
+        var customRole = await service.CreateRoleAsync(new CreateRoleRequest { Name = "CustomRole" });
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateRoleAsync(customRole.Id, new UpdateRoleRequest { Name = "   " }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateRolePermissionsAsync(customRole.Id, new UpdateRolePermissionsRequest { PermissionIds = [] }));
+
+        var permission = await db.Permissions.FirstAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateRolePermissionsAsync(managerRole.Id, new UpdateRolePermissionsRequest { PermissionIds = [permission.Id] }));
+
+        var adminRole = await db.Roles.SingleAsync(role => role.Name == "Admin");
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateRolePermissionsAsync(adminRole.Id, new UpdateRolePermissionsRequest { PermissionIds = [permission.Id] }));
+    }
+
+    [Fact]
     public async Task Test_UC15_DeleteRole_Fails_WhenSystemRoleOrUsersAssigned()
     {
         var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
-        await DbInitializer.SeedAsync(db);
+        await SeedTestDataAsync(db);
 
         var adminRole = await db.Roles.FirstAsync(r => r.Name == "Admin");
         var unitOfWork = new UnitOfWork(db);
@@ -394,13 +541,23 @@ public class UC13AndUC15Tests
     public async Task Test_UC15_UpdateRolePermissions_Fails_OnSelfLockout_And_AutoIncludesParentPermissions()
     {
         var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
-        await DbInitializer.SeedAsync(db);
-
-        var adminRole = await db.Roles.FirstAsync(r => r.Name == "Admin");
-        var adminUser = await db.Users.FirstAsync(u => u.Email == "admin@sportscenter.vn");
+        await SeedTestDataAsync(db);
 
         var unitOfWork = new UnitOfWork(db);
         var roleService = new RolePermissionService(unitOfWork);
+        var selfManagedRole = await roleService.CreateRoleAsync(new CreateRoleRequest { Name = "CustomAdmin" });
+        var adminUser = new User
+        {
+            RoleId = selfManagedRole.Id,
+            Username = "custom_admin",
+            Email = "custom_admin@example.com",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@123456"),
+            Status = "Active",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.Users.Add(adminUser);
+        await db.SaveChangesAsync();
+
         var controller = new RolesController(roleService);
         ControllerContextWithUser(controller, adminUser.Id, "Admin");
 
@@ -414,12 +571,12 @@ public class UC13AndUC15Tests
         };
 
         var exSelfLockout = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            roleService.UpdateRolePermissionsAsync(adminRole.Id, updateRequestSelfLockout, adminUser.Id, CancellationToken.None));
+            roleService.UpdateRolePermissionsAsync(selfManagedRole.Id, updateRequestSelfLockout, adminUser.Id, CancellationToken.None));
 
         Assert.Contains("ROLE_MANAGE", exSelfLockout.Message);
 
         // 2. Kiểm tra tự động bổ sung quyền cha CLASS_VIEW khi gán quyền con COACH_ASSIGN cho Role khác
-        var managerRole = await db.Roles.FirstAsync(r => r.Name == "Manager");
+        var managerRole = await roleService.CreateRoleAsync(new CreateRoleRequest { Name = "CustomManager" });
         var updateRequestChildOnly = new UpdateRolePermissionsRequest
         {
             PermissionIds = [classAssignPerm.Id] // Chỉ chọn COACH_ASSIGN, không chọn CLASS_VIEW
@@ -429,295 +586,189 @@ public class UC13AndUC15Tests
 
         Assert.Contains(result.Permissions, p => p.Code == "COACH_ASSIGN");
         Assert.Contains(result.Permissions, p => p.Code == "CLASS_VIEW"); // Tự động bổ sung quyền cha CLASS_VIEW
-=======
-
-namespace SportsCenterManagement.Tests;
-
-public sealed class UC13AndUC15Tests
-{
-    private static SportsCenterDbContext NewDb() => new(new DbContextOptionsBuilder<SportsCenterDbContext>()
-        .UseInMemoryDatabase(Guid.NewGuid().ToString())
-        .ConfigureWarnings(x => x.Ignore(InMemoryEventId.TransactionIgnoredWarning))
-        .Options);
-
-    [Fact]
-    public async Task Seed_CreatesRolesPermissionsAndIsIdempotentForInMemoryProvider()
-    {
-        await using var db = NewDb();
-        await DbInitializer.SeedAsync(db);
-        await DbInitializer.SeedAsync(db);
-
-        Assert.Contains(await db.Roles.Select(x => x.Name).ToListAsync(), x => x == "Coach");
-        Assert.Contains(await db.Permissions.Select(x => x.Code).ToListAsync(), x => x == "ROLE_MANAGE");
-        var manager = await db.Roles.SingleAsync(x => x.Name == "Manager");
-        var roleManagementId = await db.Permissions.Where(x => x.Code == "ROLE_MANAGE").Select(x => x.Id).SingleAsync();
-        Assert.True(await db.RolePermissions.AnyAsync(x => x.RoleId == manager.Id && x.PermissionId == roleManagementId));
     }
 
     [Fact]
-    public async Task Uc13_AssignsCoachWhenScheduleDoesNotOverlap()
+    public async Task Test_UC15_UpdateRole_Fails_WhenNameAlreadyExists()
     {
-        await using var db = NewDb();
-        var setup = await ClassSetup.Create(db);
-        var sourceClass = await setup.AddClass("Pilates", "Active");
-        var targetClass = await setup.AddClass("Yoga", "Published");
-        await setup.AddSchedule(sourceClass.Id, 1, 8, 0, 9);
-        await setup.AddSchedule(targetClass.Id, 1, 9, 0, 10);
-        db.ClassCoaches.Add(new ClassCoach { ClassId = sourceClass.Id, CoachId = setup.Coach.Id });
-        await db.SaveChangesAsync();
+        var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        await SeedTestDataAsync(db);
+        var service = new RolePermissionService(new UnitOfWork(db));
+        var first = await service.CreateRoleAsync(new CreateRoleRequest { Name = "Sales" });
+        var second = await service.CreateRoleAsync(new CreateRoleRequest { Name = "Support" });
 
-        var result = await setup.Service.AssignCoachToClassAsync(targetClass.Id,
-            new AssignCoachRequest { CoachId = setup.Coach.Id });
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UpdateRoleAsync(second.Id, new UpdateRoleRequest { Name = " sales " }));
 
-        Assert.Equal(setup.Coach.Id, result.CoachId);
-        Assert.True(await db.ClassCoaches.AnyAsync(x => x.ClassId == targetClass.Id && x.CoachId == setup.Coach.Id));
-    }
-
-    [Theory]
-    [InlineData(8, 9, 8, 9)]
-    [InlineData(7, 30, 8, 30)]
-    public async Task Uc13_RejectsFullAndPartialScheduleOverlap(int existingStartHour, int existingStartMinute,
-        int targetStartHour, int targetStartMinute)
-    {
-        await using var db = NewDb();
-        var setup = await ClassSetup.Create(db);
-        var existing = await setup.AddClass("Existing", "Published");
-        var target = await setup.AddClass("Target", "Published");
-        await setup.AddSchedule(existing.Id, 1, existingStartHour, existingStartMinute,
-            existingStartHour == 7 ? 9 : existingStartHour + 1);
-        await setup.AddSchedule(target.Id, 1, targetStartHour, targetStartMinute, 10);
-        db.ClassCoaches.Add(new ClassCoach { ClassId = existing.Id, CoachId = setup.Coach.Id });
-        await db.SaveChangesAsync();
-
-        await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.AssignCoachToClassAsync(target.Id,
-            new AssignCoachRequest { CoachId = setup.Coach.Id }));
-    }
-
-    [Theory]
-    [InlineData("Suspended", "Active")]
-    [InlineData("Active", "Suspended")]
-    public async Task Uc13_RejectsInactiveCoachOrUser(string profileStatus, string userStatus)
-    {
-        await using var db = NewDb();
-        var setup = await ClassSetup.Create(db, profileStatus, userStatus);
-        var target = await setup.AddClass("Target", "Published");
-        await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.AssignCoachToClassAsync(target.Id,
-            new AssignCoachRequest { CoachId = setup.Coach.Id }));
-    }
-
-    [Theory]
-    [InlineData("Cancelled")]
-    [InlineData("Completed")]
-    public async Task Uc13_RejectsCancelledOrCompletedClass(string status)
-    {
-        await using var db = NewDb();
-        var setup = await ClassSetup.Create(db);
-        var target = await setup.AddClass("Target", status);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.AssignCoachToClassAsync(target.Id,
-            new AssignCoachRequest { CoachId = setup.Coach.Id }));
+        Assert.Contains("đã tồn tại", error.Message);
+        Assert.Equal("Support", (await db.Roles.FindAsync(second.Id))!.Name);
     }
 
     [Fact]
-    public async Task Uc13_RejectsWrongSpecialization()
+    public async Task Test_UC13_RejectsApprovedLeaveAndASecondCoachForOneSlot()
     {
-        await using var db = NewDb();
-        var setup = await ClassSetup.Create(db, specialization: "Yoga");
-        var boxing = await setup.AddSport("Boxing");
-        var target = await setup.AddClass("Boxing class", "Published", boxing.Id);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.AssignCoachToClassAsync(target.Id,
-            new AssignCoachRequest { CoachId = setup.Coach.Id }));
-    }
-
-    [Fact]
-    public async Task Uc13_RejectsSecondCoachForSingleCoachSlot()
-    {
-        await using var db = NewDb();
-        var setup = await ClassSetup.Create(db);
-        var target = await setup.AddClass("Target", "Published");
-        var second = await setup.AddAnotherCoach();
-        db.ClassCoaches.Add(new ClassCoach { ClassId = target.Id, CoachId = setup.Coach.Id, IsPrimary = true });
+        var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        await SeedTestDataAsync(db);
+        var center = await db.Centers.FirstAsync();
+        var sport = new Sport { Name = "Gym", Status = "Active" };
+        db.Sports.Add(sport);
         await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.AssignCoachToClassAsync(target.Id,
-            new AssignCoachRequest { CoachId = second.Id }));
-    }
 
-    [Fact]
-    public async Task Uc13_RejectsMoreThanEightTeachingHoursPerDay()
-    {
-        await using var db = NewDb();
-        var setup = await ClassSetup.Create(db);
-        var existing = await setup.AddClass("Existing", "Published");
-        var target = await setup.AddClass("Target", "Published");
-        await setup.AddSchedule(existing.Id, 1, 0, 0, 7);
-        await setup.AddSchedule(target.Id, 1, 7, 0, 9);
-        db.ClassCoaches.Add(new ClassCoach { ClassId = existing.Id, CoachId = setup.Coach.Id });
-        await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => setup.Service.AssignCoachToClassAsync(target.Id,
-            new AssignCoachRequest { CoachId = setup.Coach.Id }));
-    }
-
-    [Fact]
-    public async Task Uc15_RejectsDuplicateRoleNameCaseInsensitively()
-    {
-        await using var db = NewDb();
-        var service = await RoleSetup.Create(db);
-        db.Roles.Add(new Role { Name = "Operations", CreatedAt = DateTime.UtcNow });
-        await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateRoleAsync(
-            new SaveRoleRequest { Name = "operations", PermissionCodes = ["MEMBER_VIEW"] }));
-    }
-
-    [Fact]
-    public async Task Uc15_RejectsMissingNameOrPermission()
-    {
-        await using var db = NewDb();
-        var service = await RoleSetup.Create(db);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateRoleAsync(
-            new SaveRoleRequest { Name = "  ", PermissionCodes = ["MEMBER_VIEW"] }));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateRoleAsync(
-            new SaveRoleRequest { Name = "Empty", PermissionCodes = [] }));
-    }
-
-    [Theory]
-    [InlineData("Admin")]
-    [InlineData("Super Admin")]
-    public async Task Uc15_ProtectsSystemRolesFromEditAndDelete(string name)
-    {
-        await using var db = NewDb();
-        var service = await RoleSetup.Create(db);
-        var role = new Role { Name = name, CreatedAt = DateTime.UtcNow };
-        db.Roles.Add(role);
-        await db.SaveChangesAsync();
-        var request = new SaveRoleRequest { Name = name + " edited", PermissionCodes = ["MEMBER_VIEW"] };
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateRoleAsync(role.Id, request, 0));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteRoleAsync(role.Id));
-    }
-
-    [Fact]
-    public async Task Uc15_PreventsActorFromRemovingOwnRoleManagementPermission()
-    {
-        await using var db = NewDb();
-        var service = await RoleSetup.Create(db);
-        var role = new Role { Name = "Operations", CreatedAt = DateTime.UtcNow };
-        db.Roles.Add(role);
-        await db.SaveChangesAsync();
-        var actor = new User { Username = "manager", Email = "manager@test.local", PasswordHash = "hash",
-            RoleId = role.Id, Status = "Active", CreatedAt = DateTime.UtcNow };
-        db.Users.Add(actor);
-        var roleViewId = await db.Permissions.Where(x => x.Code == "ROLE_VIEW").Select(x => x.Id).SingleAsync();
-        var roleManageId = await db.Permissions.Where(x => x.Code == "ROLE_MANAGE").Select(x => x.Id).SingleAsync();
-        db.RolePermissions.AddRange(new RolePermission { RoleId = role.Id, PermissionId = roleViewId },
-            new RolePermission { RoleId = role.Id, PermissionId = roleManageId });
-        await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.UpdateRoleAsync(role.Id,
-            new SaveRoleRequest { Name = role.Name, PermissionCodes = ["ROLE_VIEW", "MEMBER_VIEW"] }, actor.Id));
-    }
-
-    [Fact]
-    public async Task Uc15_RequiresViewWhenGrantingWritePermission()
-    {
-        await using var db = NewDb();
-        var service = await RoleSetup.Create(db);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateRoleAsync(
-            new SaveRoleRequest { Name = "Editors", PermissionCodes = ["MEMBER_DELETE"] }));
-    }
-
-    [Fact]
-    public async Task Uc15_RejectsDeletingRoleAssignedToTenUsers()
-    {
-        await using var db = NewDb();
-        var service = await RoleSetup.Create(db);
-        var role = new Role { Name = "Staff", CreatedAt = DateTime.UtcNow };
-        db.Roles.Add(role);
-        await db.SaveChangesAsync();
-        for (var i = 0; i < 10; i++)
-            db.Users.Add(new User { Username = $"staff{i}", Email = $"staff{i}@test.local", PasswordHash = "hash",
-                RoleId = role.Id, Status = "Active", CreatedAt = DateTime.UtcNow });
-        await db.SaveChangesAsync();
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.DeleteRoleAsync(role.Id));
-        Assert.Contains("10", error.Message);
-    }
-
-    private sealed class ClassSetup(SportsCenterDbContext db, Center center, Sport sport, User coachUser,
-        CoachProfile coach)
-    {
-        public CoachProfile Coach => coach;
-        public ClassService Service => new(new UnitOfWork(db));
-
-        public static async Task<ClassSetup> Create(SportsCenterDbContext db, string profileStatus = "Active",
-            string userStatus = "Active", string specialization = "Yoga")
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var classEntity = new ClassEntity
         {
-            var center = new Center { Name = "Test Center", Address = "Address", Status = "Active", CreatedAt = DateTime.UtcNow };
-            db.Centers.Add(center);
-            var sport = new Sport { Name = "Yoga", Status = "Active" };
-            db.Sports.Add(sport);
-            var role = new Role { Name = "Coach", CreatedAt = DateTime.UtcNow };
-            db.Roles.Add(role);
-            await db.SaveChangesAsync();
-            var user = new User { Username = "coach", Email = "coach@test.local", PasswordHash = "hash",
-                RoleId = role.Id, Status = userStatus, CreatedAt = DateTime.UtcNow };
-            db.Users.Add(user);
-            await db.SaveChangesAsync();
-            var coach = new CoachProfile { UserId = user.Id, CenterId = center.Id, CoachCode = "C001",
-                FullName = "Coach One", Specialization = specialization, Status = profileStatus, CreatedAt = DateTime.UtcNow };
-            db.CoachProfiles.Add(coach);
-            await db.SaveChangesAsync();
-            return new ClassSetup(db, center, sport, user, coach);
-        }
-
-        public async Task<Sport> AddSport(string name)
+            CenterId = center.Id,
+            SportId = sport.Id,
+            Name = "Lớp UC13 test",
+            Capacity = 10,
+            DurationMinutes = 60,
+            Status = "Published",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.Classes.Add(classEntity);
+        await db.SaveChangesAsync();
+        db.ClassSchedules.Add(new ClassSchedule
         {
-            var item = new Sport { Name = name, Status = "Active" };
-            db.Sports.Add(item);
-            await db.SaveChangesAsync();
-            return item;
-        }
+            ClassId = classEntity.Id,
+            DayOfWeek = (int)today.DayOfWeek,
+            StartTime = new TimeOnly(9, 0),
+            EndTime = new TimeOnly(10, 0),
+            StartDate = today,
+            EndDate = today.AddDays(7),
+            Status = "Active"
+        });
+        await db.SaveChangesAsync();
 
-        public async Task<ClassEntity> AddClass(string name, string status, long? sportId = null)
+        var coachRoleId = (await db.Roles.SingleAsync(role => role.Name == "Coach")).Id;
+        var coachUser = new User
         {
-            var item = new ClassEntity { CenterId = center.Id, SportId = sportId ?? sport.Id, Name = name,
-                Capacity = 10, DurationMinutes = 60, Status = status, CreatedAt = DateTime.UtcNow };
-            db.Classes.Add(item);
-            await db.SaveChangesAsync();
-            return item;
-        }
+            RoleId = coachRoleId,
+            Username = "coach_uc13_test",
+            Email = "coach_uc13_test@example.com",
+            PasswordHash = "hash",
+            Status = "Active",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.Users.Add(coachUser);
+        await db.SaveChangesAsync();
+        var coach = new CoachProfile
+        {
+            UserId = coachUser.Id,
+            CenterId = center.Id,
+            CoachCode = "CHUC1301",
+            FullName = "Coach UC13",
+            Specialization = "Gym",
+            Status = "Active",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.CoachProfiles.Add(coach);
+        await db.SaveChangesAsync();
+        db.CoachLeaves.Add(new CoachLeave
+        {
+            CoachId = coach.Id,
+            StartAt = today.ToDateTime(new TimeOnly(9, 30)),
+            EndAt = today.ToDateTime(new TimeOnly(12, 0)),
+            Status = "Approved"
+        });
+        await db.SaveChangesAsync();
 
-        public async Task AddSchedule(long classId, int day, int startHour, int startMinute, int endHour)
-        {
-            db.ClassSchedules.Add(new ClassSchedule { ClassId = classId, DayOfWeek = day,
-                StartTime = new TimeOnly(startHour, startMinute), EndTime = new TimeOnly(endHour, 0), Status = "Active" });
-            await db.SaveChangesAsync();
-        }
+        var service = new ClassService(new UnitOfWork(db));
+        var leaveError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AssignCoachToClassAsync(classEntity.Id, new AssignCoachRequest { CoachId = coach.Id }));
+        Assert.Contains("được duyệt nghỉ", leaveError.Message);
 
-        public async Task<CoachProfile> AddAnotherCoach()
+        db.CoachLeaves.RemoveRange(db.CoachLeaves);
+        var assignedUser = new User
         {
-            var user = new User { Username = "coach2", Email = "coach2@test.local", PasswordHash = "hash",
-                RoleId = coachUser.RoleId, Status = "Active", CreatedAt = DateTime.UtcNow };
-            db.Users.Add(user);
-            await db.SaveChangesAsync();
-            var item = new CoachProfile { UserId = user.Id, CenterId = center.Id, CoachCode = "C002",
-                FullName = "Coach Two", Specialization = "Yoga", Status = "Active", CreatedAt = DateTime.UtcNow };
-            db.CoachProfiles.Add(item);
-            await db.SaveChangesAsync();
-            return item;
-        }
+            RoleId = coachRoleId,
+            Username = "coach_already_assigned",
+            Email = "coach_already_assigned@example.com",
+            PasswordHash = "hash",
+            Status = "Active",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.Users.Add(assignedUser);
+        await db.SaveChangesAsync();
+        var assignedCoach = new CoachProfile
+        {
+            UserId = assignedUser.Id,
+            CenterId = center.Id,
+            CoachCode = "CHUC1302",
+            FullName = "Existing Coach",
+            Specialization = "Gym",
+            Status = "Active",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.CoachProfiles.Add(assignedCoach);
+        await db.SaveChangesAsync();
+        db.ClassCoaches.Add(new ClassCoach { ClassId = classEntity.Id, CoachId = assignedCoach.Id, IsPrimary = true });
+        await db.SaveChangesAsync();
+
+        var secondCoachError = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AssignCoachToClassAsync(classEntity.Id, new AssignCoachRequest { CoachId = coach.Id }));
+        Assert.Contains("đã có HLV", secondCoachError.Message);
     }
 
-    private sealed class RoleSetup
+    [Fact]
+    public async Task Test_UC13_RejectsAssignmentsExceedingEightTeachingHoursPerDay()
     {
-        public static async Task<RolePermissionService> Create(SportsCenterDbContext db)
+        var db = CreateInMemoryDbContext(Guid.NewGuid().ToString());
+        await SeedTestDataAsync(db);
+        var center = await db.Centers.FirstAsync();
+        var sport = new Sport { Name = "Gym", Status = "Active" };
+        db.Sports.Add(sport);
+        await db.SaveChangesAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        var targetClass = new ClassEntity
         {
-            var permissions = new[]
+            CenterId = center.Id, SportId = sport.Id, Name = "Target",
+            Capacity = 10, DurationMinutes = 60, Status = "Published", CreatedAt = DateTime.UtcNow
+        };
+        var existingClass = new ClassEntity
+        {
+            CenterId = center.Id, SportId = sport.Id, Name = "Existing",
+            Capacity = 10, DurationMinutes = 480, Status = "Published", CreatedAt = DateTime.UtcNow
+        };
+        db.Classes.AddRange(targetClass, existingClass);
+        await db.SaveChangesAsync();
+        db.ClassSchedules.AddRange(
+            new ClassSchedule
             {
-                new Permission { Code = "MEMBER_VIEW", Name = "View members" },
-                new Permission { Code = "MEMBER_DELETE", Name = "Delete members" },
-                new Permission { Code = "ROLE_VIEW", Name = "View roles" },
-                new Permission { Code = "ROLE_MANAGE", Name = "Manage roles" }
-            };
-            db.Permissions.AddRange(permissions);
-            await db.SaveChangesAsync();
-            return new RolePermissionService(db);
-        }
->>>>>>> Stashed changes
+                ClassId = targetClass.Id, DayOfWeek = (int)today.DayOfWeek,
+                StartTime = new TimeOnly(8, 0), EndTime = new TimeOnly(9, 0),
+                StartDate = today, EndDate = today.AddDays(7), Status = "Active"
+            },
+            new ClassSchedule
+            {
+                ClassId = existingClass.Id, DayOfWeek = (int)today.DayOfWeek,
+                StartTime = new TimeOnly(0, 0), EndTime = new TimeOnly(7, 30),
+                StartDate = today, EndDate = today.AddDays(7), Status = "Active"
+            });
+        await db.SaveChangesAsync();
+
+        var coachRoleId = (await db.Roles.SingleAsync(role => role.Name == "Coach")).Id;
+        var user = new User
+        {
+            RoleId = coachRoleId, Username = "coach_daily_limit", Email = "coach_daily_limit@example.com",
+            PasswordHash = "hash", Status = "Active", CreatedAt = DateTime.UtcNow
+        };
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+        var coach = new CoachProfile
+        {
+            UserId = user.Id, CenterId = center.Id, CoachCode = "CHLIMIT01",
+            FullName = "Coach Daily Limit", Specialization = "Gym", Status = "Active", CreatedAt = DateTime.UtcNow
+        };
+        db.CoachProfiles.Add(coach);
+        await db.SaveChangesAsync();
+        db.ClassCoaches.Add(new ClassCoach { ClassId = existingClass.Id, CoachId = coach.Id, IsPrimary = true });
+        await db.SaveChangesAsync();
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new ClassService(new UnitOfWork(db)).AssignCoachToClassAsync(
+                targetClass.Id, new AssignCoachRequest { CoachId = coach.Id }));
+
+        Assert.Contains("8.0 giờ/ngày", error.Message);
     }
 }

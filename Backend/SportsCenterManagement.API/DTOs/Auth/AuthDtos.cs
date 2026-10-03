@@ -34,7 +34,8 @@ public sealed record ProfileResponse(
     string Role,
     string Status,
     string? MemberCode,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    long? CenterId = null);
 
 /// <summary>Editable profile fields for the authenticated user.</summary>
 public sealed record UpdateProfileRequest

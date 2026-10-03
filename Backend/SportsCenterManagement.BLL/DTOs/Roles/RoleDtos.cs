@@ -1,8 +1,7 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
 namespace SportsCenterManagement.BLL.DTOs.Roles;
 
-<<<<<<< Updated upstream
 public sealed record RoleResponse(
     long Id,
     string Name,
@@ -15,7 +14,8 @@ public sealed record PermissionResponse(
     long Id,
     string Code,
     string Name,
-    string? Description);
+    string? Description,
+    string? Module = null);
 
 public sealed record RolePermissionsResponse(
     long RoleId,
@@ -45,18 +45,3 @@ public sealed record UpdateRoleRequest
     [MaxLength(255)]
     public string? Description { get; init; }
 }
-=======
-public sealed record RoleResponse(long Id, string Name, string? Description, bool IsSystemRole,
-    IReadOnlyList<string> PermissionCodes, int AssignedUserCount);
-
-public sealed record SaveRoleRequest
-{
-    [Required, StringLength(50, MinimumLength = 1)]
-    public required string Name { get; init; }
-    public string? Description { get; init; }
-    [Required, MinLength(1)]
-    public required IReadOnlyList<string> PermissionCodes { get; init; }
-}
-
-public sealed record PermissionResponse(long Id, string Code, string Name, string? Description);
->>>>>>> Stashed changes

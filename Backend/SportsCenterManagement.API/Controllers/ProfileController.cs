@@ -155,6 +155,11 @@ public sealed class ProfileController(SportsCenterDbContext dbContext) : Control
         var staffProfile = await dbContext.StaffProfiles
             .SingleOrDefaultAsync(profile => profile.UserId == user.Id, cancellationToken);
 
+        var centerId = staffProfile?.CenterId ?? coachProfile?.CenterId;
+        centerId ??= await dbContext.Centers
+            .OrderBy(center => center.Id)
+            .Select(center => (long?)center.Id)
+            .FirstOrDefaultAsync(cancellationToken);
         var fullName = memberProfile?.FullName ?? coachProfile?.FullName ?? staffProfile?.FullName ?? user.Email;
         return new ProfileResponse(
             user.Id,
@@ -164,6 +169,7 @@ public sealed class ProfileController(SportsCenterDbContext dbContext) : Control
             role.ToUpperInvariant(),
             user.Status,
             memberProfile?.MemberCode,
-            new DateTimeOffset(user.CreatedAt, TimeSpan.Zero));
+            new DateTimeOffset(user.CreatedAt, TimeSpan.Zero),
+            centerId);
     }
 }

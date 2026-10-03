@@ -18,6 +18,7 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
     public DbSet<Exercise> Exercises => Set<Exercise>();
     public DbSet<MemberProfile> MemberProfiles => Set<MemberProfile>();
     public DbSet<CoachProfile> CoachProfiles => Set<CoachProfile>();
+    public DbSet<CoachLeave> CoachLeaves => Set<CoachLeave>();
     public DbSet<StaffProfile> StaffProfiles => Set<StaffProfile>();
     public DbSet<ClassEntity> Classes => Set<ClassEntity>();
     public DbSet<Notification> Notifications => Set<Notification>();
@@ -73,6 +74,11 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .HasForeignKey(entity => entity.ClassId)
             .OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<ClassCoach>()
+            .HasOne<CoachProfile>()
+            .WithMany()
+            .HasForeignKey(entity => entity.CoachId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<CoachLeave>()
             .HasOne<CoachProfile>()
             .WithMany()
             .HasForeignKey(entity => entity.CoachId)

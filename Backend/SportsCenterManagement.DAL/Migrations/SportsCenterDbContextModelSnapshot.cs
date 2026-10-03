@@ -507,9 +507,6 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("date")
                         .HasColumnName("assigned_date");
 
-                    b.Property<long>("Id")
-                        .HasColumnType("bigint");
-
                     b.Property<bool>("IsPrimary")
                         .HasColumnType("bit")
                         .HasColumnName("is_primary");
@@ -1293,6 +1290,15 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("nvarchar(50)")
                         .HasColumnName("access_type");
 
+                    b.Property<int>("AllowedSports")
+                        .HasColumnType("int")
+                        .HasColumnName("allowed_sports");
+
+                    b.Property<string>("Badge")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("badge");
+
                     b.Property<long>("CenterId")
                         .HasColumnType("bigint")
                         .HasColumnName("center_id");
@@ -1313,6 +1319,10 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.Property<int?>("MaxClasses")
                         .HasColumnType("int")
                         .HasColumnName("max_classes");
+
+                    b.Property<string>("Features")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("features");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -1523,12 +1533,48 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("nvarchar(100)")
                         .HasColumnName("name");
 
+                    b.Property<string>("Module")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("module");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
                         .IsUnique();
 
                     b.ToTable("permissions", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.Models.CoachLeave", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CoachId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("coach_id");
+
+                    b.Property<DateTime>("EndAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("end_at");
+
+                    b.Property<DateTime>("StartAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("start_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id");
+                    b.HasIndex("CoachId");
+                    b.ToTable("coach_leaves", "dbo");
                 });
 
             modelBuilder.Entity("SportsCenterManagement.Models.Role", b =>
@@ -2117,6 +2163,15 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.HasIndex("TrainingPlanId");
 
                     b.ToTable("training_results", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.Models.CoachLeave", b =>
+                {
+                    b.HasOne("SportsCenterManagement.Models.CoachProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CoachId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("SportsCenterManagement.Models.User", b =>

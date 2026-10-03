@@ -1,11 +1,10 @@
-using SportsCenterManagement.BLL.DTOs.Roles;
+﻿using SportsCenterManagement.BLL.DTOs.Roles;
 
 namespace SportsCenterManagement.BLL.Interfaces;
 
 public interface IRolePermissionService
 {
     Task<IReadOnlyList<RoleResponse>> GetRolesAsync(CancellationToken cancellationToken = default);
-<<<<<<< Updated upstream
 
     Task<IReadOnlyList<PermissionResponse>> GetAllPermissionsAsync(CancellationToken cancellationToken = default);
 
@@ -22,11 +21,4 @@ public interface IRolePermissionService
         UpdateRolePermissionsRequest request,
         long? currentUserId = null,
         CancellationToken cancellationToken = default);
-=======
-    Task<IReadOnlyList<PermissionResponse>> GetPermissionsAsync(CancellationToken cancellationToken = default);
-    Task<RoleResponse> CreateRoleAsync(SaveRoleRequest request, CancellationToken cancellationToken = default);
-    Task<RoleResponse> UpdateRoleAsync(long roleId, SaveRoleRequest request, long actorUserId,
-        CancellationToken cancellationToken = default);
-    Task DeleteRoleAsync(long roleId, CancellationToken cancellationToken = default);
->>>>>>> Stashed changes
 }

@@ -33,6 +33,16 @@ public class MembershipPackage : Common.BaseEntity
     [Column("access_type")]
     public string? AccessType { get; set; }
 
+    [Column("allowed_sports")]
+    public int AllowedSports { get; set; } = 1;
+
+    [MaxLength(50)]
+    [Column("badge")]
+    public string? Badge { get; set; }
+
+    [Column("features", TypeName = "nvarchar(max)")]
+    public string? Features { get; set; }
+
     [MaxLength(30)]
     [Column("status")]
     public string Status { get; set; } = null!;

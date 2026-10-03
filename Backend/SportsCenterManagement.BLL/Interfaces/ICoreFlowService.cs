@@ -22,6 +22,8 @@ public interface ICoreFlowService
         long? registeredBy,
         CancellationToken cancellationToken = default);
 
+    Task<ClassEnrollment> CancelClassEnrollmentAsync(long classId, long memberId, string? reason, CancellationToken cancellationToken = default);
+
     Task<Payment> RecordCashPaymentAsync(
         long invoiceId,
         long processedBy,

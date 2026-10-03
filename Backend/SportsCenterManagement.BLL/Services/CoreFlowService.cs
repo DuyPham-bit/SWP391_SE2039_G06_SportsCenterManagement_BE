@@ -10,6 +10,7 @@ namespace SportsCenterManagement.BLL.Services;
 public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
 {
     private readonly IUnitOfWork _unitOfWork = unitOfWork;
+    private static readonly TimeSpan EnrollmentCancellationCutoff = TimeSpan.FromHours(2);
 
     public async Task<IReadOnlyList<MembershipPackage>> GetActivePackagesAsync(
         long centerId,
@@ -184,6 +185,32 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return existing;
+    }
+
+    public async Task<ClassEnrollment> CancelClassEnrollmentAsync(long classId, long memberId, string? reason, CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var enrollment = await _unitOfWork.Repository<ClassEnrollment>().Find(x => x.ClassId == classId && x.MemberId == memberId)
+            .SingleOrDefaultAsync(cancellationToken) ?? throw new InvalidOperationException("Không tìm thấy ghi danh của Member trong lớp này.");
+        if (enrollment.Status != "Confirmed") throw new InvalidOperationException("Ghi danh không ở trạng thái có thể hủy.");
+
+        // Schedules are expressed in the center's local time; current centers use Vietnam time (UTC+7).
+        var nowLocal = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).DateTime;
+        var upcomingSessions = await _unitOfWork.Context.ClassSessions
+            .Where(x => x.ClassId == classId && x.SessionStatus == "Scheduled")
+            .OrderBy(x => x.SessionDate).ThenBy(x => x.StartTime)
+            .Select(x => new { x.SessionDate, x.StartTime }).ToListAsync(cancellationToken);
+        var nextSession = upcomingSessions.FirstOrDefault(x => x.SessionDate.ToDateTime(x.StartTime) > nowLocal);
+        if (nextSession is null) throw new InvalidOperationException("Lớp không còn buổi học có thể hủy ghi danh.");
+        if (nowLocal >= nextSession.SessionDate.ToDateTime(nextSession.StartTime) - EnrollmentCancellationCutoff)
+            throw new InvalidOperationException("Chỉ được hủy ghi danh trước giờ học ít nhất 2 tiếng.");
+
+        enrollment.Status = "Cancelled";
+        enrollment.CancelledAt = DateTime.UtcNow;
+        enrollment.CancellationReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim()[..Math.Min(reason.Trim().Length, 500)];
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return enrollment;
     }
 
     public async Task<Payment> RecordCashPaymentAsync(

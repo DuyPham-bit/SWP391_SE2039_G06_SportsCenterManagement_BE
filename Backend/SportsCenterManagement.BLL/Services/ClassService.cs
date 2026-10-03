@@ -8,7 +8,146 @@ namespace SportsCenterManagement.BLL.Services;
 
 public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
 {
+<<<<<<< Updated upstream
     private const double MaxDailyTeachingHours = 8;
+=======
+    public async Task<long> CreateClassAsync(CreateClassRequest request, CancellationToken cancellationToken = default)
+    {
+        var name = request.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 150 || request.Capacity <= 0 || request.DurationMinutes <= 0 ||
+            request.Description?.Length > 1000 || request.Level?.Length > 50)
+            throw new InvalidOperationException("Tên lớp, sĩ số và thời lượng phải hợp lệ.");
+        if (!await unitOfWork.Repository<Center>().AnyAsync(x => x.Id == request.CenterId && x.Status == "Active", cancellationToken))
+            throw new InvalidOperationException("Cơ sở không tồn tại hoặc đã ngừng hoạt động.");
+        if (!await unitOfWork.Repository<Sport>().AnyAsync(x => x.Id == request.SportId && x.Status == "Active", cancellationToken))
+            throw new InvalidOperationException("Bộ môn không tồn tại hoặc đã ngừng hoạt động.");
+        if (request.RoomId is long roomId)
+        {
+            var room = await unitOfWork.Repository<Room>().GetByIdAsync(roomId, cancellationToken);
+            if (room is null || room.CenterId != request.CenterId || room.Status != "Active")
+                throw new InvalidOperationException("Phòng tập không hợp lệ hoặc không thuộc cơ sở.");
+            if (room.Capacity > 0 && request.Capacity > room.Capacity)
+                throw new InvalidOperationException("Sĩ số lớp không được vượt quá sức chứa của phòng.");
+        }
+
+        var entity = new ClassEntity
+        {
+            CenterId = request.CenterId, SportId = request.SportId, RoomId = request.RoomId,
+            Name = name, Description = request.Description?.Trim(), Level = request.Level?.Trim(),
+            Capacity = request.Capacity, DurationMinutes = request.DurationMinutes,
+            Status = "Draft", CreatedAt = DateTime.UtcNow
+        };
+        await unitOfWork.Repository<ClassEntity>().AddAsync(entity, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return entity.Id;
+    }
+
+    public async Task<long> CreateScheduleAsync(long classId, CreateClassScheduleRequest request, CancellationToken cancellationToken = default)
+    {
+        var classEntity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
+            ?? throw new InvalidOperationException("Lớp học không tồn tại.");
+        if (classEntity.Status != "Draft") throw new InvalidOperationException("Chỉ có thể thêm lịch cho lớp đang ở trạng thái Draft.");
+        if (request.DayOfWeek is < 0 or > 6 || request.StartTime >= request.EndTime || request.StartDate > request.EndDate)
+            throw new InvalidOperationException("Ngày trong tuần, giờ học hoặc khoảng ngày không hợp lệ.");
+        if (request.RoomId is long roomId && !await unitOfWork.Repository<Room>().AnyAsync(x => x.Id == roomId && x.CenterId == classEntity.CenterId && x.Status == "Active", cancellationToken))
+            throw new InvalidOperationException("Phòng tập không hợp lệ hoặc không thuộc cơ sở.");
+        var room = request.RoomId ?? classEntity.RoomId;
+
+        if (room is long assignedRoomId)
+        {
+            var conflicts = await (
+                from existingSchedule in unitOfWork.Context.ClassSchedules
+                join existingClass in unitOfWork.Context.Classes on existingSchedule.ClassId equals existingClass.Id
+                where existingSchedule.RoomId == assignedRoomId && existingSchedule.Status == "Active"
+                    && existingClass.Status != "Cancelled"
+                    && existingSchedule.DayOfWeek == request.DayOfWeek
+                    && existingSchedule.StartTime < request.EndTime && existingSchedule.EndTime > request.StartTime
+                    && (!existingSchedule.EndDate.HasValue || existingSchedule.EndDate.Value >= request.StartDate)
+                    && (!existingSchedule.StartDate.HasValue || existingSchedule.StartDate.Value <= request.EndDate)
+                select existingSchedule.Id).AnyAsync(cancellationToken);
+            if (conflicts) throw new InvalidOperationException("Phòng đã có lớp khác trong khung giờ và khoảng ngày này.");
+        }
+
+        var schedule = new ClassSchedule
+        {
+            ClassId = classId, RoomId = room, DayOfWeek = request.DayOfWeek,
+            StartTime = request.StartTime, EndTime = request.EndTime,
+            StartDate = request.StartDate, EndDate = request.EndDate, Status = "Active"
+        };
+        await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
+        await unitOfWork.Repository<ClassSchedule>().AddAsync(schedule, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var primaryCoachId = await unitOfWork.Repository<ClassCoach>()
+            .Find(x => x.ClassId == classId && x.IsPrimary).Select(x => (long?)x.CoachId).FirstOrDefaultAsync(cancellationToken);
+        var sessions = new List<ClassSession>();
+        for (var date = request.StartDate; date <= request.EndDate; date = date.AddDays(1))
+        {
+            if ((int)date.DayOfWeek != request.DayOfWeek) continue;
+            sessions.Add(new ClassSession
+            {
+                ClassId = classId, ScheduleId = schedule.Id, RoomId = room, CoachId = primaryCoachId,
+                SessionDate = date, StartTime = request.StartTime, EndTime = request.EndTime,
+                SessionStatus = "Scheduled", CreatedAt = DateTime.UtcNow
+            });
+        }
+        if (sessions.Count == 0) throw new InvalidOperationException("Khoảng ngày không chứa ngày học đã chọn.");
+        await unitOfWork.Context.ClassSessions.AddRangeAsync(sessions, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return schedule.Id;
+    }
+
+    public async Task PublishClassAsync(long classId, CancellationToken cancellationToken = default)
+    {
+        var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
+            ?? throw new InvalidOperationException("Lớp học không tồn tại.");
+        if (entity.Status != "Draft") throw new InvalidOperationException("Chỉ có thể công bố lớp đang ở trạng thái Draft.");
+        if (!await unitOfWork.Repository<ClassSchedule>().AnyAsync(x => x.ClassId == classId && x.Status == "Active", cancellationToken))
+            throw new InvalidOperationException("Lớp cần có lịch học trước khi công bố.");
+        if (!await unitOfWork.Repository<ClassCoach>().AnyAsync(x => x.ClassId == classId && x.IsPrimary, cancellationToken))
+            throw new InvalidOperationException("Lớp cần được phân công Coach phụ trách trước khi công bố.");
+        entity.Status = "Published";
+        entity.UpdatedAt = DateTime.UtcNow;
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ClassSessionResponse>> GetClassSessionsAsync(long classId, DateOnly? from, DateOnly? to, CancellationToken cancellationToken = default)
+    {
+        if (from.HasValue && to.HasValue && from > to) throw new InvalidOperationException("Ngày bắt đầu phải trước hoặc bằng ngày kết thúc.");
+        var query = unitOfWork.Context.ClassSessions.Where(x => x.ClassId == classId);
+        if (from.HasValue) query = query.Where(x => x.SessionDate >= from.Value);
+        if (to.HasValue) query = query.Where(x => x.SessionDate <= to.Value);
+        return await query.OrderBy(x => x.SessionDate).ThenBy(x => x.StartTime)
+            .Select(x => new ClassSessionResponse(x.Id, x.ClassId, x.SessionDate, x.StartTime, x.EndTime, x.RoomId, x.CoachId, x.SessionStatus))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<CenterScheduleResponse>> GetPublishedScheduleAsync(long centerId, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default)
+    {
+        if (startDate > endDate) throw new InvalidOperationException("Ngày bắt đầu phải trước hoặc bằng ngày kết thúc.");
+        var db = unitOfWork.Context;
+        return await (
+            from session in db.ClassSessions
+            join classEntity in db.Classes on session.ClassId equals classEntity.Id
+            where classEntity.CenterId == centerId && classEntity.Status == "Published"
+                && session.SessionStatus == "Scheduled" && session.SessionDate >= startDate && session.SessionDate <= endDate
+            orderby session.SessionDate, session.StartTime, classEntity.Name
+            select new CenterScheduleResponse(
+                classEntity.Id, classEntity.Name, session.RoomId, session.CoachId,
+                session.SessionDate, session.StartTime, session.EndTime, classEntity.Capacity,
+                db.ClassEnrollments.Count(enrollment => enrollment.ClassId == classEntity.Id && enrollment.Status == "Confirmed")))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SportOptionResponse>> GetSportsAsync(CancellationToken cancellationToken = default) =>
+        await unitOfWork.Repository<Sport>().Find(x => x.Status == "Active").OrderBy(x => x.Name)
+            .Select(x => new SportOptionResponse(x.Id, x.Name, x.Description)).ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<ClassOptionResponse>> GetRoomsAsync(long centerId, CancellationToken cancellationToken = default) =>
+        await unitOfWork.Repository<Room>().Find(x => x.CenterId == centerId && x.Status == "Active").OrderBy(x => x.Name)
+            .Select(x => new ClassOptionResponse(x.Id, x.Name, x.RoomType, x.Capacity)).ToListAsync(cancellationToken);
+>>>>>>> Stashed changes
 
     public async Task<IReadOnlyList<ClassCatalogResponse>> GetPublishedClassesAsync(
         long centerId, CancellationToken cancellationToken = default) =>
@@ -253,6 +392,14 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
         {
             existingClassCoach.IsPrimary = request.IsPrimary;
             existingClassCoach.AssignedDate = today;
+        }
+
+        if (request.IsPrimary)
+        {
+            var upcomingSessions = await db.ClassSessions
+                .Where(session => session.ClassId == classId && session.SessionStatus == "Scheduled" && session.SessionDate >= today)
+                .ToListAsync(cancellationToken);
+            foreach (var session in upcomingSessions) session.CoachId = coachProfile.Id;
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);

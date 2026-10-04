@@ -10,6 +10,9 @@ var connectionString = builder.Configuration.GetConnectionString("SportsCenter")
     ?? throw new InvalidOperationException(
         "Connection string 'SportsCenter' is not configured.");
 
+// Cấu hình HttpClient để gọi API ngoài (MoMo Sandbox, PayOS...)
+builder.Services.AddHttpClient();
+
 // Layer 3: DAL (DbContext & Repository / Unit of Work Pattern)
 builder.Services.AddDbContext<SportsCenterDbContext>(options =>
     options.UseSqlServer(connectionString));
@@ -22,8 +25,12 @@ builder.Services.AddScoped<IClassService, ClassService>();
 builder.Services.AddScoped<IMembershipPackageService, MembershipPackageService>();
 builder.Services.AddScoped<ICoreFlowService, CoreFlowService>();
 
-// >>> ĐĂNG KÝ SERVICE THANH TOÁN VNPAY <<<
+// >>> ĐĂNG KÝ CÁC SERVICE THANH TOÁN (VNPAY & MOMO) <<<
+builder.Services.AddScoped<IVnPayService, VnPayService>();
+builder.Services.AddScoped<IMoMoService, MoMoService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddHttpClient<IPayOsService, PayOsService>();
+
 
 // Layer 1: Presentation (API Controllers & Swagger UI)
 builder.Services.AddControllers();

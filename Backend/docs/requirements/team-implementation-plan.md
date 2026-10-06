@@ -123,6 +123,55 @@ DELETE /api/classes/{classId}/enrollments/{id}
 GET    /api/classes/{classId}/roster                 # Coach được phân công
 ```
 
+### API đã triển khai cho FR-2.1 đến FR-2.3
+
+```text
+GET    /api/centers/{centerId}/sports                 # Bộ môn đang hoạt động
+GET    /api/centers/{centerId}/rooms                  # Phòng đang hoạt động của cơ sở
+POST   /api/classes                                    # Manager; tạo lớp Draft
+POST   /api/classes/{classId}/schedules                # Manager; tạo lịch và các ClassSession
+POST   /api/classes/{classId}/coaches                  # Manager; endpoint hiện có, Coach chính được lưu vào các buổi tương lai
+POST   /api/classes/{classId}/publish                  # Manager; công bố lớp sau khi có lịch và Coach chính
+GET    /api/centers/{centerId}/classes                 # Danh sách lớp Published
+GET    /api/centers/{centerId}/schedule?from=&to=      # Thời khóa biểu theo khoảng ngày
+GET    /api/classes/{classId}/sessions?from=&to=       # Thời khóa biểu buổi cụ thể
+POST   /api/classes/{classId}/enrollments              # Member; body: { "subscriptionId": 123 }
+GET    /api/members/me/enrollments                     # Member; lịch sử ghi danh của chính mình
+DELETE /api/classes/{classId}/enrollments/{id}         # Member; body tùy chọn: { "reason": "..." }
+```
+
+Ghi danh lấy Member từ JWT, yêu cầu subscription `Active`, còn hạn, cùng cơ sở và còn quota; lớp phải Published và còn chỗ. Lớp đầy hoặc ghi danh trùng trả `409`. Hủy được phép đến 2 giờ trước buổi Scheduled kế tiếp theo giờ Việt Nam (UTC+7); sau hạn trả `409`. Lớp tạo mới ở trạng thái Draft. Manager cần thêm ít nhất một lịch và phân công Coach chính rồi mới công bố. Ngày trong tuần dùng quy ước .NET: Chủ nhật `0`, Thứ hai `1`, …, Thứ bảy `6`.
+
+Payload tạo lớp:
+
+```json
+{
+  "centerId": 1,
+  "sportId": 2,
+  "roomId": 3,
+  "name": "Yoga cơ bản",
+  "description": "Lớp nhập môn",
+  "level": "Beginner",
+  "capacity": 20,
+  "durationMinutes": 60
+}
+```
+
+Payload tạo lịch:
+
+```json
+{
+  "roomId": 3,
+  "dayOfWeek": 1,
+  "startTime": "18:00:00",
+  "endTime": "19:00:00",
+  "startDate": "2026-10-05",
+  "endDate": "2026-12-28"
+}
+```
+
+Tạo lớp trả `201` cùng `classId` và trạng thái Draft; tạo lịch trả `201` cùng `scheduleId`; ghi danh trả `201`; hủy thành công trả `200`. Manager endpoints yêu cầu JWT role `MANAGER`; các endpoint ghi danh yêu cầu role `MEMBER`. Payload sai hoặc nghiệp vụ không hợp lệ trả `400`, yêu cầu chưa xác thực trả `401`, sai role trả `403`, lớp đầy/ghi danh trùng/hủy quá hạn trả `409`.
+
 ### Quyết định MVP
 
 MVP coi `ClassEnrollment` là ghi danh cả lớp/khóa; `ClassSession` là từng buổi sinh từ lịch. Dùng sức chứa lớp làm capacity. Không đồng thời tính `SessionBooking` vào capacity cho đến khi nhóm xác nhận cho phép đặt từng buổi. Waitlist chỉ triển khai nếu kịp; nếu có, trạng thái Waitlisted không tính vào confirmed capacity.

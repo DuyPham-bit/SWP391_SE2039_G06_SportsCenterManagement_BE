@@ -13,7 +13,6 @@ public class MemberProfile : Common.BaseEntity
 
     [Column("center_id")]
     public long? CenterId { get; set; }
-
     [MaxLength(50)]
     [Column("member_code")]
     public string MemberCode { get; set; } = null!;

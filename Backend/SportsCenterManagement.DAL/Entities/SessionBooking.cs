@@ -17,6 +17,11 @@ public class SessionBooking : Common.BaseEntity
     [Column("enrollment_id")]
     public long? EnrollmentId { get; set; }
 
+    [Column("subscription_id")]
+    public long? SubscriptionId { get; set; }
+
+    [Column("registered_by")]
+    public long? RegisteredBy { get; set; }
     [Column("booked_at")]
     public DateTime BookedAt { get; set; }
 

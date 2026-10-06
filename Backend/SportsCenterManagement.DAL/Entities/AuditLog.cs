@@ -13,7 +13,6 @@ public class AuditLog : Common.BaseEntity
 
     [Column("center_id")]
     public long? CenterId { get; set; }
-
     [MaxLength(100)]
     [Column("action")]
     public string Action { get; set; } = null!;

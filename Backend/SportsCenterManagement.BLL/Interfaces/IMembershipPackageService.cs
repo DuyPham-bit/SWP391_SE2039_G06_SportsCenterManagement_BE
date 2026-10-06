@@ -1,23 +1,43 @@
-using MembershipPackagesRequests = SportsCenterManagement.BLL.DTOs.MembershipPackages.Requests;
-using MembershipPackagesResponses = SportsCenterManagement.BLL.DTOs.MembershipPackages.Responses;
+using SportsCenterManagement.BLL.DTOs.MembershipPackages;
 
 namespace SportsCenterManagement.BLL.Interfaces;
 
 public interface IMembershipPackageService
 {
-    Task<IReadOnlyList<MembershipPackagesResponses.MembershipPackageResponse>> GetActivePackagesAsync(
+    Task<IReadOnlyList<MembershipPackageResponse>> GetPackagesAsync(
         long centerId,
         CancellationToken cancellationToken = default);
 
-    Task<MembershipPackagesResponses.MembershipPackageResponse> CreateAsync(
+    Task<IReadOnlyList<MembershipPackageResponse>> GetActivePackagesAsync(
+        long centerId,
+        CancellationToken cancellationToken = default);
+
+    Task<MembershipPackageResponse> CreatePackageAsync(
+        long centerId,
+        SaveMembershipPackageRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<MembershipPackageResponse> UpdatePackageAsync(
+        long centerId,
+        long packageId,
+        SaveMembershipPackageRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<MembershipPackageResponse> SetPackageStatusAsync(
+        long centerId,
+        long packageId,
+        string status,
+        CancellationToken cancellationToken = default);
+
+    Task<MembershipPackageResponse> CreateAsync(
         long actorUserId,
         long centerId,
-        MembershipPackagesRequests.CreateMembershipPackageRequest request,
+        Requests.CreateMembershipPackageRequest request,
         CancellationToken cancellationToken = default);
 
-    Task<MembershipPackagesResponses.MembershipPackageResponse> UpdateAsync(
+    Task<MembershipPackageResponse> UpdateAsync(
         long actorUserId,
         long packageId,
-        MembershipPackagesRequests.UpdateMembershipPackageRequest request,
+        Requests.UpdateMembershipPackageRequest request,
         CancellationToken cancellationToken = default);
 }

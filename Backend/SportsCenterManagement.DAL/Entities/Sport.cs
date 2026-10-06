@@ -8,6 +8,8 @@ namespace SportsCenterManagement.DAL.Entities;
 [Table("sports")]
 public class Sport : Common.BaseEntity
 {
+    [Column("center_id")]
+    public long? CenterId { get; set; }
     [MaxLength(100)]
     [Column("name")]
     public string Name { get; set; } = null!;

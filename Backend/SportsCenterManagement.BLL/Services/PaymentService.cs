@@ -1,10 +1,9 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using SportsCenterManagement.BLL.Common.Helpers;
-using PaymentsRequests = SportsCenterManagement.BLL.DTOs.Payments.Requests;
-using PaymentsResponses = SportsCenterManagement.BLL.DTOs.Payments.Responses;
+using SportsCenterManagement.BLL.DTOs.Payments;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.DAL.Entities;
 using SportsCenterManagement.DAL.Repositories.Interfaces;
@@ -30,12 +29,12 @@ public class PaymentService : IPaymentService
     /// 2. Đóng gói các tham số và ký mã SHA512 để sinh URL VNPay.
     /// </summary>
     public async Task<string> CreatePaymentUrlAsync(
-        long userId,
-        PaymentsRequests.CreatePaymentRequest request,
+        long actorId,
+        CreatePaymentRequest request,
         string ipAddress,
         CancellationToken cancellationToken = default)
     {
-        if (userId <= 0 || request.PackageId <= 0)
+        if (actorId <= 0 || request.PackageId <= 0)
         {
             throw new InvalidOperationException("Thông tin thành viên hoặc gói tập không hợp lệ.");
         }
@@ -45,10 +44,9 @@ public class PaymentService : IPaymentService
         var baseUrl = _configuration["VnPay:BaseUrl"] ?? throw new InvalidOperationException("Chưa cấu hình VnPay:BaseUrl");
         var returnUrl = _configuration["VnPay:ReturnUrl"] ?? throw new InvalidOperationException("Chưa cấu hình VnPay:ReturnUrl");
 
-        // Claims chứa UserId; chuyển qua profile server-side để không tin member id từ client.
         var member = await _unitOfWork.Repository<MemberProfile>()
-            .Find(profile => profile.UserId == userId)
-            .SingleOrDefaultAsync(cancellationToken)
+            .Find(profile => profile.UserId == actorId || profile.Id == actorId)
+            .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException("Không tìm thấy thông tin thành viên.");
 
         // Dùng serializable để request retry song song cùng tái sử dụng invoice chờ hiện có.
@@ -182,14 +180,11 @@ public class PaymentService : IPaymentService
         vnpay.AddRequestData("vnp_ReturnUrl", returnUrl);
         vnpay.AddRequestData("vnp_TxnRef", requestReference);
 
-
-        // Nếu người dùng có chọn ngân hàng cụ thể từ Frontend
         if (!string.IsNullOrEmpty(request.BankCode))
         {
             vnpay.AddRequestData("vnp_BankCode", request.BankCode);
         }
 
-        // Tạo URL trước khi commit để không lưu attempt nếu không thể tạo yêu cầu gửi tới VNPay.
         var paymentUrl = vnpay.CreateRequestUrl(baseUrl, hashSecret);
         var paymentAttempt = new Payment
         {
@@ -205,7 +200,7 @@ public class PaymentService : IPaymentService
         };
         await _unitOfWork.Repository<Payment>().AddAsync(paymentAttempt, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        AuditLogWriter.Add(_unitOfWork, userId, package.CenterId, "payment.vnpay.started", "Payment", paymentAttempt.Id,
+        AuditLogWriter.Add(_unitOfWork, member.UserId, package.CenterId, "payment.vnpay.started", "Payment", paymentAttempt.Id,
             newValues: new { InvoiceId = invoice.Id, Amount = outstandingAmount, ProviderReference = requestReference });
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -217,7 +212,7 @@ public class PaymentService : IPaymentService
     /// - Kiểm tra signature hợp lệ để chống giả mạo.
     /// - Cập nhật trạng thái Invoice -> Paid và Subscription -> Active nếu thanh toán thành công (Mã 00).
     /// </summary>
-    public async Task<PaymentsResponses.PaymentResultResponse> ProcessPaymentCallbackAsync(
+    public async Task<PaymentResultResponse> ProcessPaymentCallbackAsync(
         IDictionary<string, string> queryParams,
         CancellationToken cancellationToken = default)
     {
@@ -233,18 +228,17 @@ public class PaymentService : IPaymentService
         var hashSecret = _configuration["VnPay:HashSecret"] ?? throw new InvalidOperationException("Chưa cấu hình VnPay:HashSecret");
         if (!queryParams.TryGetValue("vnp_SecureHash", out var vnpSecureHash) || string.IsNullOrEmpty(vnpSecureHash))
         {
-            return new PaymentsResponses.PaymentResultResponse
+            return new PaymentResultResponse
             {
                 Success = false,
                 Message = "Thiếu chữ ký bảo mật từ VNPay."
             };
         }
 
-        // 1. Kiểm tra signature bảo mật từ VNPay
         var isValidSignature = vnpay.ValidateSignature(vnpSecureHash, hashSecret);
         if (!isValidSignature)
         {
-            return new PaymentsResponses.PaymentResultResponse
+            return new PaymentResultResponse
             {
                 Success = false,
                 Message = "signature bảo mật không hợp lệ (Dữ liệu có thể đã bị can thiệp)."
@@ -254,6 +248,7 @@ public class PaymentService : IPaymentService
         var invoiceNumber = vnpay.GetResponseData("vnp_TxnRef");
         var vnpResponseCode = vnpay.GetResponseData("vnp_ResponseCode");
         var vnpTransactionNo = vnpay.GetResponseData("vnp_TransactionNo");
+
         if (string.IsNullOrWhiteSpace(invoiceNumber)
             || !decimal.TryParse(vnpay.GetResponseData("vnp_Amount"), out var amountInVnpayFormat)
             || amountInVnpayFormat <= 0)
@@ -266,13 +261,12 @@ public class PaymentService : IPaymentService
                     ResponseCode = vnpResponseCode
                 });
             await _unitOfWork.SaveChangesAsync(cancellationToken);
-            return new PaymentsResponses.PaymentResultResponse { Success = false, Message = "Dữ liệu thanh toán không hợp lệ." };
+            return new PaymentResultResponse { Success = false, Message = "Dữ liệu thanh toán không hợp lệ." };
         }
 
         var vnpAmount = amountInVnpayFormat / 100m;
         var transactionCode = CreateCallbackTransactionCode(queryParams, vnpTransactionNo);
         var currencyCode = vnpay.GetResponseData("vnp_CurrCode");
-        // Serializable tránh hai callback đồng thời cùng cộng một giao dịch và kích hoạt hai lần.
         await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(
             System.Data.IsolationLevel.Serializable, cancellationToken);
 
@@ -289,7 +283,7 @@ public class PaymentService : IPaymentService
                 newValues: new { ProviderReference = invoiceNumber, TransactionCode = transactionCode, Amount = vnpAmount });
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            return new PaymentsResponses.PaymentResultResponse { Success = false, Message = "Không tìm thấy hóa đơn tương ứng với giao dịch." };
+            return new PaymentResultResponse { Success = false, Message = "Không tìm thấy hóa đơn tương ứng với giao dịch." };
         }
 
         var existingPayment = await _unitOfWork.Repository<Payment>()
@@ -306,7 +300,7 @@ public class PaymentService : IPaymentService
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
             await transaction.CommitAsync(cancellationToken);
-            return new PaymentsResponses.PaymentResultResponse
+            return new PaymentResultResponse
             {
                 Success = sameInvoice && sameAmount && existingPayment.PaymentStatus == "Succeeded",
                 Message = !sameInvoice ? "Mã giao dịch đã được sử dụng cho hóa đơn khác."
@@ -329,7 +323,7 @@ public class PaymentService : IPaymentService
                 await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
             await transaction.CommitAsync(cancellationToken);
-            return new PaymentsResponses.PaymentResultResponse
+            return new PaymentResultResponse
             {
                 Success = sameAmount && paymentAttempt.PaymentStatus == "Succeeded",
                 Message = sameAmount ? "Yêu cầu thanh toán này đã được xử lý." : "Mã yêu cầu thanh toán đã được xử lý với số tiền khác.",
@@ -351,7 +345,7 @@ public class PaymentService : IPaymentService
                     : $"VNPay response code: {vnpResponseCode}; invoice status: {invoice.Status}.",
                 cancellationToken, paymentAttempt);
             await transaction.CommitAsync(cancellationToken);
-            return new PaymentsResponses.PaymentResultResponse
+            return new PaymentResultResponse
             {
                 Success = false,
                 Message = invoice.Status == "Paid" ? "Hóa đơn đã được thanh toán bằng giao dịch khác." : "Hóa đơn đã bị hủy.",
@@ -374,7 +368,7 @@ public class PaymentService : IPaymentService
                 $"Unexpected VNPay currency: {currencyCode}; response code: {vnpResponseCode}.", cancellationToken,
                 paymentAttempt);
             await transaction.CommitAsync(cancellationToken);
-            return new PaymentsResponses.PaymentResultResponse
+            return new PaymentResultResponse
             {
                 Success = false,
                 Message = "Đơn vị tiền tệ thanh toán không hợp lệ.",
@@ -392,7 +386,7 @@ public class PaymentService : IPaymentService
                     "ReviewRequired", "payment.vnpay.review-required",
                     "VNPay reported success without a transaction number.", cancellationToken, paymentAttempt);
                 await transaction.CommitAsync(cancellationToken);
-                return new PaymentsResponses.PaymentResultResponse
+                return new PaymentResultResponse
                 {
                     Success = false,
                     Message = "Thiếu mã giao dịch thanh toán.",
@@ -408,7 +402,7 @@ public class PaymentService : IPaymentService
                     "VNPay reported success for an amount different from the amount requested for this payment attempt.",
                     cancellationToken, paymentAttempt);
                 await transaction.CommitAsync(cancellationToken);
-                return new PaymentsResponses.PaymentResultResponse
+                return new PaymentResultResponse
                 {
                     Success = false,
                     Message = "Số tiền callback không khớp với yêu cầu thanh toán; cần đối soát.",
@@ -431,7 +425,7 @@ public class PaymentService : IPaymentService
                     "VNPay reported success for an amount above the outstanding invoice balance.", cancellationToken,
                     paymentAttempt);
                 await transaction.CommitAsync(cancellationToken);
-                return new PaymentsResponses.PaymentResultResponse
+                return new PaymentResultResponse
                 {
                     Success = false,
                     Message = "Số tiền thanh toán vượt quá số dư hóa đơn.",
@@ -493,7 +487,6 @@ public class PaymentService : IPaymentService
                                       && item.Status == "Active"
                                       && item.EndDate >= today)
                         .MaxAsync(item => item.EndDate, cancellationToken);
-                    // Gia hạn nối tiếp subscription đang còn hạn; ngày kết thúc được tính inclusive.
                     var startDate = currentEnd.HasValue ? currentEnd.Value.AddDays(1) : today;
                     subscription.StartDate = startDate;
                     subscription.EndDate = startDate.AddDays(subscription.DurationDays - 1);
@@ -509,7 +502,7 @@ public class PaymentService : IPaymentService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 
-            return new PaymentsResponses.PaymentResultResponse
+            return new PaymentResultResponse
             {
                 Success = true,
                 Message = invoice.Status == "Paid" ? "Thanh toán đủ hóa đơn thành công." : "Đã ghi nhận thanh toán một phần; subscription vẫn chờ thanh toán.",
@@ -524,7 +517,7 @@ public class PaymentService : IPaymentService
             "Failed", "payment.vnpay.failed", $"VNPay response code: {vnpResponseCode}", cancellationToken,
             paymentAttempt);
         await transaction.CommitAsync(cancellationToken);
-        return new PaymentsResponses.PaymentResultResponse
+        return new PaymentResultResponse
         {
             Success = false,
             Message = $"Thanh toán không thành công. Mã lỗi VNPay: {vnpResponseCode}",

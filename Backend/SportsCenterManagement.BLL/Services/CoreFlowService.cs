@@ -3,8 +3,8 @@ using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
-using CoreFlowsResponses = SportsCenterManagement.BLL.DTOs.CoreFlows.Responses;
 using SportsCenterManagement.BLL.Common.Helpers;
+using SportsCenterManagement.BLL.DTOs.CoreFlows;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.DAL.Entities;
 using SportsCenterManagement.DAL.Repositories.Interfaces;
@@ -14,6 +14,7 @@ namespace SportsCenterManagement.BLL.Services;
 public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
 {
     private readonly IUnitOfWork _unitOfWork = unitOfWork;
+    private static readonly TimeSpan EnrollmentCancellationCutoff = TimeSpan.FromHours(2);
 
     public async Task<IReadOnlyList<MembershipPackage>> GetActivePackagesAsync(
         long centerId,
@@ -25,7 +26,7 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<CoreFlowsResponses.PendingMembershipResult> CreatePendingMembershipAsync(
+    public async Task<PendingMembershipResult> CreatePendingMembershipAsync(
         long memberId,
         long packageId,
         long? createdBy,
@@ -45,10 +46,11 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
         var package = await _unitOfWork.Repository<MembershipPackage>().Find(
             item => item.Id == packageId)
             .SingleOrDefaultAsync(cancellationToken);
-        if (package is null)
+        if (package is null || package.Status != "Active")
         {
             throw new InvalidOperationException("Membership package is unavailable.");
         }
+
         if (member.CenterId.HasValue && member.CenterId.Value != package.CenterId)
         {
             throw new UnauthorizedAccessException("Membership package belongs to another center.");
@@ -77,14 +79,10 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
                 .Find(payment => payment.InvoiceId == pending.Invoice.Id && payment.PaymentStatus == "Succeeded")
                 .SumAsync(payment => (decimal?)payment.Amount, cancellationToken) ?? 0m;
             await transaction.CommitAsync(cancellationToken);
-            return new CoreFlowsResponses.PendingMembershipResult(pending.Subscription.Id, pending.Invoice.Id,
+            return new PendingMembershipResult(pending.Subscription.Id, pending.Invoice.Id,
                 pending.Invoice.InvoiceNumber, pending.Invoice.TotalAmount - paidAmount);
         }
 
-        if (package.Status != "Active")
-        {
-            throw new InvalidOperationException("Membership package is unavailable.");
-        }
         var centerIsActive = await _unitOfWork.Repository<Center>()
             .AnyAsync(center => center.Id == package.CenterId && center.Status == "Active", cancellationToken);
         if (!centerIsActive)
@@ -92,12 +90,13 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
             throw new InvalidOperationException("Membership center is unavailable.");
         }
 
-        if (package.Price <= 0 || package.DurationDays <= 0)
+        if (package.Price < 0 || package.DurationDays <= 0)
         {
             throw new InvalidOperationException("Membership package has an invalid price or duration.");
         }
 
         var now = DateTime.UtcNow;
+        var today = DateOnly.FromDateTime(now);
         // Gắn member vào center cùng transaction với hóa đơn và subscription.
         if (!member.CenterId.HasValue)
         {
@@ -105,12 +104,13 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
             member.UpdatedAt = now;
             _unitOfWork.Repository<MemberProfile>().Update(member);
         }
+
         var subscription = new MemberSubscription
         {
             MemberId = memberId,
             PackageId = package.Id,
-            StartDate = null,
-            EndDate = null,
+            StartDate = today,
+            EndDate = today.AddDays(package.DurationDays),
             DurationDays = package.DurationDays,
             Price = package.Price,
             Status = "PendingPayment",
@@ -148,13 +148,14 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
             Amount = package.Price
         }, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
         AuditLogWriter.Add(_unitOfWork, createdBy ?? user.Id, package.CenterId,
             "membership.payment_requested", "MemberSubscription", subscription.Id,
             newValues: new { PackageId = package.Id, InvoiceId = invoice.Id, invoice.TotalAmount, subscription.DurationDays });
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        return new CoreFlowsResponses.PendingMembershipResult(subscription.Id, invoice.Id, invoiceNumber, package.Price);
+        return new PendingMembershipResult(subscription.Id, invoice.Id, invoiceNumber, package.Price);
     }
 
     public async Task<ClassEnrollment> EnrollMemberAsync(
@@ -248,6 +249,42 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
         return existing;
     }
 
+    public async Task<ClassEnrollment> CancelClassEnrollmentAsync(long classId, long memberId, string? reason, CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var enrollment = await _unitOfWork.Repository<ClassEnrollment>().Find(x => x.ClassId == classId && x.MemberId == memberId)
+            .SingleOrDefaultAsync(cancellationToken) ?? throw new InvalidOperationException("Không tìm thấy ghi danh của Member trong lớp này.");
+        if (enrollment.Status != "Confirmed") throw new InvalidOperationException("Ghi danh không ở trạng thái có thể hủy.");
+
+        // Schedules are expressed in the center's local time; current centers use Vietnam time (UTC+7).
+        var nowLocal = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).DateTime;
+        var upcomingSessions = await _unitOfWork.Context.ClassSessions
+            .Where(x => x.ClassId == classId && x.SessionStatus == "Scheduled")
+            .OrderBy(x => x.SessionDate).ThenBy(x => x.StartTime)
+            .Select(x => new { x.SessionDate, x.StartTime }).ToListAsync(cancellationToken);
+        var nextSession = upcomingSessions.FirstOrDefault(x => x.SessionDate.ToDateTime(x.StartTime) > nowLocal);
+        if (nextSession is null) throw new InvalidOperationException("Lớp không còn buổi học có thể hủy ghi danh.");
+        if (nowLocal >= nextSession.SessionDate.ToDateTime(nextSession.StartTime) - EnrollmentCancellationCutoff)
+            throw new InvalidOperationException("Chỉ được hủy ghi danh trước giờ học ít nhất 2 tiếng.");
+
+        enrollment.Status = "Cancelled";
+        enrollment.CancelledAt = DateTime.UtcNow;
+        enrollment.CancellationReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim()[..Math.Min(reason.Trim().Length, 500)];
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return enrollment;
+    }
+
+    public Task<Payment> RecordCashPaymentAsync(
+        long invoiceId,
+        long processedBy,
+        decimal amount,
+        CancellationToken cancellationToken = default)
+    {
+        var autoKey = $"CASH-NOIDEM-{Guid.NewGuid():N}";
+        return RecordCashPaymentAsync(invoiceId, processedBy, amount, autoKey, cancellationToken);
+    }
+
     public async Task<Payment> RecordCashPaymentAsync(
         long invoiceId,
         long processedBy,
@@ -268,6 +305,7 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
         {
             throw new ValidationException("Idempotency key cần từ 16 đến 100 ký tự.");
         }
+
         var keyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedKey)));
         var transactionCode = $"CASH-{keyHash}";
 
@@ -326,9 +364,9 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
             var db = _unitOfWork.Context;
             var subscriptions = await (
                 from item in db.InvoiceItems
-                join subscription in db.MemberSubscriptions on item.SubscriptionId equals subscription.Id
+                join sub in db.MemberSubscriptions on item.SubscriptionId equals sub.Id
                 where item.InvoiceId == invoice.Id
-                select subscription).ToListAsync(cancellationToken);
+                select sub).ToListAsync(cancellationToken);
             foreach (var subscription in subscriptions)
             {
                 if (subscription.Status != "PendingPayment" || subscription.DurationDays <= 0)
@@ -354,7 +392,7 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
         return payment;
     }
 
-    public async Task<CoreFlowsResponses.RevenueSummary> GetRevenueAsync(
+    public async Task<RevenueSummary> GetRevenueAsync(
         long centerId,
         DateOnly from,
         DateOnly to,
@@ -377,6 +415,6 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
                 && payment.PaidAt.Value >= start && payment.PaidAt.Value < endExclusive
             select (decimal?)payment.Amount).SumAsync(cancellationToken) ?? 0m;
 
-        return new CoreFlowsResponses.RevenueSummary(centerId, from, to, gross, 0m, gross);
+        return new RevenueSummary(centerId, from, to, gross, 0m, gross);
     }
 }

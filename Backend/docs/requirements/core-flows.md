@@ -130,6 +130,16 @@ Tạo hoặc quản lý tài khoản và hồ sơ thành viên; chọn, mua ho�
 
 ## 5. Flow 2 — Class Booking and Schedule Management
 
+### API contract đã triển khai (MVP)
+
+- `GET /api/centers/{centerId}/sports` và `/rooms`: lựa chọn bộ môn/phòng đang hoạt động.
+- Manager: `POST /api/classes`, `POST /api/classes/{id}/schedules`, `POST /api/classes/{id}/coaches`, `POST /api/classes/{id}/publish`.
+- Danh mục lớp Published: `GET /api/centers/{centerId}/classes`; thời khóa biểu theo ngày: `GET /api/centers/{centerId}/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD`; lịch buổi theo lớp: `GET /api/classes/{id}/sessions?from=&to=`.
+- Member: `POST /api/classes/{id}/enrollments` với `{ "subscriptionId": 123 }`, `GET /api/members/me/enrollments`, và `DELETE /api/classes/{id}/enrollments/{enrollmentId}` với body tùy chọn `{ "reason": "..." }`.
+- JWT quyết định Member hiện tại; client không được chọn `memberId`. Ghi danh yêu cầu subscription đang Active/còn hạn/đúng cơ sở, đủ quota, lớp Published và chỗ còn trống. Sức chứa được kiểm tra trong transaction Serializable.
+- Hủy ghi danh cho phép đến 2 giờ trước buổi Scheduled tiếp theo theo giờ Việt Nam (UTC+7), sau đó trả `409 Conflict`. Policy này được dùng vì đặc tả trước đó chưa quy định mốc cụ thể.
+- Lịch lặp tạo `ClassSession` cho từng ngày phù hợp; ngày trong tuần theo .NET (`0` = Chủ nhật). API lịch công khai lọc buổi qua `from`/`to`.
+
 ### 5.1 Mục tiêu
 
 Manager tạo lớp, phòng, lịch và phân công coach; member ghi danh lớp hoặc đặt buổi; hệ thống bảo vệ sức chứa, quyền tham gia và tránh xung đột lịch.

@@ -1,4 +1,4 @@
-using CoreFlowsResponses = SportsCenterManagement.BLL.DTOs.CoreFlows.Responses;
+using SportsCenterManagement.BLL.DTOs.CoreFlows;
 using SportsCenterManagement.DAL.Entities;
 
 namespace SportsCenterManagement.BLL.Interfaces;
@@ -9,7 +9,7 @@ public interface ICoreFlowService
         long centerId,
         CancellationToken cancellationToken = default);
 
-    Task<CoreFlowsResponses.PendingMembershipResult> CreatePendingMembershipAsync(
+    Task<PendingMembershipResult> CreatePendingMembershipAsync(
         long memberId,
         long packageId,
         long? createdBy,
@@ -22,6 +22,12 @@ public interface ICoreFlowService
         long? registeredBy,
         CancellationToken cancellationToken = default);
 
+    Task<ClassEnrollment> CancelClassEnrollmentAsync(
+        long classId,
+        long memberId,
+        string? reason,
+        CancellationToken cancellationToken = default);
+
     Task<Payment> RecordCashPaymentAsync(
         long invoiceId,
         long processedBy,
@@ -29,7 +35,13 @@ public interface ICoreFlowService
         string idempotencyKey,
         CancellationToken cancellationToken = default);
 
-    Task<CoreFlowsResponses.RevenueSummary> GetRevenueAsync(
+    Task<Payment> RecordCashPaymentAsync(
+        long invoiceId,
+        long processedBy,
+        decimal amount,
+        CancellationToken cancellationToken = default);
+
+    Task<RevenueSummary> GetRevenueAsync(
         long centerId,
         DateOnly from,
         DateOnly to,

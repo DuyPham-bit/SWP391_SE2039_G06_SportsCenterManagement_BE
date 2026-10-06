@@ -1,5 +1,4 @@
-using PaymentsRequests = SportsCenterManagement.BLL.DTOs.Payments.Requests;
-using PaymentsResponses = SportsCenterManagement.BLL.DTOs.Payments.Responses;
+using SportsCenterManagement.BLL.DTOs.Payments;
 
 namespace SportsCenterManagement.BLL.Interfaces;
 
@@ -18,7 +17,7 @@ public interface IPaymentService
     /// <returns>Chuỗi URL thanh toán của VNPay</returns>
     Task<string> CreatePaymentUrlAsync(
         long memberId,
-        PaymentsRequests.CreatePaymentRequest request,
+        CreatePaymentRequest request,
         string ipAddress,
         CancellationToken cancellationToken = default);
 
@@ -28,7 +27,7 @@ public interface IPaymentService
     /// <param name="queryParams">Tập hợp các tham số key-value do VNPay gửi về qua URL</param>
     /// <param name="cancellationToken">Token hủy tác vụ bất đồng bộ</param>
     /// <returns>Kết quả thanh toán chi tiết để thông báo cho người dùng</returns>
-    Task<PaymentsResponses.PaymentResultResponse> ProcessPaymentCallbackAsync(
+    Task<PaymentResultResponse> ProcessPaymentCallbackAsync(
         IDictionary<string, string> queryParams,
         CancellationToken cancellationToken = default);
 }

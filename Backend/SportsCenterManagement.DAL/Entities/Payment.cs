@@ -25,13 +25,36 @@ public class Payment : Common.BaseEntity
     [Column("transaction_code")]
     public string? TransactionCode { get; set; }
 
+    [MaxLength(100)]
+    [Column("gateway_reference")]
+    public string? GatewayReference { get; set; }
+
+    [NotMapped]
+    public string? ProviderReference
+    {
+        get => GatewayReference;
+        set => GatewayReference = value;
+    }
+
     [MaxLength(150)]
-    [Column("provider_reference")]
-    public string? ProviderReference { get; set; }
+    [Column("provider_transaction_id")]
+    public string? ProviderTransactionId { get; set; }
+
+    [MaxLength(100)]
+    [Column("idempotency_key")]
+    public string? IdempotencyKey { get; set; }
+
+    [MaxLength(2048)]
+    [Column("gateway_payment_url")]
+    public string? GatewayPaymentUrl { get; set; }
 
     [Precision(12, 2)]
     [Column("amount")]
     public decimal Amount { get; set; }
+
+    [Precision(12, 2)]
+    [Column("amount_received")]
+    public decimal? AmountReceived { get; set; }
 
     [MaxLength(30)]
     [Column("payment_status")]
@@ -40,8 +63,15 @@ public class Payment : Common.BaseEntity
     [Column("paid_at")]
     public DateTime? PaidAt { get; set; }
 
-    [Column("attempted_at")]
-    public DateTime AttemptedAt { get; set; }
+    [Column("created_at")]
+    public DateTime CreatedAt { get; set; }
+
+    [NotMapped]
+    public DateTime AttemptedAt
+    {
+        get => CreatedAt;
+        set => CreatedAt = value;
+    }
 
     [MaxLength(500)]
     [Column("note")]
@@ -49,5 +79,4 @@ public class Payment : Common.BaseEntity
 
     [Column("refund_approved_by")]
     public long? RefundApprovedBy { get; set; }
-
 }

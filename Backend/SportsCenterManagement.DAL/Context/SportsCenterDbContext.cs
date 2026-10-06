@@ -46,6 +46,7 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
     public DbSet<MemberProgressReview> MemberProgressReviews => Set<MemberProgressReview>();
     public DbSet<AssignmentSubmission> AssignmentSubmissions => Set<AssignmentSubmission>();
     public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<PaymentRefund> PaymentRefunds => Set<PaymentRefund>();
     public DbSet<SupportRequestMessage> SupportRequestMessages => Set<SupportRequestMessage>();
     public DbSet<AiMessage> AiMessages => Set<AiMessage>();
     public DbSet<AiExerciseRecommendation> AiExerciseRecommendations => Set<AiExerciseRecommendation>();
@@ -118,10 +119,17 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .HasIndex(entity => entity.TransactionCode)
             .IsUnique()
             .HasFilter("[transaction_code] IS NOT NULL");
-        modelBuilder.Entity<Payment>()
-            .HasIndex(entity => entity.ProviderReference)
-            .IsUnique()
-            .HasFilter("[provider_reference] IS NOT NULL");
+        modelBuilder.Entity<Payment>().HasIndex(entity => entity.GatewayReference).IsUnique()
+            .HasFilter("[gateway_reference] IS NOT NULL");
+        modelBuilder.Entity<Payment>().HasIndex(entity => entity.ProviderTransactionId).IsUnique()
+            .HasFilter("[provider_transaction_id] IS NOT NULL");
+        modelBuilder.Entity<Payment>().HasIndex(entity => entity.IdempotencyKey).IsUnique()
+            .HasFilter("[idempotency_key] IS NOT NULL");
+        modelBuilder.Entity<Invoice>().HasIndex(entity => entity.IdempotencyKey).IsUnique()
+            .HasFilter("[idempotency_key] IS NOT NULL");
+        modelBuilder.Entity<PaymentRefund>().HasIndex(entity => entity.IdempotencyKey).IsUnique();
+        modelBuilder.Entity<PaymentRefund>().HasIndex(entity => entity.ProviderRefundId).IsUnique()
+            .HasFilter("[provider_refund_id] IS NOT NULL");
         modelBuilder.Entity<SystemSetting>().HasIndex(entity => entity.SettingKey).IsUnique();
 
         modelBuilder.Entity<User>()
@@ -620,6 +628,17 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .HasOne<User>()
             .WithMany()
             .HasForeignKey(entity => entity.RefundApprovedBy)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<PaymentRefund>()
+            .HasOne<Payment>()
+            .WithMany()
+            .HasForeignKey(entity => entity.PaymentId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PaymentRefund>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(entity => entity.RequestedBy)
             .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<SupportRequestMessage>()

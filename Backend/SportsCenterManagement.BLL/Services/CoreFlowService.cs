@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.BLL.Common.Helpers;
+using Microsoft.Extensions.Configuration;
 using SportsCenterManagement.BLL.DTOs.CoreFlows;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.DAL.Entities;
@@ -11,9 +12,10 @@ using SportsCenterManagement.DAL.Repositories.Interfaces;
 
 namespace SportsCenterManagement.BLL.Services;
 
-public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
+public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration configuration) : ICoreFlowService
 {
     private readonly IUnitOfWork _unitOfWork = unitOfWork;
+    private readonly IConfiguration _configuration = configuration;
     private static readonly TimeSpan EnrollmentCancellationCutoff = TimeSpan.FromHours(2);
 
     public async Task<IReadOnlyList<MembershipPackage>> GetActivePackagesAsync(
@@ -90,13 +92,13 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
             throw new InvalidOperationException("Membership center is unavailable.");
         }
 
-        if (package.Price < 0 || package.DurationDays <= 0)
+        if (package.Price <= 0 || package.DurationDays <= 0)
         {
             throw new InvalidOperationException("Membership package has an invalid price or duration.");
         }
 
         var now = DateTime.UtcNow;
-        var today = DateOnly.FromDateTime(now);
+        var today = ToBusinessDate(now);
         // Gắn member vào center cùng transaction với hóa đơn và subscription.
         if (!member.CenterId.HasValue)
         {
@@ -110,7 +112,7 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
             MemberId = memberId,
             PackageId = package.Id,
             StartDate = today,
-            EndDate = today.AddDays(package.DurationDays),
+            EndDate = today.AddDays(package.DurationDays - 1),
             DurationDays = package.DurationDays,
             Price = package.Price,
             Status = "PendingPayment",
@@ -177,7 +179,7 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
             throw new InvalidOperationException("Class capacity is not configured.");
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = ToBusinessDate(DateTime.UtcNow);
         var subscription = await _unitOfWork.Repository<MemberSubscription>().Find(
                 item => item.Id == subscriptionId && item.MemberId == memberId && item.Status == "Active")
             .SingleOrDefaultAsync(cancellationToken);
@@ -326,7 +328,7 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
 
         var invoice = await _unitOfWork.Repository<Invoice>().GetByIdAsync(invoiceId, cancellationToken)
             ?? throw new InvalidOperationException("Invoice was not found.");
-        if (invoice.Status is "Paid" or "Cancelled" or "Voided" or "Refunded")
+        if (invoice.Status is not ("Issued" or "PartiallyPaid"))
         {
             throw new InvalidOperationException("Invoice cannot accept another payment.");
         }
@@ -350,8 +352,9 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
             TransactionCode = transactionCode,
             Amount = amount,
             PaymentStatus = "Succeeded",
-            PaidAt = now,
-            AttemptedAt = now
+            AmountReceived = amount,
+            CreatedAt = now,
+            PaidAt = now
         };
         await _unitOfWork.Repository<Payment>().AddAsync(payment, cancellationToken);
 
@@ -369,16 +372,24 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
                 select sub).ToListAsync(cancellationToken);
             foreach (var subscription in subscriptions)
             {
-                if (subscription.Status != "PendingPayment" || subscription.DurationDays <= 0)
+                if (subscription.Status != "PendingPayment")
                 {
                     continue;
                 }
-                var today = DateOnly.FromDateTime(now);
+                var durationDays = subscription.DurationDays;
+                if (durationDays <= 0)
+                {
+                    var package = await _unitOfWork.Repository<MembershipPackage>().Find(
+                        item => item.Id == subscription.PackageId)
+                        .SingleOrDefaultAsync(cancellationToken);
+                    durationDays = package?.DurationDays ?? 30;
+                }
+                var today = ToBusinessDate(now);
                 var currentEnd = await _unitOfWork.Repository<MemberSubscription>()
                     .Find(item => item.MemberId == subscription.MemberId && item.Status == "Active" && item.EndDate >= today)
                     .MaxAsync(item => (DateOnly?)item.EndDate, cancellationToken);
                 subscription.StartDate = currentEnd.HasValue ? currentEnd.Value.AddDays(1) : today;
-                subscription.EndDate = subscription.StartDate.Value.AddDays(subscription.DurationDays - 1);
+                subscription.EndDate = subscription.StartDate.Value.AddDays(durationDays - 1);
                 subscription.Status = "Active";
                 subscription.UpdatedAt = now;
             }
@@ -398,13 +409,16 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
         DateOnly to,
         CancellationToken cancellationToken = default)
     {
-        if (from > to)
+        if (from > to || to == DateOnly.MaxValue || to.DayNumber - from.DayNumber > 366)
         {
-            throw new InvalidOperationException("Start date must be on or before end date.");
+            throw new InvalidOperationException("The report date range must be valid and no longer than 367 days.");
         }
 
-        var start = from.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
-        var endExclusive = to.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var timeZone = GetReportTimeZone();
+        var startLocal = from.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+        var endLocal = to.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+        var start = TimeZoneInfo.ConvertTimeToUtc(startLocal, timeZone);
+        var endExclusive = TimeZoneInfo.ConvertTimeToUtc(endLocal, timeZone);
         var db = _unitOfWork.Context;
         var gross = await (
             from payment in db.Payments
@@ -415,6 +429,36 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
                 && payment.PaidAt.Value >= start && payment.PaidAt.Value < endExclusive
             select (decimal?)payment.Amount).SumAsync(cancellationToken) ?? 0m;
 
-        return new RevenueSummary(centerId, from, to, gross, 0m, gross);
+        var refunds = await (
+            from refund in db.PaymentRefunds
+            join payment in db.Payments on refund.PaymentId equals payment.Id
+            join invoice in db.Invoices on payment.InvoiceId equals invoice.Id
+            where invoice.CenterId == centerId
+                && refund.Status == "Succeeded"
+                && refund.ProcessedAt >= start && refund.ProcessedAt < endExclusive
+            select (decimal?)refund.Amount).SumAsync(cancellationToken) ?? 0m;
+
+        return new RevenueSummary(centerId, from, to, gross, refunds, gross - refunds);
     }
+
+    private TimeZoneInfo GetReportTimeZone()
+    {
+        var configured = _configuration["Reports:TimeZoneId"];
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(configured);
+        }
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+        }
+    }
+
+    private DateOnly ToBusinessDate(DateTime utcDateTime) =>
+        DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
+            DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc), GetReportTimeZone()));
 }

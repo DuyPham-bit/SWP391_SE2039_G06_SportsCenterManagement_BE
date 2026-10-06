@@ -10,6 +10,11 @@ public class PaymentResultResponse
     /// </summary>
     public bool Success { get; set; }
 
+    /// <summary>True if the signed provider notification was safely applied or already applied.</summary>
+    public bool Processed { get; set; }
+
+    public string? ProviderAckCode { get; set; }
+
     /// <summary>
     /// Thông điệp mô tả chi tiết trạng thái giao dịch.
     /// </summary>

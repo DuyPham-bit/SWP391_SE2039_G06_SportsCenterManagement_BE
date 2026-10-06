@@ -10,6 +10,6 @@ public sealed record MembershipPackageResponse(
     int? MaxClasses,
     string? AccessType,
     string Status,
-    int AllowedSports,
-    string? Badge,
-    IReadOnlyList<string> Features);
+    int AllowedSports = 1,
+    string? Badge = null,
+    IReadOnlyList<string>? Features = null);

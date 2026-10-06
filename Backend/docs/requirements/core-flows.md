@@ -41,8 +41,8 @@ Giá trị trạng thái phải được chuẩn hóa thành enum/constants ho�
 | MemberSubscription | `PendingPayment`, `Active`, `Expired`, `Cancelled`, `Suspended`, `Refunded` |
 | Class / ClassSchedule | `Draft`, `Published`, `Cancelled`, `Completed` |
 | ClassEnrollment / SessionBooking | `Pending`, `Confirmed`, `Waitlisted`, `Cancelled`, `Attended`, `NoShow` |
-| Invoice | `Draft`, `Issued`, `PartiallyPaid`, `Paid`, `Voided`, `Refunded` |
-| Payment | `Pending`, `Succeeded`, `Failed`, `RefundPending`, `Refunded`, `Voided` |
+| Invoice | `Draft`, `Issued`, `PartiallyPaid`, `Paid`, `Overpaid`, `Voided`, `PaidAfterVoid`, `PartiallyRefunded`, `Refunded` |
+| Payment | `Pending`, `Succeeded`, `Failed`, `Voided`; trạng thái refund được quản lý riêng ở `PaymentRefund` |
 
 ## 4. Flow 1 — User and Membership Management
 
@@ -168,12 +168,12 @@ Tạo khoản phải thu có chi tiết và giá tại thời điểm bán; ghi 
 ### 6.2 Luồng thanh toán
 
 1. Flow 1/2 tạo yêu cầu tính phí (ví dụ bán gói; chỉ thu phí lớp nếu chính sách xác nhận) và gửi danh sách sản phẩm/dịch vụ.
-2. Backend lấy giá hiện hành từ DB, áp dụng discount/tax theo quyền và chính sách; không tin giá client gửi lên.
+2. Backend lấy giá hiện hành từ DB, không tin giá client gửi lên. Discount/tax hiện chưa có chính sách hoặc API cấu hình nên checkout đang lưu `discount=0`, `tax=0`.
 3. Tạo Invoice và InvoiceItem với snapshot mô tả, quantity, unit price, amount, subtotal/discount/tax/total; trạng thái `Issued`.
 4. Member thanh toán trực tuyến hoặc receptionist ghi nhận tiền mặt/phương thức được cho phép.
 5. Với cổng thanh toán, callback phải xác minh chữ ký/trạng thái và idempotency; với tiền mặt, lưu người thu và thời gian.
 6. Lưu Payment. Cập nhật tổng đã trả và Invoice thành `Paid` hoặc `PartiallyPaid`.
-7. Khi đủ tiền, kích hoạt subscription/booking có điều kiện thanh toán; phát hành mã/số hóa đơn và cho phép xem/in/xuất.
+7. Khi đủ tiền, kích hoạt subscription liên quan; phát hành mã/số hóa đơn và cho phép tra cứu để xem/in/xuất ở frontend.
 8. Manager lọc báo cáo theo center và khoảng thời gian; doanh thu lấy từ payment thành công theo ngày ghi nhận, trừ refund/void theo quy tắc báo cáo.
 
 ### 6.3 Happy cases
@@ -193,11 +193,12 @@ Tạo khoản phải thu có chi tiết và giá tại thời điểm bán; ghi 
 | F3-U1 | Thanh toán thất bại/hủy/timeout. | Lưu trạng thái thất bại hoặc pending để tra soát; không kích hoạt quyền lợi; cho phép retry không nhân đôi khoản thu. |
 | F3-U2 | Callback gửi lặp hoặc client retry request. | Xử lý idempotent; chỉ ghi nhận một payment thành công cho transaction ngoài. |
 | F3-U3 | Callback amount/currency/invoice không khớp hoặc chữ ký sai. | Từ chối cập nhật; ghi log an toàn; không đánh dấu invoice Paid. |
-| F3-U4 | Thanh toán vượt số dư còn phải trả. | Từ chối hoặc xử lý như khoản thừa theo chính sách; không tự sửa amount. |
-| F3-U5 | Invoice bị void/đã Paid nhưng nhận thêm lệnh thu. | Không thu tiếp; trả conflict; cần quy trình hoàn tiền nếu đã thu ngoài hệ thống. |
+| F3-U4 | Tiền mặt khách đưa nhiều hơn số phải thu / POS hoặc callback lệch số tiền. | Cash ghi nhận tối đa số đến hạn và trả tiền thối; POS phải đúng số dư; callback không khớp amount bị từ chối. Khoản thừa đã được cổng xác nhận được đánh dấu `Overpaid` để hoàn phần dư. |
+| F3-U5 | Invoice bị void/đã Paid nhưng nhận thêm lệnh thu; callback thành công đến muộn sau khi void. | Từ chối lệnh thu mới. Nếu cổng xác nhận đã thu tiền sau void, lưu payment thành công, đặt invoice `PaidAfterVoid` và yêu cầu Manager/Admin refund; không bỏ qua khoản tiền đã thu. |
 | F3-U6 | Refund được thực hiện. | Lưu giao dịch refund và người duyệt; không xóa payment gốc; cập nhật số ròng và trạng thái invoice theo chính sách. |
 | F3-U7 | Giao dịch chưa rõ trạng thái do cổng thanh toán timeout. | Giữ pending và đối soát; không giả định thất bại hoặc thành công chỉ từ timeout. |
-| F3-U8 | Nhân viên không có quyền xem báo cáo hoặc ghi payment ở center khác. | Trả 403 và không trả dữ liệu tài chính. |
+| F3-U8 | Nhân viên không có quyền xem báo cáo hoặc ghi payment ở center khác. | Từ chối truy cập (`403`; center ngoài scope có thể trả `404` để không tiết lộ dữ liệu), không trả nội dung tài chính. |
+| F3-U9 | Hai request thu tiền đồng thời, trùng idempotency key hoặc deadlock DB. | Ràng buộc unique/transaction ngăn ghi trùng; trả `409` cho xung đột key, `503` cho deadlock và yêu cầu retry với cùng key. |
 
 ### 6.5 Acceptance criteria chính
 
@@ -206,7 +207,35 @@ Tạo khoản phải thu có chi tiết và giá tại thời điểm bán; ghi 
 - **AC-F3-03:** Given callback thành công gửi lại nhiều lần với cùng transaction code, then chỉ có một giao dịch được tính doanh thu.
 - **AC-F3-04:** Given payment thất bại hoặc pending, then báo cáo doanh thu không cộng khoản đó.
 - **AC-F3-05:** Given refund, then payment gốc không bị xóa và báo cáo thể hiện doanh thu gộp/refund/ròng theo kỳ.
-- **AC-F3-06:** Given khoảng ngày báo cáo [from, to], then điều kiện ngày áp dụng nhất quán theo timezone trung tâm và có thể đối soát với danh sách giao dịch.
+- **AC-F3-06:** Given khoảng ngày báo cáo [from, to], then điều kiện ngày áp dụng nhất quán theo timezone báo cáo được cấu hình và có thể đối soát với danh sách giao dịch.
+
+### 6.6 Hợp đồng Flow 3 đã triển khai trong backend
+
+```text
+POST /api/auth/login
+POST /api/payments/create-vnpay-url                 # Member + Idempotency-Key
+POST /api/payments/create-momo-url                  # Member + Idempotency-Key
+GET  /api/payments/vnpay-callback                   # public, chữ ký VNPay
+GET  /api/payments/vnpay-ipn                        # public, xác nhận kết quả cho VNPay
+GET  /api/payments/momo-callback                    # public, chữ ký MoMo
+POST /api/payments/momo-ipn                         # public, chữ ký MoMo
+POST /api/payments/counter-checkout                 # Receptionist/Manager/Admin
+POST /api/invoices/{invoiceNumber}/payments         # thu tiếp hóa đơn tại quầy
+GET  /api/invoices/{invoiceNumber}                  # kiểm tra quyền sở hữu/center
+POST /api/payments/counter-void/{invoiceNumber}     # Manager/Admin; chỉ hóa đơn chưa thu
+POST /api/payments/{paymentId}/refunds              # Manager/Admin
+POST /api/payments/refunds/{refundId}/reconcile     # Manager/Admin; refund Pending
+POST /api/payments/{gatewayReference}/reconcile     # Manager/Admin; payment Pending
+GET  /api/reports/revenue?centerId=&from=&to=&groupBy=day|month
+GET  /api/reports/membership?centerId=&from=&to=&groupBy=day|month
+GET  /api/reports/classes?centerId=&from=&to=&groupBy=day|month
+```
+
+Các route thanh toán cần JWT và `Idempotency-Key`; callback/IPN là ngoại lệ public nhưng chỉ áp dụng dữ liệu sau khi xác minh chữ ký, reference, amount và currency phù hợp. Cash được thu một phần; POS phải thu đúng số dư. Timeout giữ `Pending` để đối soát; không cho tạo lần thử mới khi còn payment Pending. Manager chỉ có scope center trong JWT; Admin phải chỉ định `centerId` khi xem report.
+
+Refund được ghi ở bảng `PaymentRefund`, giữ nguyên payment gốc. Cash/POS cần thao tác xác nhận refund bên ngoài; MoMo/VNPay gọi API refund. Timeout/response không xác thực giữ refund Pending và có endpoint reconcile. Báo cáo gộp lấy payment Succeeded theo `PaidAt`; refund trừ theo `ProcessedAt` trong kỳ refund.
+
+Schema hiện không lưu `CenterId` trên `MemberProfile`. Báo cáo membership quy một member về center nếu hồ sơ có ít nhất một subscription tại center đó; `NewMembers` được tính từ subscription đầu tiên của hồ sơ tại center. Số liệu không bao gồm hồ sơ chưa từng có subscription ở center.
 
 ## 7. Đánh giá DB hiện có và đề xuất
 
@@ -217,7 +246,7 @@ Trong `SportsCenterManagement.Models/SportsCenterEntities.cs` và `SportsCenterM
 - Tài khoản/quyền: `User`, `Role`, `Permission`, `RolePermission`, `MemberProfile`, `CoachProfile`, `StaffProfile`, `AuditLog`.
 - Gói: `MembershipPackage`, `MemberSubscription`.
 - Lớp/lịch: `Center`, `Sport`, `Room`, `ClassEntity`, `ClassCoach`, `ClassSchedule`, `ClassSession`, `ClassEnrollment`, `SessionBooking`, `ClassWaitlist`, `Attendance`.
-- Thu tiền: `Invoice`, `InvoiceItem`, `Payment`.
+- Thu tiền: `Invoice`, `InvoiceItem`, `Payment`, `PaymentRefund`.
 
 Có unique index cho username/email và một số mã; có FK cấu hình bằng EF Core. Do đó không nên tạo lại các bảng này trước khi kiểm tra đầy đủ cột, unique constraint, check constraint, quan hệ và cách dùng trạng thái.
 
@@ -230,7 +259,7 @@ Có unique index cho username/email và một số mã; có FK cấu hình bằn
 5. **Coach assignment:** `ClassCoach` hiện là quan hệ nhiều-nhiều; cần hiệu lực từ/đến hoặc lịch sử assignment nếu coach thay đổi. Phải validate xung đột theo từng session, không chỉ theo lớp.
 6. **Membership snapshot:** `MemberSubscription` cần lưu giá thực trả, ngày bắt đầu/kết thúc, người bán, trạng thái, invoice liên quan và quy tắc gia hạn. Package price/duration có thể đổi; lịch sử subscription không được đổi theo giá package hiện tại.
 7. **Invoice snapshot:** `InvoiceItem` đang có mô tả/quantity/unit price/amount. Đảm bảo tính tiền decimal chính xác, quy tắc discount/tax, currency, issued/due time và không phụ thuộc giá hiện tại của package.
-8. **Payment/refund:** Không dùng payment `PaidAt` bắt buộc cho trạng thái pending/failed; đổi thành `CreatedAt` và nullable `PaidAt`/`ProcessedAt` phù hợp. Thêm unique idempotency key hoặc provider transaction key có unique constraint; refund nên là giao dịch riêng hoặc bảng PaymentTransaction, không ghi đè giao dịch gốc.
+8. **Payment/refund:** Flow 3 đã bổ sung `Payment.CreatedAt`, nullable `PaidAt`, gateway/idempotency references và bảng `PaymentRefund`; giữ unique provider transaction và refund idempotency trong các migration sau.
 9. **Quan hệ actor:** `Payment.ProcessedBy` và `Invoice.CreatedBy` cần FK tới User; xác thực actor đúng center/role. Làm rõ `Payment.MemberId` có thừa vì suy ra từ Invoice hay cần giữ snapshot; nếu giữ, kiểm tra member nhất quán với invoice.
 10. **Báo cáo/audit:** `AuditLog` cần actor, action, entity type/id, timestamp UTC, correlation/request id và metadata đã lọc PII. Báo cáo doanh thu nên query từ payment/refund có trạng thái và thời điểm chuẩn hóa, không chỉ dựa `Invoice.PaidAt`.
 11. **Multi-role:** `User.RoleId` chỉ biểu diễn một role tại một thời điểm. Nếu một user có thể vừa là coach vừa là manager/receptionist, đổi sang `UserRoles(UserId, RoleId, CenterId, ...)`; nếu mỗi tài khoản chỉ có đúng một role thì giữ thiết kế hiện tại.
@@ -238,7 +267,7 @@ Có unique index cho username/email và một số mã; có FK cấu hình bằn
 
 **Không khuyến nghị** tạo thêm `Transactions` nếu `Payment` đã là giao dịch thu tiền chính. Chỉ thêm bảng riêng khi phải lưu nhiều lần thử, callback, refund hoặc event đối soát độc lập.
 
-## 8. API sườn gợi ý
+## 8. API tham khảo cho các flow còn lại
 
 Tên route là đề xuất để làm hợp đồng API; cần khớp convention nhóm trước khi triển khai.
 
@@ -261,10 +290,6 @@ DELETE /api/sessions/{id}/bookings/{bookingId}
 GET    /api/coaches/me/schedule            # Coach
 
 POST   /api/invoices                       # nội bộ từ nghiệp vụ, không nhận total tùy ý từ client
-POST   /api/invoices/{id}/payments         # Receptionist/manual method
-POST   /api/payment-webhooks/{provider}    # xác minh chữ ký + idempotency
-GET    /api/invoices/{id}
-GET    /api/reports/revenue?centerId=&from=&to=&groupBy=day|month
 ```
 
 Quy tắc: dùng DTO thay vì trả EF entity trực tiếp; API mutation có validation, authorization và audit. Không đưa endpoint thu tiền nội bộ ra public nếu chỉ callback hoặc service được phép gọi.

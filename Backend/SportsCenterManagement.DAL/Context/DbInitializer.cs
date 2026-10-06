@@ -10,102 +10,106 @@ namespace SportsCenterManagement.DAL.Context;
 /// </summary>
 public static class DbInitializer
 {
-    public static async Task SeedAsync(SportsCenterDbContext context)
+    public static async Task SeedAsync(SportsCenterDbContext context, bool seedDemoData)
     {
         await context.Database.MigrateAsync();
 
-        // 1. Tạo Center mẫu nếu chưa có
-        var center = await context.Centers.FirstOrDefaultAsync();
-        if (center == null)
+        Center? center = null;
+        if (seedDemoData)
         {
-            center = new Center
+            // Chỉ tạo dữ liệu trung tâm và tài khoản mẫu trong Development.
+            center = await context.Centers.FirstOrDefaultAsync();
+            if (center == null)
             {
-                Name = "Sports Center Quận 1",
-                Address = "123 Nguyễn Thị Minh Khai, Quận 1, TP.HCM",
-                Phone = "0901234567",
-                Email = "center.q1@sportscenter.vn",
-                Status = "Active",
-                CreatedAt = DateTime.UtcNow
+                center = new Center
+                {
+                    Name = "Sports Center Quận 1",
+                    Address = "123 Nguyễn Thị Minh Khai, Quận 1, TP.HCM",
+                    Phone = "0901234567",
+                    Email = "center.q1@sportscenter.vn",
+                    Status = "Active",
+                    CreatedAt = DateTime.UtcNow
+                };
+                await context.Centers.AddAsync(center);
+                await context.SaveChangesAsync();
+            }
+
+            // Gói tập mẫu chỉ được đồng bộ trong Development.
+            var packagesToSync = new List<MembershipPackage>
+            {
+                new()
+                {
+                    CenterId = center.Id,
+                    Name = "Gói Basic Thể Thao",
+                    Description = "Rèn luyện 1 bộ môn tự chọn, phù hợp cho người mới bắt đầu hoặc lịch tập cố định.",
+                    DurationDays = 30,
+                    Price = 650000,
+                    MaxClasses = 1,
+                    AccessType = "1 môn tự chọn",
+                    Status = "Active",
+                    CreatedAt = DateTime.UtcNow
+                },
+                new()
+                {
+                    CenterId = center.Id,
+                    Name = "Gói Pro Bứt Phá",
+                    Description = "Lựa chọn 3 bộ môn kết hợp (ví dụ: Gym + Bơi lội + Cầu lông), kèm 1 buổi kiểm tra InBody.",
+                    DurationDays = 90,
+                    Price = 1800000,
+                    MaxClasses = 3,
+                    AccessType = "3 môn tự chọn",
+                    Status = "Active",
+                    CreatedAt = DateTime.UtcNow
+                },
+                new()
+                {
+                    CenterId = center.Id,
+                    Name = "Gói Elite Chuyên Nghiệp",
+                    Description = "Trải nghiệm thể thao đa năng toàn diện, hỗ trợ đặt sân ưu tiên và quyền vào phòng xông hơi Sauna.",
+                    DurationDays = 180,
+                    Price = 3200000,
+                    MaxClasses = 6,
+                    AccessType = "6 môn tự chọn",
+                    Status = "Active",
+                    CreatedAt = DateTime.UtcNow
+                },
+                new()
+                {
+                    CenterId = center.Id,
+                    Name = "Gói All-Access Olympic Pass",
+                    Description = "Toàn quyền sử dụng 15 bộ môn và 9 sân thi đấu đẳng cấp quốc tế 365 ngày.",
+                    DurationDays = 365,
+                    Price = 5800000,
+                    MaxClasses = 15,
+                    AccessType = "Toàn quyền 15 môn",
+                    Status = "Active",
+                    CreatedAt = DateTime.UtcNow
+                }
             };
-            await context.Centers.AddAsync(center);
+
+            var existingPackages = await context.MembershipPackages.ToListAsync();
+            foreach (var pkg in packagesToSync)
+            {
+                var existing = existingPackages.FirstOrDefault(p => p.Name == pkg.Name);
+                if (existing != null)
+                {
+                    existing.Description = pkg.Description;
+                    existing.DurationDays = pkg.DurationDays;
+                    existing.Price = pkg.Price;
+                    existing.MaxClasses = pkg.MaxClasses;
+                    existing.AccessType = pkg.AccessType;
+                    existing.Status = "Active";
+                    existing.UpdatedAt = DateTime.UtcNow;
+                }
+                else
+                {
+                    await context.MembershipPackages.AddAsync(pkg);
+                }
+            }
             await context.SaveChangesAsync();
         }
 
-        // 2. Định nghĩa danh sách 4 Gói tập chuẩn từ giao diện Frontend
-        var packagesToSync = new List<MembershipPackage>
-        {
-            new()
-            {
-                CenterId = center.Id,
-                Name = "Gói Basic Thể Thao",
-                Description = "Rèn luyện 1 bộ môn tự chọn, phù hợp cho người mới bắt đầu hoặc lịch tập cố định.",
-                DurationDays = 30,
-                Price = 650000,
-                MaxClasses = 1,
-                AccessType = "1 môn tự chọn",
-                Status = "Active",
-                CreatedAt = DateTime.UtcNow
-            },
-            new()
-            {
-                CenterId = center.Id,
-                Name = "Gói Pro Bứt Phá",
-                Description = "Lựa chọn 3 bộ môn kết hợp (ví dụ: Gym + Bơi lội + Cầu lông), kèm 1 buổi kiểm tra InBody.",
-                DurationDays = 90,
-                Price = 1800000,
-                MaxClasses = 3,
-                AccessType = "3 môn tự chọn",
-                Status = "Active",
-                CreatedAt = DateTime.UtcNow
-            },
-            new()
-            {
-                CenterId = center.Id,
-                Name = "Gói Elite Chuyên Nghiệp",
-                Description = "Trải nghiệm thể thao đa năng toàn diện, hỗ trợ đặt sân ưu tiên và quyền vào phòng xông hơi Sauna.",
-                DurationDays = 180,
-                Price = 3200000,
-                MaxClasses = 6,
-                AccessType = "6 môn tự chọn",
-                Status = "Active",
-                CreatedAt = DateTime.UtcNow
-            },
-            new()
-            {
-                CenterId = center.Id,
-                Name = "Gói All-Access Olympic Pass",
-                Description = "Toàn quyền sử dụng 15 bộ môn và 9 sân thi đấu đẳng cấp quốc tế 365 ngày.",
-                DurationDays = 365,
-                Price = 5800000,
-                MaxClasses = 15,
-                AccessType = "Toàn quyền 15 môn",
-                Status = "Active",
-                CreatedAt = DateTime.UtcNow
-            }
-        };
-
-        var existingPackages = await context.MembershipPackages.ToListAsync();
-        foreach (var pkg in packagesToSync)
-        {
-            var existing = existingPackages.FirstOrDefault(p => p.Name == pkg.Name);
-            if (existing != null)
-            {
-                existing.Description = pkg.Description;
-                existing.DurationDays = pkg.DurationDays;
-                existing.Price = pkg.Price;
-                existing.MaxClasses = pkg.MaxClasses;
-                existing.AccessType = pkg.AccessType;
-                existing.Status = "Active";
-                existing.UpdatedAt = DateTime.UtcNow;
-            }
-            else
-            {
-                await context.MembershipPackages.AddAsync(pkg);
-            }
-        }
-        await context.SaveChangesAsync();
-
-        // 3. Khởi tạo danh sách các vai trò (Roles) chuẩn
+        // Vai trò là dữ liệu nền cần có ở mọi môi trường.
         var defaultRoles = new List<Role>
         {
             new() { Name = "Admin", Description = "Quản trị viên toàn hệ thống", CreatedAt = DateTime.UtcNow },
@@ -124,9 +128,16 @@ public static class DbInitializer
         }
         await context.SaveChangesAsync();
 
+        if (!seedDemoData)
+        {
+            return;
+        }
+
         var adminRole = await context.Roles.FirstAsync(r => r.Name == "Admin");
+        var managerRole = await context.Roles.FirstAsync(r => r.Name == "Manager");
         var receptionistRole = await context.Roles.FirstAsync(r => r.Name == "Receptionist");
         var memberRole = await context.Roles.FirstAsync(r => r.Name == "Member");
+        var demoCenter = center ?? throw new InvalidOperationException("Development demo center was not initialized.");
 
         // 4. Tạo tài khoản Admin mặc định nếu chưa có
         if (!await context.Users.AnyAsync(u => u.Username == "admin"))
@@ -145,6 +156,41 @@ public static class DbInitializer
             await context.SaveChangesAsync();
         }
 
+        if (!await context.Users.AnyAsync(u => u.Username == "manager01"))
+        {
+            var managerUser = new User
+            {
+                RoleId = managerRole.Id,
+                Username = "manager01",
+                Email = "manager01@sportscenter.vn",
+                PasswordHash = HashPassword("Manager@123456"),
+                Phone = "0900000003",
+                Status = "Active",
+                CreatedAt = DateTime.UtcNow
+            };
+            await context.Users.AddAsync(managerUser);
+            await context.SaveChangesAsync();
+        }
+
+        var managerUserId = await context.Users
+            .Where(user => user.Username == "manager01")
+            .Select(user => user.Id)
+            .SingleAsync();
+        if (!await context.StaffProfiles.AnyAsync(profile => profile.UserId == managerUserId))
+        {
+            await context.StaffProfiles.AddAsync(new StaffProfile
+            {
+                UserId = managerUserId,
+                CenterId = demoCenter.Id,
+                StaffCode = $"STF-MANAGER-{managerUserId}",
+                FullName = "Quản lý trung tâm",
+                Position = "Manager",
+                Status = "Active",
+                CreatedAt = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync();
+        }
+
         // 5. Tạo tài khoản Lễ tân mặc định nếu chưa có
         if (!await context.Users.AnyAsync(u => u.Username == "reception01"))
         {
@@ -159,6 +205,25 @@ public static class DbInitializer
                 CreatedAt = DateTime.UtcNow
             };
             await context.Users.AddAsync(receptionUser);
+            await context.SaveChangesAsync();
+        }
+
+        var receptionUserId = await context.Users
+            .Where(user => user.Username == "reception01")
+            .Select(user => user.Id)
+            .SingleAsync();
+        if (!await context.StaffProfiles.AnyAsync(profile => profile.UserId == receptionUserId))
+        {
+            await context.StaffProfiles.AddAsync(new StaffProfile
+            {
+                UserId = receptionUserId,
+                CenterId = demoCenter.Id,
+                StaffCode = $"STF-RECEPTION-{receptionUserId}",
+                FullName = "Nhân viên Lễ tân",
+                Position = "Receptionist",
+                Status = "Active",
+                CreatedAt = DateTime.UtcNow
+            });
             await context.SaveChangesAsync();
         }
 

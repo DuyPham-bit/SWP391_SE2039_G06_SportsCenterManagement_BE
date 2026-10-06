@@ -1,196 +1,71 @@
-# 📑 TÀI LIỆU HƯỚNG DẪN GHÉP NỐI FRONTEND & BACKEND: MODULE THANH TOÁN TẠI QUẦY (COUNTER CHECKOUT)
+# Tích hợp thanh toán tại quầy
 
-> **Dự án:** Hệ thống Quản lý Trung tâm Thể thao (Sports Center Management System - SCMS)  
-> **Module:** Đăng Ký & Gia Hạn Gói Tập Tại Quầy Thu Ngân (`CounterMembership.jsx`)  
-> **Mục đích tài liệu:** Hướng dẫn đội ngũ Frontend ghép nối API với Backend .NET 10, cấu trúc dữ liệu gửi/nhận, các nút bấm và tính năng cần bổ sung để hoàn thiện trải nghiệm thu ngân.
+Tài liệu này mô tả hợp đồng hiện tại của backend .NET 10. Thanh toán tại quầy hỗ trợ `CASH` và `POS`; checkout tại quầy không nhận `VIETQR`, `MOMO` hoặc `VNPAY` trong endpoint này.
 
----
+## Endpoint
 
-## 🚀 1. DANH SÁCH CÁC API BACKEND CẦN GỌI
+| Nghiệp vụ | Method và route | Role |
+|---|---|---|
+| Đăng nhập | `POST /api/auth/login` | Public |
+| Tạo hóa đơn và thu tại quầy | `POST /api/payments/counter-checkout` | Receptionist, Manager, Admin |
+| Thu tiếp số dư hóa đơn | `POST /api/invoices/{invoiceNumber}/payments` | Receptionist, Manager, Admin |
+| Xem hóa đơn/biên nhận | `GET /api/invoices/{invoiceNumber}` | Hội viên sở hữu, nhân sự cùng center, Admin |
+| Void hóa đơn chưa thu tiền | `POST /api/payments/counter-void/{invoiceNumber}` | Manager, Admin |
 
-| Nghiệp vụ | Phương thức | URL API Endpoint | Mô tả |
-| :--- | :---: | :--- | :--- |
-| **1. Thanh toán Tiền mặt / POS** | `POST` | `/api/payments/counter-checkout` | Xác thực thu tiền tại quầy, tính tiền thối, kích hoạt gói `Active` và trả về thông tin biên lai. |
-| **2. Quét mã VietQR tại quầy** | `POST` | `/api/payments/create-vietqr` | Sinh mã QR VietQR (Napas 247) để khách quét. Webhook PayOS sẽ tự kích hoạt gói khi có tiền vào. |
-| **3. Quét Ví MoMo tại quầy** | `POST` | `/api/payments/create-momo-url` | Sinh link / QR MoMo để khách quét ví MoMo. Webhook MoMo IPN tự động kích hoạt gói. |
-| **4. Cổng VNPay tại quầy** | `POST` | `/api/payments/create-vnpay-url` | Sinh URL chuyển hướng sang cổng VNPay / quét mã VNPAY-QR. |
-| **5. Hủy giao dịch bấm nhầm (Void)** | `POST` | `/api/payments/counter-void/{invoiceNumber}` | Thu hồi gói tập và hủy hóa đơn khi Lễ tân lỡ bấm nhầm (giới hạn trong vòng 15 phút). |
+Mọi request đã đăng nhập gửi `Authorization: Bearer <accessToken>`. Hai endpoint thu tiền cần `Idempotency-Key` duy nhất cho thao tác. Không gửi `X-Member-Id` hoặc `X-Staff-Id`; backend lấy actor/member/center từ JWT.
 
----
+## Tạo hóa đơn và thu tại quầy
 
-## 📦 2. CẤU TRÚC DỮ LIỆU REQUEST & RESPONSE (DATA CONTRACT)
+```http
+POST /api/payments/counter-checkout
+Authorization: Bearer <accessToken>
+Idempotency-Key: 6aacd390-2202-4326-a1fa-6c2b10104d60
+Content-Type: application/json
+```
 
-### 2.1. API Thanh Toán Tại Quầy: `POST /api/payments/counter-checkout`
-
-#### 🔹 Request Body (Dữ liệu Frontend gửi lên):
 ```json
 {
   "memberId": 1,
   "packageId": 1,
-  "paymentMethod": "TIỀN MẶT", 
+  "paymentMethod": "CASH",
   "amountReceived": 700000,
   "posApprovalCode": null,
-  "note": "Khách đóng tiền mặt tại quầy ca sáng"
+  "note": "Thu tiền tại quầy"
 }
 ```
-*Ghi chú các trường:*
-- `memberId` *(long, bắt buộc)*: ID của hội viên chọn ở Step 1.
-- `packageId` *(long, bắt buộc)*: ID gói tập chọn ở Step 2.
-- `paymentMethod` *(string, bắt buộc)*: `"TIỀN MẶT"`, `"CASH"`, hoặc `"THẺ POS"`, `"POS"`.
-- `amountReceived` *(decimal)*: Số tiền khách đưa (dùng để Backend tự tính tiền thối).
-- `posApprovalCode` *(string, tùy chọn)*: Mã chuẩn chi từ hóa đơn máy POS nếu quẹt thẻ.
-- `note` *(string, tùy chọn)*: Ghi chú ca trực.
 
-#### 🔹 Response Body (Dữ liệu Backend trả về khi Thành công - HTTP 200 OK):
+`paymentMethod` chỉ nhận `CASH` hoặc `POS`. `amountReceived` là số tiền khách đưa. CASH được thu một phần hoặc thừa tiền; backend chỉ ghi số tiền đến hạn, tính tiền thối và chỉ kích hoạt subscription khi hóa đơn đã được trả đủ. POS cần mã chuẩn chi và phải thu đúng toàn bộ giá gói. Giá và thời hạn luôn lấy từ database.
+
+Phản hồi thành công gồm `invoiceNumber`, `invoiceStatus`, `amount`, `amountReceived`, `amountPaid`, `outstandingBalance`, `changeDue`, thông tin hội viên và gói. Có thể dùng `invoiceNumber` để gọi GET hóa đơn và in/xuất lại biên nhận.
+
+## Thu tiếp hóa đơn
+
+```http
+POST /api/invoices/SC-20261006090123-0123456789ab/payments
+Authorization: Bearer <accessToken>
+Idempotency-Key: 78a8d483-f747-4bf1-91ce-f97a58427c24
+Content-Type: application/json
+```
+
 ```json
 {
-  "success": true,
-  "message": "Thanh toán và kích hoạt gói tập tại quầy thành công!",
-  "transactionRef": "SC-20261002084920-00b033949267",
-  "amount": 650000,
-  "amountReceived": 700000,
-  "changeDue": 50000,
-  "paymentMethod": "TIỀN MẶT",
-  "paidAt": "2026-10-02T08:49:20.420Z",
-  "member": {
-    "id": 1,
-    "fullName": "Nguyễn Văn A",
-    "memberCode": "MB00001",
-    "packageExpiry": "01/11/2026"
-  },
-  "package": {
-    "id": 1,
-    "name": "Gói Basic Thể Thao",
-    "durationDays": 30
-  }
+  "amount": 200000,
+  "paymentMethod": "CASH",
+  "posApprovalCode": null,
+  "note": "Thu phần còn lại"
 }
 ```
 
-#### 🔹 Response Body khi Thất bại (Ví dụ: Khách đưa thiếu tiền - HTTP 400 Bad Request):
-```json
-{
-  "success": false,
-  "message": "Số tiền khách đưa (500,000đ) không đủ để thanh toán gói tập (650,000đ)."
-}
-```
+Endpoint từ chối hóa đơn không tồn tại, sai center, đã void/refund/paid, số tiền không dương hoặc vượt số dư. POS phải có mã chuẩn chi và thu đúng số dư còn lại.
 
----
+## Void, refund và kết quả lỗi
 
-### 2.2. API Hủy Giao Dịch Bấm Nhầm: `POST /api/payments/counter-void/{invoiceNumber}`
+Void chỉ áp dụng cho hóa đơn chưa nhận payment thành công. Nếu đã nhận tiền, hệ thống từ chối void để giữ lịch sử và yêu cầu Manager/Admin dùng quy trình refund. Không có grace period 15 phút tại backend.
 
-- **URL Param:** `invoiceNumber` chính là mã `transactionRef` (ví dụ `SC-20261002084920-00b033949267`).
-- **Request Body:**
-  ```json
-  {
-    "reason": "Lễ tân chọn nhầm gói tập cho khách"
-  }
-  ```
-- **Response Body (HTTP 200 OK):**
-  ```json
-  {
-    "success": true,
-    "message": "Đã hủy thành công giao dịch hóa đơn SC-20261002084920-00b033949267 và thu hồi gói tập.",
-    "invoiceNumber": "SC-20261002084920-00b033949267",
-    "amount": 650000
-  }
-  ```
+Validation trả `400`, chưa đăng nhập trả `401`, sai role trả `403`, trạng thái/duplicate conflict trả `409`. Deadlock cơ sở dữ liệu trả `503` kèm `Retry-After`; lỗi ngoài dự kiến trả Problem Details với `traceId`. Frontend không nên giả định lỗi có trường `message`.
 
----
+Nếu client timeout sau khi gửi lệnh thu, gửi lại đúng `Idempotency-Key` và cùng request body để nhận kết quả đã lưu. Không tạo key mới cho lần retry chưa rõ kết quả.
 
-## 🛠️ 3. CÁC TÍNH NĂNG VÀ GIAO DIỆN FRONTEND CẦN BỔ SUNG / CHỈNH SỬA
+## Cổng thanh toán trực tuyến
 
-### 📍 Tại STEP 3 (Màn hình Thu Ngân & Chọn Phương Thức):
-
-1. **Bổ sung đầy đủ 5 nút Phương thức thanh toán:**
-   - `[💵 TIỀN MẶT]`
-   - `[🏦 CHUYỂN KHOẢN VIETQR]`
-   - `[🟣 VÍ MOMO]`
-   - `[🔵 VNPAY]`
-   - `[💳 THẺ POS]`
-
-2. **Box nhập "Số tiền khách đưa" & "Tiền thối lại" (Chỉ hiển thị khi chọn `TIỀN MẶT`):**
-   - Ô Input nhập `amountReceived` (Mặc định tự động điền bằng giá gói `selectedPackage.price`).
-   - Nút bấm nhanh mệnh giá: `[Đúng số tiền]`, `[+500k]`.
-   - Dòng tính tiền thối tự động: `Tiền thối lại: (amountReceived - price) VNĐ`.
-   - **Validation:** Nếu `amountReceived < selectedPackage.price` $\rightarrow$ Đổi màu đỏ cảnh báo *"⚠️ Chưa đủ tiền"* và disable nút bấm xác nhận.
-
-3. **Phân nhánh xử lý khi nhấn `[Xác Nhận Đã Thu & Kích Hoạt Thẻ]`:**
-   - **Nếu là `TIỀN MẶT` hoặc `THẺ POS`:** 
-     + Gọi API `POST /api/payments/counter-checkout`.
-     + Thành công $\rightarrow$ Gán `setReceiptData(result)` $\rightarrow$ Chuyển sang `setStep(4)`.
-     + Thất bại $\rightarrow$ Ở lại Step 3 và hiện Toast đỏ `showError(err.message)`.
-   - **Nếu là `CHUYỂN KHOẢN VIETQR` / `VÍ MOMO` / `VNPAY`:**
-     + Gọi API tạo link/QR tương ứng $\rightarrow$ Bật Modal Popup hiện mã QR để khách quét.
-
----
-
-### 📍 Tại STEP 4 (Màn hình Hóa Đơn & Biên Lai):
-
-1. **Map dữ liệu trả về từ Backend (`receiptData`):**
-   - Mã giao dịch: `{receiptData.transactionRef}`
-   - Hội viên: `{receiptData.member.fullName} ({receiptData.member.memberCode})`
-   - Gói tập: `{receiptData.package.name}`
-   - Hạn sử dụng mới: `{receiptData.member.packageExpiry}`
-   - Tiền thối đã trả: `{receiptData.changeDue.toLocaleString()} VNĐ` (nếu có)
-   - Tổng tiền đã thu: `{receiptData.amount.toLocaleString()} VNĐ`
-
-2. **Thêm nút `[🖨️ In Biên Lai]`:**
-   - Thêm nút gọi lệnh `window.print()` của trình duyệt.
-   - Thêm CSS `@media print` để khi bấm in, máy in chỉ in đúng khung hóa đơn (`#receipt-print-area`) và tự động ẩn thanh Menu/Sidebar.
-
-3. **Thêm nút `[⚠️ Hủy Giao Dịch (Bấm Nhầm)]`:**
-   - Cho phép Lễ tân hủy giao dịch ngay tại Step 4 nếu phát hiện chọn nhầm.
-   - Khi bấm $\rightarrow$ Hiện Modal yêu cầu nhập *"Lý do hủy"* $\rightarrow$ Gọi API `counter-void`.
-   - Thành công $\rightarrow$ Hiện Toast xanh thông báo đã thu hồi gói và quay về `setStep(1)`.
-
----
-
-## 💻 4. ĐOẠN CODE MẪU CHO `services/api.js` TRÊN FRONTEND
-
-```javascript
-// Thêm vào file services/api.js (hoặc file quản lý API của dự án)
-export const receptionApi = {
-  // 1. Thanh toán trực tiếp tại quầy (Tiền mặt / POS)
-  counterCheckout: async (payload) => {
-    const response = await fetch('http://localhost:54162/api/payments/counter-checkout', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // 'Authorization': `Bearer ${token}` // Gắn JWT Token nếu đã có Auth
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.message || 'Thanh toán tại quầy thất bại.');
-    }
-    return data;
-  },
-
-  // 2. Hủy giao dịch bấm nhầm
-  counterVoid: async (invoiceNumber, reason) => {
-    const response = await fetch(`http://localhost:54162/api/payments/counter-void/${invoiceNumber}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ reason })
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.message || 'Hủy giao dịch thất bại.');
-    }
-    return data;
-  }
-};
-```
-
----
-
-## 🎯 5. QUY TẮC BẢO MẬT & BẮT LỖI CẦN NHỚ
-
-1. **Không tin tưởng giá tiền từ Client:** Frontend không cần gửi trường `Price` lên. Backend sẽ tự động truy vấn giá niêm yết trong Database theo `packageId` để đảm bảo chống sửa giá.
-2. **Xử lý Grace Period (15 phút):** API Hủy đơn chỉ cho phép Lễ tân tự hủy trong vòng 15 phút kể từ lúc thanh toán. Sau 15 phút, Backend sẽ quăng lỗi yêu cầu quyền Quản lý (Manager).
-3. **Chống Spam Click:** Khi Lễ tân bấm `[Xác nhận]`, hãy set state `loading = true` và disable nút bấm ngay lập tức để tránh gửi 2 request trùng nhau.
+Member dùng riêng `POST /api/payments/create-vnpay-url` hoặc `POST /api/payments/create-momo-url` với JWT role `Member` và `Idempotency-Key`. Callback/IPN của cổng là endpoint public nhưng bắt buộc chữ ký hợp lệ, mã tham chiếu và số tiền phải khớp. Payment chưa rõ trạng thái được giữ `Pending`; Manager/Admin phải đối soát qua `/api/payments/{gatewayReference}/reconcile` trước khi có thể thử lại.

@@ -31,4 +31,12 @@ public interface IMoMoService
     /// <param name="queryParams">Tập hợp các tham số MoMo gửi về qua URL hoặc Form</param>
     /// <returns>Kết quả giải mã đã qua kiểm tra chữ ký số</returns>
     MomoCallbackResult ProcessCallback(IDictionary<string, string> queryParams);
+
+    Task<ProviderRefundResult> RefundAsync(
+        string requestId,
+        string refundOrderId,
+        string providerTransactionId,
+        decimal amount,
+        string reason,
+        CancellationToken cancellationToken = default);
 }

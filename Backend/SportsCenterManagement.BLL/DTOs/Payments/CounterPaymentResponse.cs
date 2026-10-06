@@ -12,6 +12,8 @@ public class CounterPaymentResponse
     /// Mã giao dịch định danh (Ví dụ: SC-20261002-XXXX). Khớp với receiptData.transactionRef
     /// </summary>
     public string TransactionRef { get; set; } = string.Empty;
+    public string InvoiceNumber { get; set; } = string.Empty;
+    public string InvoiceStatus { get; set; } = string.Empty;
 
     /// <summary>
     /// Số tiền thực tế của gói tập. Khớp với receiptData.amount
@@ -27,6 +29,8 @@ public class CounterPaymentResponse
     /// Số tiền thối lại cho khách.
     /// </summary>
     public decimal ChangeDue { get; set; }
+    public decimal AmountPaid { get; set; }
+    public decimal OutstandingBalance { get; set; }
 
     /// <summary>
     /// Phương thức thanh toán. Khớp với receiptData.paymentMethod

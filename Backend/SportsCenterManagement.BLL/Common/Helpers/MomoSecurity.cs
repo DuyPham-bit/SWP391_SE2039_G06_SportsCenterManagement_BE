@@ -84,7 +84,31 @@ public static class MomoSecurity
             $"&transId={transId}";
 
         var calculatedSignature = ComputeHmacSha256(rawSignature, secretKey);
-        return string.Equals(calculatedSignature, signature, StringComparison.OrdinalIgnoreCase);
+        var expectedBytes = Encoding.ASCII.GetBytes(calculatedSignature.ToLowerInvariant());
+        var actualBytes = Encoding.ASCII.GetBytes(signature.ToLowerInvariant());
+        return expectedBytes.Length == actualBytes.Length && CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes);
+    }
+
+    public static string CreateRefundRequestSignature(
+        string accessKey,
+        long amount,
+        string description,
+        string orderId,
+        string partnerCode,
+        string requestId,
+        string transactionId,
+        string secretKey)
+    {
+        var rawSignature =
+            $"accessKey={accessKey}" +
+            $"&amount={amount}" +
+            $"&description={description}" +
+            $"&orderId={orderId}" +
+            $"&partnerCode={partnerCode}" +
+            $"&requestId={requestId}" +
+            $"&transId={transactionId}";
+
+        return ComputeHmacSha256(rawSignature, secretKey);
     }
 
     /// <summary>

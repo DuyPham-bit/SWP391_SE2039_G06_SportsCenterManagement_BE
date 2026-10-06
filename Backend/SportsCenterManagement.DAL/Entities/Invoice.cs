@@ -47,4 +47,8 @@ public class Invoice : Common.BaseEntity
     [Column("paid_at")]
     public DateTime? PaidAt { get; set; }
 
+    [MaxLength(100)]
+    [Column("idempotency_key")]
+    public string? IdempotencyKey { get; set; }
+
 }

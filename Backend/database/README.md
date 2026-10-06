@@ -1,23 +1,17 @@
 # Database setup
 
-The EF Core model maps the SQL Server schema in the supplied ERD. Primary keys use `bigint`/`long`; table and column names, lengths, decimal precision, unique keys, and foreign keys are configured in the model.
-
-## Create or update the local database
-
-From this solution directory, restore the local EF tool and apply migrations:
+The backend uses SQL Server and EF Core migrations. From the `Backend` directory, apply all migrations with:
 
 ```powershell
-dotnet tool restore
-dotnet ef database update --project .\SportsCenterManagement.Services\SportsCenterManagement.Services.csproj --startup-project .\SportsCenterManagement.API\SportsCenterManagement.API.csproj
+dotnet ef database update --project .\SportsCenterManagement.DAL\SportsCenterManagement.DAL.csproj --startup-project .\SportsCenterManagement.API\SportsCenterManagement.API.csproj
 ```
 
-The default connection string targets SQL Server LocalDB and creates a database named `SportsCenterManagement`. To use another SQL Server, set the `ConnectionStrings__SportsCenter` environment variable before running the command. The `.env.example` file documents the expected value; .NET does not load `.env` files automatically.
+The API startup requires `Jwt__SecretKey` to be set to a private value of at least 32 UTF-8 bytes. Set it before running EF commands that load the API startup project; see `Backend/.env.example` and `Backend/README.md`.
 
-## Add a schema change
+`schema.sql` is an idempotent SQL Server script for the migrations. The Flow 3 migration adds payment idempotency/gateway references, cashier tendered amount, refund ledger, indexes, and status normalization. Review it before applying to a shared or production database.
+
+To add a migration, run from `Backend`:
 
 ```powershell
-dotnet ef migrations add DescribeChange --project .\SportsCenterManagement.Services\SportsCenterManagement.Services.csproj --startup-project .\SportsCenterManagement.API\SportsCenterManagement.API.csproj --output-dir Migrations
-dotnet ef database update --project .\SportsCenterManagement.Services\SportsCenterManagement.Services.csproj --startup-project .\SportsCenterManagement.API\SportsCenterManagement.API.csproj
+dotnet ef migrations add DescribeChange --project .\SportsCenterManagement.DAL\SportsCenterManagement.DAL.csproj --startup-project .\SportsCenterManagement.API\SportsCenterManagement.API.csproj --output-dir Migrations
 ```
-
-`schema.sql` is the idempotent SQL Server script generated from the migrations. It can be reviewed or applied with a SQL Server client after selecting the target database.

@@ -15,6 +15,9 @@ public class MomoCallbackResult
     /// </summary>
     public bool IsSuccess { get; set; }
 
+    /// <summary>Provider has not reached a final state; do not allow a duplicate checkout yet.</summary>
+    public bool IsPending { get; set; }
+
     /// <summary>
     /// Mã trạng thái từ MoMo (0: Thành công, 9000: Đã xác nhận, 1006: User hủy...).
     /// </summary>

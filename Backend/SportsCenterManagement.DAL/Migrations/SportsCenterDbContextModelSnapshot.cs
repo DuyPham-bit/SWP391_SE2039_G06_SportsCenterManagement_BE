@@ -960,6 +960,11 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("nvarchar(50)")
                         .HasColumnName("invoice_number");
 
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("idempotency_key");
+
                     b.Property<DateTime>("IssuedAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("issued_at");
@@ -1001,6 +1006,10 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("InvoiceNumber")
                         .IsUnique();
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("[idempotency_key] IS NOT NULL");
 
                     b.HasIndex("MemberId");
 
@@ -1439,6 +1448,35 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("decimal(12,2)")
                         .HasColumnName("amount");
 
+                    b.Property<decimal?>("AmountReceived")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("amount_received");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("GatewayPaymentUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)")
+                        .HasColumnName("gateway_payment_url");
+
+                    b.Property<string>("GatewayReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("gateway_reference");
+
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<string>("ProviderTransactionId")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("provider_transaction_id");
+
                     b.Property<long>("InvoiceId")
                         .HasColumnType("bigint")
                         .HasColumnName("invoice_id");
@@ -1452,7 +1490,7 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("nvarchar(500)")
                         .HasColumnName("note");
 
-                    b.Property<DateTime>("PaidAt")
+                    b.Property<DateTime?>("PaidAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("paid_at");
 
@@ -1491,11 +1529,96 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("RefundApprovedBy");
 
+                    b.HasIndex("GatewayReference")
+                        .IsUnique()
+                        .HasFilter("[gateway_reference] IS NOT NULL");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("[idempotency_key] IS NOT NULL");
+
+                    b.HasIndex("ProviderTransactionId")
+                        .IsUnique()
+                        .HasFilter("[provider_transaction_id] IS NOT NULL");
+
                     b.HasIndex("TransactionCode")
                         .IsUnique()
                         .HasFilter("[transaction_code] IS NOT NULL");
 
                     b.ToTable("payments", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.Models.PaymentRefund", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("decimal(12,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<string>("ProviderRefundId")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("provider_refund_id");
+
+                    b.Property<string>("ExternalReference")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("external_reference");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("processed_at");
+
+                    b.Property<long>("PaymentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("payment_id");
+
+                    b.Property<long>("RequestedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("requested_by");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentId");
+
+                    b.HasIndex("RequestedBy");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("ProviderRefundId")
+                        .IsUnique()
+                        .HasFilter("[provider_refund_id] IS NOT NULL");
+
+                    b.ToTable("payment_refunds", "dbo");
                 });
 
             modelBuilder.Entity("SportsCenterManagement.Models.Permission", b =>
@@ -2637,6 +2760,21 @@ namespace SportsCenterManagement.DAL.Migrations
                         .WithMany()
                         .HasForeignKey("RefundApprovedBy")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.Models.PaymentRefund", b =>
+                {
+                    b.HasOne("SportsCenterManagement.Models.Payment", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("RequestedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("SportsCenterManagement.Models.RolePermission", b =>

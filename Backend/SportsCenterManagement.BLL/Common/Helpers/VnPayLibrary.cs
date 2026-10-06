@@ -71,9 +71,22 @@ public class VnPayLibrary
     /// </summary>
     public bool ValidateSignature(string inputHash, string secretKey)
     {
+        if (string.IsNullOrWhiteSpace(inputHash))
+        {
+            return false;
+        }
         var rspRaw = GetResponseData();
         var myChecksum = HmacSha512(secretKey, rspRaw);
-        return myChecksum.Equals(inputHash, StringComparison.InvariantCultureIgnoreCase);
+        try
+        {
+            var expected = Convert.FromHexString(myChecksum);
+            var actual = Convert.FromHexString(inputHash);
+            return expected.Length == actual.Length && CryptographicOperations.FixedTimeEquals(expected, actual);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

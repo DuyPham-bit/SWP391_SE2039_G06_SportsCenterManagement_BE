@@ -1,4 +1,4 @@
-﻿IF OBJECT_ID(N'[__EFMigrationsHistory]') IS NULL
+IF OBJECT_ID(N'[__EFMigrationsHistory]') IS NULL
 BEGIN
     CREATE TABLE [__EFMigrationsHistory] (
         [MigrationId] nvarchar(150) NOT NULL,
@@ -1640,6 +1640,7 @@ END;
 COMMIT;
 GO
 
+
 BEGIN TRANSACTION;
 IF NOT EXISTS (
     SELECT * FROM [__EFMigrationsHistory]
@@ -1693,3 +1694,60 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261006090000_Flow3FinancialHardening'
+)
+BEGIN
+    ALTER TABLE [dbo].[invoices] ADD [idempotency_key] nvarchar(100) NULL;
+    ALTER TABLE [dbo].[payments] ADD [created_at] datetime2 NULL;
+    ALTER TABLE [dbo].[payments] ADD [gateway_reference] nvarchar(100) NULL;
+    ALTER TABLE [dbo].[payments] ADD [provider_transaction_id] nvarchar(150) NULL;
+    ALTER TABLE [dbo].[payments] ADD [idempotency_key] nvarchar(100) NULL;
+    ALTER TABLE [dbo].[payments] ADD [gateway_payment_url] nvarchar(2048) NULL;
+    ALTER TABLE [dbo].[payments] ADD [amount_received] decimal(12,2) NULL;
+
+    UPDATE [dbo].[payments]
+    SET [created_at] = COALESCE([paid_at], SYSUTCDATETIME())
+    WHERE [created_at] IS NULL;
+    UPDATE [dbo].[payments]
+    SET [payment_status] = N'Succeeded'
+    WHERE [payment_status] = N'Completed';
+    UPDATE [dbo].[invoices]
+    SET [status] = N'Voided'
+    WHERE [status] = N'Cancelled';
+    ALTER TABLE [dbo].[payments] ALTER COLUMN [created_at] datetime2 NOT NULL;
+    ALTER TABLE [dbo].[payments] ALTER COLUMN [paid_at] datetime2 NULL;
+
+    CREATE TABLE [dbo].[payment_refunds] (
+        [Id] bigint NOT NULL IDENTITY,
+        [payment_id] bigint NOT NULL,
+        [amount] decimal(12,2) NOT NULL,
+        [status] nvarchar(30) NOT NULL,
+        [idempotency_key] nvarchar(100) NOT NULL,
+        [provider_refund_id] nvarchar(150) NULL,
+        [external_reference] nvarchar(150) NULL,
+        [reason] nvarchar(500) NOT NULL,
+        [requested_by] bigint NOT NULL,
+        [created_at] datetime2 NOT NULL,
+        [processed_at] datetime2 NULL,
+        CONSTRAINT [PK_payment_refunds] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_payment_refunds_payments_payment_id] FOREIGN KEY ([payment_id]) REFERENCES [dbo].[payments] ([Id]) ON DELETE NO ACTION,
+        CONSTRAINT [FK_payment_refunds_users_requested_by] FOREIGN KEY ([requested_by]) REFERENCES [dbo].[users] ([Id]) ON DELETE NO ACTION
+    );
+
+    CREATE UNIQUE INDEX [IX_invoices_idempotency_key] ON [dbo].[invoices] ([idempotency_key]) WHERE [idempotency_key] IS NOT NULL;
+    CREATE UNIQUE INDEX [IX_payments_gateway_reference] ON [dbo].[payments] ([gateway_reference]) WHERE [gateway_reference] IS NOT NULL;
+    CREATE UNIQUE INDEX [IX_payments_provider_transaction_id] ON [dbo].[payments] ([provider_transaction_id]) WHERE [provider_transaction_id] IS NOT NULL;
+    CREATE UNIQUE INDEX [IX_payments_idempotency_key] ON [dbo].[payments] ([idempotency_key]) WHERE [idempotency_key] IS NOT NULL;
+    CREATE INDEX [IX_payment_refunds_payment_id] ON [dbo].[payment_refunds] ([payment_id]);
+    CREATE INDEX [IX_payment_refunds_requested_by] ON [dbo].[payment_refunds] ([requested_by]);
+    CREATE UNIQUE INDEX [IX_payment_refunds_idempotency_key] ON [dbo].[payment_refunds] ([idempotency_key]);
+    CREATE UNIQUE INDEX [IX_payment_refunds_provider_refund_id] ON [dbo].[payment_refunds] ([provider_refund_id]) WHERE [provider_refund_id] IS NOT NULL;
+
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261006090000_Flow3FinancialHardening', N'10.0.12');
+END;
+COMMIT;
+GO

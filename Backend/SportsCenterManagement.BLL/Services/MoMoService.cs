@@ -1,6 +1,9 @@
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Net.Http.Json;
+using System.Globalization;
+using SportsCenterManagement.BLL.Common;
 using Microsoft.Extensions.Configuration;
 using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.DTOs.Payments;
@@ -39,9 +42,13 @@ public class MoMoService : IMoMoService
         var ipnUrl = _configuration["Momo:NotifyUrl"] ?? "http://localhost:54162/api/payments/momo-ipn";
         var requestType = _configuration["Momo:RequestType"] ?? "captureWallet";
 
-        var requestId = Guid.NewGuid().ToString();
+        var requestId = orderId;
         var extraData = string.Empty;
-        var amountLong = (long)amount;
+        if (amount <= 0 || amount != decimal.Truncate(amount))
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount), "MoMo requires a positive whole-VND amount.");
+        }
+        var amountLong = decimal.ToInt64(amount);
 
         // Sinh chữ ký bảo mật từ thư viện MomoSecurity
         var signature = MomoSecurity.CreateRequestSignature(
@@ -108,6 +115,13 @@ public class MoMoService : IMoMoService
 
         // Xác thực chữ ký phản hồi từ MoMo qua MomoSecurity
         var isValidSignature = MomoSecurity.VerifyCallbackSignature(queryParams, accessKey, secretKey);
+        queryParams.TryGetValue("partnerCode", out var partnerCode);
+        var expectedPartnerCode = _configuration["Momo:PartnerCode"];
+        isValidSignature = isValidSignature &&
+                           !string.IsNullOrWhiteSpace(accessKey) &&
+                           !string.IsNullOrWhiteSpace(secretKey) &&
+                           !string.IsNullOrWhiteSpace(expectedPartnerCode) &&
+                           string.Equals(partnerCode, expectedPartnerCode, StringComparison.Ordinal);
 
         queryParams.TryGetValue("orderId", out var orderId);
         queryParams.TryGetValue("requestId", out var requestId);
@@ -119,12 +133,13 @@ public class MoMoService : IMoMoService
         queryParams.TryGetValue("payType", out var payType);
 
         int.TryParse(rawResultCode, out var resultCode);
-        decimal.TryParse(rawAmount, out var amount);
+        decimal.TryParse(rawAmount, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount);
 
         return new MomoCallbackResult
         {
             IsValidSignature = isValidSignature,
             IsSuccess = isValidSignature && resultCode == 0,
+            IsPending = isValidSignature && resultCode == 7002,
             ResultCode = resultCode,
             Message = message ?? string.Empty,
             OrderId = orderId ?? string.Empty,
@@ -134,5 +149,81 @@ public class MoMoService : IMoMoService
             PayType = payType ?? string.Empty,
             OrderInfo = orderInfo ?? string.Empty
         };
+    }
+
+    public async Task<ProviderRefundResult> RefundAsync(
+        string requestId,
+        string refundOrderId,
+        string providerTransactionId,
+        decimal amount,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        var partnerCode = _configuration["Momo:PartnerCode"] ?? throw new InvalidOperationException("Chưa cấu hình Momo:PartnerCode");
+        var accessKey = _configuration["Momo:AccessKey"] ?? throw new InvalidOperationException("Chưa cấu hình Momo:AccessKey");
+        var secretKey = _configuration["Momo:SecretKey"] ?? throw new InvalidOperationException("Chưa cấu hình Momo:SecretKey");
+        var refundUrl = _configuration["Momo:RefundUrl"] ?? "https://test-payment.momo.vn/v2/gateway/api/refund";
+        if (amount < 1_000m || amount > 50_000_000m || amount != decimal.Truncate(amount))
+        {
+            throw BusinessException.BadRequest("MoMo refund phải là số VND nguyên trong phạm vi 1.000 đến 50.000.000.");
+        }
+        if (!long.TryParse(providerTransactionId, NumberStyles.None, CultureInfo.InvariantCulture, out var originalTransactionId) ||
+            originalTransactionId <= 0)
+        {
+            throw BusinessException.Conflict("Mã giao dịch gốc MoMo không hợp lệ để gửi yêu cầu refund.");
+        }
+        var amountVnd = decimal.ToInt64(amount);
+        var description = reason.Trim();
+        var signature = MomoSecurity.CreateRefundRequestSignature(
+            accessKey, amountVnd, description, refundOrderId, partnerCode, requestId,
+            providerTransactionId, secretKey);
+
+        var payload = new
+        {
+            partnerCode,
+            orderId = refundOrderId,
+            requestId,
+            amount = amountVnd,
+            transId = originalTransactionId,
+            lang = "vi",
+            description,
+            signature
+        };
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(35));
+        using var response = await _httpClient.PostAsJsonAsync(refundUrl, payload, timeout.Token);
+        var responseBody = await response.Content.ReadAsStringAsync(timeout.Token);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException($"MoMo refund request failed with HTTP {(int)response.StatusCode}.");
+        }
+
+        using var document = JsonDocument.Parse(responseBody);
+        var root = document.RootElement;
+        var resultCode = root.TryGetProperty("resultCode", out var codeElement) && codeElement.TryGetInt32(out var code)
+            ? code
+            : int.MinValue;
+        var returnedOrderId = root.TryGetProperty("orderId", out var orderElement) ? orderElement.GetString() : null;
+        var returnedRequestId = root.TryGetProperty("requestId", out var requestElement) ? requestElement.GetString() : null;
+        var returnedPartnerCode = root.TryGetProperty("partnerCode", out var partnerElement) ? partnerElement.GetString() : null;
+        var returnedAmount = root.TryGetProperty("amount", out var amountElement) && amountElement.TryGetInt64(out var parsedAmount)
+            ? parsedAmount
+            : -1L;
+        var returnedTransactionId = root.TryGetProperty("transId", out var transIdElement) && transIdElement.TryGetInt64(out var parsedTransactionId)
+            ? parsedTransactionId
+            : 0L;
+        var message = root.TryGetProperty("message", out var messageElement) ? messageElement.GetString() ?? string.Empty : string.Empty;
+
+        var authenticated = string.Equals(returnedPartnerCode, partnerCode, StringComparison.Ordinal) &&
+                            string.Equals(returnedOrderId, refundOrderId, StringComparison.Ordinal) &&
+                            string.Equals(returnedRequestId, requestId, StringComparison.Ordinal) &&
+                            returnedAmount == amountVnd &&
+                            (resultCode != 0 || returnedTransactionId > 0);
+        var status = resultCode == 0 ? "Succeeded" : resultCode == 7002 ? "Pending" : "Failed";
+        var providerRefundId = resultCode == 0
+            ? returnedTransactionId.ToString(CultureInfo.InvariantCulture)
+            : null;
+        return new ProviderRefundResult(authenticated, status, providerRefundId, message);
     }
 }

@@ -20,6 +20,12 @@ public class VnPayCallbackResult
     /// </summary>
     public string ResponseCode { get; set; } = string.Empty;
 
+    public string TransactionStatus { get; set; } = string.Empty;
+
+    public string CurrencyCode { get; set; } = string.Empty;
+
+    public bool IsPending { get; set; }
+
     /// <summary>
     /// Mã hóa đơn nội bộ của hệ thống gửi sang VNPay (vnp_TxnRef).
     /// </summary>

@@ -1,3 +1,7 @@
+using System.Globalization;
+using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.DTOs.Payments;
@@ -12,10 +16,12 @@ namespace SportsCenterManagement.BLL.Services;
 public class VnPayService : IVnPayService
 {
     private readonly IConfiguration _configuration;
+    private readonly HttpClient _httpClient;
 
-    public VnPayService(IConfiguration configuration)
+    public VnPayService(IConfiguration configuration, HttpClient httpClient)
     {
         _configuration = configuration;
+        _httpClient = httpClient;
     }
 
     /// <summary>
@@ -93,21 +99,149 @@ public class VnPayService : IVnPayService
         // Kiểm tra chữ ký HMAC-SHA512
         var isValidSignature = vnpay.ValidateSignature(vnpSecureHash, hashSecret);
         var responseCode = vnpay.GetResponseData("vnp_ResponseCode");
+        var transactionStatus = vnpay.GetResponseData("vnp_TransactionStatus");
+        var currencyCode = vnpay.GetResponseData("vnp_CurrCode");
+        var terminalCode = vnpay.GetResponseData("vnp_TmnCode");
+        var expectedTerminalCode = _configuration["VnPay:TmnCode"];
+        var validProvider = isValidSignature && !string.IsNullOrWhiteSpace(expectedTerminalCode) &&
+                            string.Equals(terminalCode, expectedTerminalCode, StringComparison.Ordinal);
         var invoiceNumber = vnpay.GetResponseData("vnp_TxnRef");
         var transactionNo = vnpay.GetResponseData("vnp_TransactionNo");
         var bankCode = vnpay.GetResponseData("vnp_BankCode");
         var rawAmount = vnpay.GetResponseData("vnp_Amount");
-        var amount = string.IsNullOrEmpty(rawAmount) ? 0 : Convert.ToDecimal(rawAmount) / 100;
+        var amount = long.TryParse(rawAmount, NumberStyles.None, CultureInfo.InvariantCulture, out var amountMinor)
+            ? amountMinor / 100m
+            : 0m;
 
         return new VnPayCallbackResult
         {
-            IsValidSignature = isValidSignature,
-            IsSuccess = isValidSignature && responseCode == "00",
+            IsValidSignature = validProvider,
+            IsSuccess = validProvider && responseCode == "00" && (transactionStatus is "" or "00"),
+            IsPending = validProvider && (responseCode == "09" || transactionStatus == "01"),
             ResponseCode = responseCode,
+            TransactionStatus = transactionStatus,
+            CurrencyCode = currencyCode,
             InvoiceNumber = invoiceNumber,
             TransactionNo = transactionNo,
             BankCode = bankCode,
             Amount = amount
         };
+    }
+
+    public async Task<ProviderRefundResult> RefundAsync(
+        string paymentReference,
+        string requestId,
+        string providerTransactionId,
+        bool isFullRefund,
+        DateTime paidAtUtc,
+        decimal amount,
+        string reason,
+        string requestedBy,
+        string ipAddress,
+        CancellationToken cancellationToken = default)
+    {
+        var tmnCode = _configuration["VnPay:TmnCode"] ?? throw new InvalidOperationException("Chưa cấu hình VnPay:TmnCode");
+        var hashSecret = _configuration["VnPay:HashSecret"] ?? throw new InvalidOperationException("Chưa cấu hình VnPay:HashSecret");
+        var apiUrl = _configuration["VnPay:RefundUrl"] ?? "https://sandbox.vnpayment.vn/merchant_webapi/api/transaction";
+        var nowLocal = DateTime.UtcNow.AddHours(7);
+        var paymentDateLocal = paidAtUtc.AddHours(7);
+        var amountMinor = decimal.ToInt64(amount * 100m);
+        var transactionType = isFullRefund ? "02" : "03";
+        var cleanIpAddress = string.IsNullOrWhiteSpace(ipAddress) ? "127.0.0.1" : ipAddress;
+        var safeReason = reason.Trim();
+
+        var signatureData = string.Join('|', new[]
+        {
+            requestId,
+            _configuration["VnPay:Version"] ?? "2.1.0",
+            "refund",
+            tmnCode,
+            transactionType,
+            paymentReference,
+            amountMinor.ToString(CultureInfo.InvariantCulture),
+            providerTransactionId,
+            paymentDateLocal.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture),
+            requestedBy,
+            nowLocal.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture),
+            cleanIpAddress,
+            safeReason
+        });
+
+        var payload = new Dictionary<string, string>
+        {
+            ["vnp_RequestId"] = requestId,
+            ["vnp_Version"] = _configuration["VnPay:Version"] ?? "2.1.0",
+            ["vnp_Command"] = "refund",
+            ["vnp_TmnCode"] = tmnCode,
+            ["vnp_TransactionType"] = transactionType,
+            ["vnp_TxnRef"] = paymentReference,
+            ["vnp_Amount"] = amountMinor.ToString(CultureInfo.InvariantCulture),
+            ["vnp_TransactionNo"] = providerTransactionId,
+            ["vnp_TransactionDate"] = paymentDateLocal.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture),
+            ["vnp_CreateBy"] = requestedBy,
+            ["vnp_CreateDate"] = nowLocal.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture),
+            ["vnp_IpAddr"] = cleanIpAddress,
+            ["vnp_OrderInfo"] = safeReason,
+            ["vnp_SecureHash"] = VnPayLibrary.HmacSha512(hashSecret, signatureData)
+        };
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(35));
+        using var response = await _httpClient.PostAsJsonAsync(apiUrl, payload, timeout.Token);
+        var responseBody = await response.Content.ReadAsStringAsync(timeout.Token);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException($"VNPay refund request failed with HTTP {(int)response.StatusCode}.");
+        }
+
+        using var document = JsonDocument.Parse(responseBody);
+        var root = document.RootElement;
+        string Get(string name) => root.TryGetProperty(name, out var value)
+            ? value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : value.ToString()
+            : string.Empty;
+
+        var expectedResponseData = string.Join('|', new[]
+        {
+            Get("vnp_ResponseId"), Get("vnp_Command"), Get("vnp_ResponseCode"), Get("vnp_Message"),
+            Get("vnp_TmnCode"), Get("vnp_TxnRef"), Get("vnp_Amount"), Get("vnp_BankCode"),
+            Get("vnp_PayDate"), Get("vnp_TransactionNo"), Get("vnp_TransactionType"),
+            Get("vnp_TransactionStatus"), Get("vnp_OrderInfo"), Get("vnp_PromotionCode"),
+            Get("vnp_PromotionAmount")
+        });
+        var returnedSignature = Get("vnp_SecureHash");
+        var calculatedSignature = VnPayLibrary.HmacSha512(hashSecret, expectedResponseData);
+        var authenticated = FixedTimeHexEquals(calculatedSignature, returnedSignature) &&
+                            Get("vnp_TmnCode") == tmnCode &&
+                            Get("vnp_TxnRef") == paymentReference &&
+                            long.TryParse(Get("vnp_Amount"), NumberStyles.None, CultureInfo.InvariantCulture, out var returnedAmount) &&
+                            returnedAmount == amountMinor;
+
+        var responseCode = Get("vnp_ResponseCode");
+        var transactionStatus = Get("vnp_TransactionStatus");
+        var status = authenticated && responseCode == "00" && transactionStatus == "00"
+            ? "Succeeded"
+            : authenticated && (transactionStatus is "05" or "06")
+                ? "Pending"
+                : authenticated ? "Failed" : "Pending";
+        return new ProviderRefundResult(authenticated, status, Get("vnp_TransactionNo"), Get("vnp_Message"));
+    }
+
+    private static bool FixedTimeHexEquals(string expectedHex, string actualHex)
+    {
+        if (string.IsNullOrWhiteSpace(actualHex))
+        {
+            return false;
+        }
+
+        try
+        {
+            var expected = Convert.FromHexString(expectedHex);
+            var actual = Convert.FromHexString(actualHex);
+            return expected.Length == actual.Length && CryptographicOperations.FixedTimeEquals(expected, actual);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 }

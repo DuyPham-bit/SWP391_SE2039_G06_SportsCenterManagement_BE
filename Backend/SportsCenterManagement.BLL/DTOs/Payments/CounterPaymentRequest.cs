@@ -10,19 +10,20 @@ public class CounterPaymentRequest
     /// <summary>
     /// ID hội viên được chọn ở Step 1.
     /// </summary>
-    [Required(ErrorMessage = "Vui lòng chọn hội viên.")]
+    [Range(1, long.MaxValue, ErrorMessage = "Hội viên không hợp lệ.")]
     public long MemberId { get; set; }
 
     /// <summary>
     /// ID gói tập được chọn ở Step 2.
     /// </summary>
-    [Required(ErrorMessage = "Vui lòng chọn gói tập.")]
+    [Range(1, long.MaxValue, ErrorMessage = "Gói tập không hợp lệ.")]
     public long PackageId { get; set; }
 
     /// <summary>
     /// Phương thức thanh toán được chọn ở Step 3 (CASH, POS, VIETQR, MOMO, VNPAY...).
     /// </summary>
     [Required(ErrorMessage = "Phương thức thanh toán là bắt buộc.")]
+    [RegularExpression("^(?i:CASH|POS)$")]
     public string PaymentMethod { get; set; } = "CASH";
 
     /// <summary>
@@ -34,10 +35,12 @@ public class CounterPaymentRequest
     /// <summary>
     /// Mã chuẩn chi từ máy POS (nếu quẹt thẻ).
     /// </summary>
+    [MaxLength(100)]
     public string? PosApprovalCode { get; set; }
 
     /// <summary>
     /// Ghi chú thêm của lễ tân.
     /// </summary>
+    [MaxLength(500)]
     public string? Note { get; set; }
 }

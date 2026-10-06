@@ -1,261 +1,179 @@
+using System.Globalization;
 using System.Security.Claims;
+using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SportsCenterManagement.BLL.DTOs.Payments;
 using SportsCenterManagement.BLL.Interfaces;
 
 namespace SportsCenterManagement.API.Controllers;
 
-/// <summary>
-/// Controller tiếp nhận các yêu cầu thanh toán (VNPay, MoMo) từ Frontend và xử lý callback.
-/// </summary>
 [ApiController]
 [Route("api/payments")]
-public class PaymentsController : ControllerBase
+public sealed class PaymentsController(IPaymentService paymentService, ILogger<PaymentsController> logger) : ControllerBase
 {
-    private readonly IPaymentService _paymentService;
-
-    public PaymentsController(IPaymentService paymentService)
-    {
-        _paymentService = paymentService;
-    }
-
-    #region VNPay Endpoints
-
-    /// <summary>
-    /// API 1: Khởi tạo giao dịch thanh toán gói tập qua VNPay.
-    /// </summary>
+    [Authorize(Roles = "Member")]
     [HttpPost("create-vnpay-url")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateVnPayPaymentUrl(
         [FromBody] CreatePaymentRequest request,
-        [FromHeader(Name = "X-Member-Id")] long? memberIdHeader,
+        [FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var memberId = GetCurrentMemberId(memberIdHeader);
-            var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
-
-            var paymentUrl = await _paymentService.CreatePaymentUrlAsync(
-                memberId,
-                request,
-                ipAddress,
-                cancellationToken);
-
-            return Ok(new
-            {
-                success = true,
-                paymentUrl = paymentUrl
-            });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new
-            {
-                success = false,
-                message = ex.Message
-            });
-        }
+        var memberId = GetRequiredClaimLong("memberId");
+        var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+        var paymentUrl = await paymentService.CreatePaymentUrlAsync(
+            memberId, request, ipAddress, idempotencyKey, cancellationToken);
+        return Ok(new { success = true, paymentUrl });
     }
 
-    /// <summary>
-    /// API 2: Nhận kết quả thanh toán từ VNPay gọi về (Return URL / Callback).
-    /// </summary>
+    [AllowAnonymous]
     [HttpGet("vnpay-callback")]
-    [ProducesResponseType(typeof(PaymentResultResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<PaymentResultResponse>> VnPayPaymentCallback(CancellationToken cancellationToken)
     {
-        var queryDictionary = Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString());
-        var result = await _paymentService.ProcessPaymentCallbackAsync(queryDictionary, cancellationToken);
+        var result = await paymentService.ProcessPaymentCallbackAsync(ToStringDictionary(Request.Query), cancellationToken);
+        if (!result.Processed) logger.LogWarning("Rejected VNPay callback. TraceId: {TraceId}", HttpContext.TraceIdentifier);
         return Ok(result);
     }
 
-    #endregion
+    [AllowAnonymous]
+    [HttpGet("vnpay-ipn")]
+    public async Task<IActionResult> VnPayPaymentIpn(CancellationToken cancellationToken)
+    {
+        var result = await paymentService.ProcessPaymentCallbackAsync(ToStringDictionary(Request.Query), cancellationToken);
+        if (!result.Processed) logger.LogWarning("Rejected VNPay IPN. TraceId: {TraceId}", HttpContext.TraceIdentifier);
+        return Ok(new
+        {
+            RspCode = result.Processed ? "00" : result.ProviderAckCode ?? "99",
+            Message = result.Processed ? "Confirm Success" : "Notification was not applied"
+        });
+    }
 
-    #region MoMo Endpoints
-
-    /// <summary>
-    /// API 3: Khởi tạo giao dịch thanh toán gói tập qua ví điện tử MoMo.
-    /// </summary>
-    /// <param name="request">Chứa PackageId cần mua</param>
-    /// <param name="memberIdHeader">MemberId tạm thời (Header X-Member-Id hoặc từ JWT)</param>
-    /// <param name="cancellationToken">Token hủy request</param>
-    /// <returns>Trả về paymentUrl của MoMo Sandbox để người dùng quét QR / thanh toán</returns>
+    [Authorize(Roles = "Member")]
     [HttpPost("create-momo-url")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateMomoPaymentUrl(
         [FromBody] CreatePaymentRequest request,
-        [FromHeader(Name = "X-Member-Id")] long? memberIdHeader,
+        [FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var memberId = GetCurrentMemberId(memberIdHeader);
-
-            var paymentUrl = await _paymentService.CreateMomoPaymentUrlAsync(
-                memberId,
-                request,
-                cancellationToken);
-
-            return Ok(new
-            {
-                success = true,
-                paymentUrl = paymentUrl
-            });
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new
-            {
-                success = false,
-                message = ex.Message
-            });
-        }
+        var memberId = GetRequiredClaimLong("memberId");
+        var paymentUrl = await paymentService.CreateMomoPaymentUrlAsync(
+            memberId, request, idempotencyKey, cancellationToken);
+        return Ok(new { success = true, paymentUrl });
     }
 
-    /// <summary>
-    /// API 4: Nhận kết quả thanh toán từ MoMo gọi về (Return URL / Callback trên trình duyệt).
-    /// </summary>
+    [AllowAnonymous]
     [HttpGet("momo-callback")]
-    [ProducesResponseType(typeof(PaymentResultResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<PaymentResultResponse>> MomoPaymentCallback(CancellationToken cancellationToken)
     {
-        var queryDictionary = Request.Query.ToDictionary(q => q.Key, q => q.Value.ToString());
-        var result = await _paymentService.ProcessMomoCallbackAsync(queryDictionary, cancellationToken);
+        var result = await paymentService.ProcessMomoCallbackAsync(ToStringDictionary(Request.Query), cancellationToken);
+        if (!result.Processed) logger.LogWarning("Rejected MoMo callback. TraceId: {TraceId}", HttpContext.TraceIdentifier);
         return Ok(result);
     }
 
-    /// <summary>
-    /// API 5: Nhận Webhook IPN (Server-to-Server) tự động từ MoMo.
-    /// </summary>
+    [AllowAnonymous]
     [HttpPost("momo-ipn")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> MomoPaymentIpn(
-        [FromBody] IDictionary<string, string> ipnData,
-        CancellationToken cancellationToken)
+    public async Task<IActionResult> MomoPaymentIpn([FromBody] JsonElement ipnData, CancellationToken cancellationToken)
     {
-        await _paymentService.ProcessMomoCallbackAsync(ipnData, cancellationToken);
-        return NoContent();
+        if (ipnData.ValueKind != JsonValueKind.Object)
+        {
+            return BadRequest(new { message = "MoMo IPN body must be a JSON object." });
+        }
+
+        var fields = ipnData.EnumerateObject().ToDictionary(
+            property => property.Name,
+            property => property.Value.ValueKind == JsonValueKind.String
+                ? property.Value.GetString() ?? string.Empty
+                : property.Value.ToString(),
+            StringComparer.Ordinal);
+        var result = await paymentService.ProcessMomoCallbackAsync(fields, cancellationToken);
+        if (!result.Processed) logger.LogWarning("Rejected MoMo IPN. TraceId: {TraceId}", HttpContext.TraceIdentifier);
+        return Ok(new { resultCode = result.Processed ? 0 : 1, message = result.Processed ? "Success" : "Not confirmed" });
     }
 
-    #endregion
-
-
-    #region Counter / Cash Payment Endpoints
-
-    /// <summary>
-    /// API 6: Tiếp nhận và xác thực thanh toán tại quầy (Tiền mặt / POS) từ Lễ tân, kích hoạt ngay gói tập.
-    /// </summary>
-    /// <param name="request">Chứa MemberId, PackageId, PaymentMethod, AmountReceived...</param>
-    /// <param name="staffIdHeader">Staff/User ID của Lễ tân (Lấy tự động từ JWT Token hoặc Header X-Staff-Id khi test)</param>
-    /// <param name="cancellationToken">Token hủy request</param>
+    [Authorize(Roles = "Receptionist,Manager,Admin")]
     [HttpPost("counter-checkout")]
-    [ProducesResponseType(typeof(CounterPaymentResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> CounterCheckout(
+    public async Task<ActionResult<CounterPaymentResponse>> CounterCheckout(
         [FromBody] CounterPaymentRequest request,
-        [FromHeader(Name = "X-Staff-Id")] long? staffIdHeader,
+        [FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            // Lấy ID nhân viên thu ngân đang đăng nhập
-            var staffUserId = GetCurrentStaffUserId(staffIdHeader);
-
-            var result = await _paymentService.ProcessCounterPaymentAsync(staffUserId, request, cancellationToken);
-            return Ok(result);
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new
-            {
-                success = false,
-                message = ex.Message
-            });
-        }
+        var staffCenterId = GetCenterScope();
+        var result = await paymentService.ProcessCounterPaymentAsync(
+            GetRequiredUserId(), staffCenterId, idempotencyKey, request, cancellationToken);
+        return Ok(result);
     }
 
-    /// <summary>
-    /// API 7: Hủy giao dịch thanh toán nhầm tại quầy (Void Transaction & Thu hồi gói tập).
-    /// </summary>
-    /// <param name="invoiceNumber">Mã hóa đơn cần hủy (VD: SC-20261002-XXXX)</param>
-    /// <param name="request">Lý do giải trình hủy</param>
-    /// <param name="staffIdHeader">Staff/User ID của người thực hiện</param>
-    /// <param name="cancellationToken">Token hủy request</param>
+    [Authorize(Roles = "Manager,Admin")]
     [HttpPost("counter-void/{invoiceNumber}")]
-    [ProducesResponseType(typeof(PaymentResultResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> CounterVoid(
+    public async Task<ActionResult<PaymentResultResponse>> CounterVoid(
         [FromRoute] string invoiceNumber,
         [FromBody] VoidPaymentRequest request,
-        [FromHeader(Name = "X-Staff-Id")] long? staffIdHeader,
         CancellationToken cancellationToken)
     {
-        try
-        {
-            var staffUserId = GetCurrentStaffUserId(staffIdHeader);
-            var result = await _paymentService.VoidCounterPaymentAsync(staffUserId, invoiceNumber, request.Reason, cancellationToken);
-            return Ok(result);
-        }
-        catch (Exception ex)
-        {
-            return BadRequest(new
-            {
-                success = false,
-                message = ex.Message
-            });
-        }
+        var result = await paymentService.VoidCounterPaymentAsync(
+            GetRequiredUserId(), GetCenterScope(), invoiceNumber, request.Reason, cancellationToken);
+        return Ok(result);
     }
 
-    #endregion
-
-
-    #region Helper Methods
-
-    private long GetCurrentMemberId(long? memberIdHeader)
+    [Authorize(Roles = "Manager,Admin")]
+    [HttpPost("{gatewayReference}/reconcile")]
+    public async Task<ActionResult<PaymentResultResponse>> ReconcilePendingPayment(
+        [FromRoute] string gatewayReference,
+        [FromBody] ReconcilePendingPaymentRequest request,
+        CancellationToken cancellationToken)
     {
-        var memberIdClaim = User.FindFirst("memberId")?.Value;
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-        if (!string.IsNullOrEmpty(memberIdClaim) && long.TryParse(memberIdClaim, out var parsedMemberId))
-        {
-            return parsedMemberId;
-        }
-
-        if (!string.IsNullOrEmpty(userIdClaim) && long.TryParse(userIdClaim, out var parsedId))
-        {
-            return parsedId;
-        }
-
-        if (memberIdHeader.HasValue)
-        {
-            return memberIdHeader.Value;
-        }
-
-        return 1; // Fallback mặc định khi test trên Swagger không truyền header
+        var result = await paymentService.ReconcilePendingPaymentAsync(
+            GetRequiredUserId(), GetCenterScope(), gatewayReference, request, cancellationToken);
+        return Ok(result);
     }
 
-    private long GetCurrentStaffUserId(long? staffIdHeader)
+    [Authorize(Roles = "Manager,Admin")]
+    [HttpPost("{paymentId:long}/refunds")]
+    public async Task<ActionResult<PaymentRefundResponse>> Refund(
+        [FromRoute] long paymentId,
+        [FromBody] CreateRefundRequest request,
+        [FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
+        CancellationToken cancellationToken)
     {
-        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-            ?? User.FindFirst("userId")?.Value
-            ?? User.FindFirst("sub")?.Value;
-
-        if (!string.IsNullOrEmpty(userIdClaim) && long.TryParse(userIdClaim, out var parsedUserId))
-        {
-            return parsedUserId;
-        }
-
-        if (staffIdHeader.HasValue)
-        {
-            return staffIdHeader.Value;
-        }
-
-        return 1; // Fallback ID mặc định (Lễ tân/Admin ID = 1) khi test trên Swagger không truyền header
+        var result = await paymentService.RefundPaymentAsync(
+            GetRequiredUserId(), GetCenterScope(), paymentId, idempotencyKey, request,
+            HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1", cancellationToken);
+        return Ok(result);
     }
 
+    [Authorize(Roles = "Manager,Admin")]
+    [HttpPost("refunds/{refundId:long}/reconcile")]
+    public async Task<ActionResult<PaymentRefundResponse>> ReconcileRefund(
+        [FromRoute] long refundId,
+        [FromBody] ReconcileRefundRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await paymentService.ReconcileRefundAsync(
+            GetRequiredUserId(), GetCenterScope(), refundId, request, cancellationToken);
+        return Ok(result);
+    }
 
-    #endregion
+    private long GetRequiredUserId() => GetRequiredClaimLong(ClaimTypes.NameIdentifier);
+
+    private long GetRequiredClaimLong(string claimType)
+    {
+        var value = User.FindFirstValue(claimType);
+        if (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0)
+        {
+            throw new InvalidOperationException($"JWT is missing a valid {claimType} claim.");
+        }
+        return id;
+    }
+
+    private long? GetCenterScope()
+    {
+        if (User.IsInRole("Admin"))
+        {
+            return null;
+        }
+        return GetRequiredClaimLong("centerId");
+    }
+
+    private static IDictionary<string, string> ToStringDictionary(IEnumerable<KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues>> values) =>
+        values.ToDictionary(pair => pair.Key, pair => pair.Value.ToString(), StringComparer.Ordinal);
 }

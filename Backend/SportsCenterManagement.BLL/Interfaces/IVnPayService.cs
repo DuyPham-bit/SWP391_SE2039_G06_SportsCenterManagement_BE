@@ -33,4 +33,16 @@ public interface IVnPayService
     /// <param name="queryParams">Tập hợp các tham số URL do VNPay gửi về</param>
     /// <returns>Đối tượng kết quả giải mã từ VNPay</returns>
     VnPayCallbackResult ProcessCallback(IDictionary<string, string> queryParams);
+
+    Task<ProviderRefundResult> RefundAsync(
+        string paymentReference,
+        string requestId,
+        string providerTransactionId,
+        bool isFullRefund,
+        DateTime paidAtUtc,
+        decimal amount,
+        string reason,
+        string requestedBy,
+        string ipAddress,
+        CancellationToken cancellationToken = default);
 }

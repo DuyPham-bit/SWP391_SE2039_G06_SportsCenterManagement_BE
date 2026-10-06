@@ -1,7 +1,7 @@
 # Đặc tả nháp: Ba luồng nghiệp vụ bắt buộc
 
-**Trạng thái:** Draft – cần xác nhận chính sách nghiệp vụ trước khi chốt schema/API.  
-**Phạm vi:** Flow 1 User & Membership Management; Flow 2 Class Booking & Schedule Management; Flow 3 Payment & Report Management.  
+**Trạng thái:** Flow 1 đã được triển khai theo các quyết định ghi dưới đây; Flow 2/3 còn là blueprint và cần xác nhận chính sách trước khi chốt.
+**Phạm vi:** Flow 1 User & Membership Management; Flow 2 Class Booking & Schedule Management; Flow 3 Payment & Report Management.
 **Nguồn:** Yêu cầu vai trò Center Manager, Coach, Member, Receptionist do người dùng cung cấp; đối chiếu entities và EF Core DbContext hiện có.
 
 ## 1. Mục tiêu và phạm vi
@@ -18,8 +18,21 @@ Ngoài phạm vi bắt buộc của tài liệu này: AI, giáo án/tiến độ
 | Receptionist | Tạo hồ sơ thành viên tại quầy; tra cứu thành viên; bán/gia hạn gói; hỗ trợ ghi danh/hủy lớp; ghi nhận thanh toán; xuất hóa đơn. |
 | Member | Đăng ký/cập nhật hồ sơ; xem và mua/gia hạn gói; xem lớp/lịch; đăng ký/hủy theo chính sách; xem trạng thái thanh toán và lịch đăng ký. |
 | Coach | Chỉ xem lịch và danh sách lớp được phân công. Coach không được thay đổi gói, thanh toán hoặc dữ liệu thành viên ngoài phạm vi nghiệp vụ đã cấp. |
+| System Admin | Quản trị toàn hệ thống; là role duy nhất được xem audit toàn hệ thống và thay ma trận quyền của các role. Không được tạo qua API tạo nhân sự trung tâm. |
 
 **Quy tắc phân quyền nền:** API phải kiểm tra role và phạm vi center cho mọi thao tác; không dựa vào việc frontend ẩn nút. Không trả password hash hoặc dữ liệu nhạy cảm qua API.
+
+**Quyết định RBAC:** Mỗi user có một role. Ma trận `RolePermission` là nguồn cấp quyền cho các API có permission policy. Chỉ System Admin được sửa ma trận; quyền `roles.permissions.manage` luôn thuộc SystemAdmin và không thể cấp cho role khác hoặc tự gỡ. Tài khoản System Admin đầu tiên chỉ được bootstrap bằng biến môi trường `Bootstrap__SystemAdmin__Username`, `Bootstrap__SystemAdmin__Email`, `Bootstrap__SystemAdmin__Password`; không có mật khẩu mặc định. Manager/Receptionist vẫn bị giới hạn bởi assignment center và các rule nghiệp vụ ở service.
+
+### Quyết định triển khai Flow 1
+
+- Mỗi User có một role theo `User.RoleId`; mỗi MemberProfile và StaffProfile gắn tối đa một center. Member chưa chọn center được gắn vào center của gói mua đầu tiên trong transaction.
+- MVP không bắt buộc email verification; tài khoản được kích hoạt sau đăng ký. Số điện thoại là tùy chọn. Mật khẩu tối thiểu 12 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt; khóa 15 phút sau 5 lần đăng nhập sai.
+- Subscription bắt đầu sau khi invoice được thanh toán đủ. Khi còn một subscription Active chưa hết hạn, lần mua/gia hạn mới bắt đầu vào ngày kế tiếp ngày hết hạn đó; nếu không, bắt đầu vào ngày nhận đủ tiền.
+- Ngày kết thúc là inclusive: `end_date = start_date + duration_days - 1`. `duration_days` được chụp trên subscription lúc mua và các ngày hiệu lực để trống khi PendingPayment.
+- Token Bearer được bảo vệ bằng ASP.NET Core Data Protection, hết hạn sau 1 giờ; mỗi request đọc lại trạng thái tài khoản và role hiện tại.
+- Lịch sử center cũ chỉ được gán tự động khi invoice/subscription xác định duy nhất một center; dữ liệu mơ hồ giữ nguyên không gán để tránh mở rộng sai phạm vi PII.
+- `AccessType` hiện chỉ bị giới hạn độ dài; các giá trị enum hợp lệ cần được chốt trước khi siết validation.
 
 ## 3. Thuật ngữ và trạng thái đề xuất
 
@@ -42,7 +55,7 @@ Giá trị trạng thái phải được chuẩn hóa thành enum/constants ho�
 | Class / ClassSchedule | `Draft`, `Published`, `Cancelled`, `Completed` |
 | ClassEnrollment / SessionBooking | `Pending`, `Confirmed`, `Waitlisted`, `Cancelled`, `Attended`, `NoShow` |
 | Invoice | `Draft`, `Issued`, `PartiallyPaid`, `Paid`, `Voided`, `Refunded` |
-| Payment | `Pending`, `Succeeded`, `Failed`, `RefundPending`, `Refunded`, `Voided` |
+| Payment | `Pending`, `Succeeded`, `Failed`, `ReviewRequired`, `RefundPending`, `Refunded`, `Voided` |
 
 ## 4. Flow 1 — User and Membership Management
 
@@ -52,13 +65,13 @@ Tạo hoặc quản lý tài khoản và hồ sơ thành viên; chọn, mua ho�
 
 ### 4.2 Luồng chính: Member tự đăng ký và mua gói
 
-1. Member gửi thông tin đăng ký: họ tên, email, số điện thoại, mật khẩu và (nếu cần) center.
+1. Member gửi thông tin đăng ký: họ tên, email, mật khẩu, số điện thoại tùy chọn và (nếu cần) center.
 2. Hệ thống validate dữ liệu, chuẩn hóa email/số điện thoại và kiểm tra trùng.
-3. Hệ thống tạo User với role Member và trạng thái theo chính sách xác minh; tạo MemberProfile và mã thành viên.
+3. Hệ thống tạo User Active với role Member (MVP không xác minh email); tạo MemberProfile và mã thành viên.
 4. Member xem danh sách gói đang bán tại center; chọn một gói và gửi yêu cầu mua.
 5. Hệ thống kiểm tra gói còn Active, thuộc center hợp lệ và điều kiện mua/gia hạn.
 6. Hệ thống tạo MemberSubscription ở `PendingPayment`, chốt snapshot giá/thời hạn, tạo Invoice và InvoiceItem.
-7. Flow 3 ghi nhận thanh toán. Khi thanh toán thành công, hệ thống kích hoạt subscription, thiết lập ngày bắt đầu/kết thúc và gửi xác nhận.
+7. Flow 3 ghi nhận thanh toán. Khi thanh toán thành công, hệ thống kích hoạt subscription và thiết lập ngày bắt đầu/kết thúc. API trả trạng thái để frontend hiển thị; gửi email/push chưa thuộc phạm vi Flow 1 MVP.
 8. Member xem hồ sơ, trạng thái gói và ngày hết hạn.
 
 ### 4.3 Luồng quầy: Receptionist đăng ký hoặc gia hạn
@@ -79,6 +92,10 @@ Tạo hoặc quản lý tài khoản và hồ sơ thành viên; chọn, mua ho�
 | F1-H3 | Receptionist tạo member tại quầy rồi thu đủ tiền. | User/profile/subscription/invoice/payment liên kết đúng; ghi người thao tác; gói Active sau khi payment thành công. |
 | F1-H4 | Member gia hạn khi gói hiện tại còn hiệu lực. | Gia hạn theo chính sách được chốt (nối tiếp ngày hết hạn hoặc bắt đầu ngay); không làm mất lịch sử subscription cũ. |
 | F1-H5 | Manager vô hiệu hóa một gói. | Gói không xuất hiện trong lựa chọn mua mới; các subscription đã mua và hóa đơn cũ vẫn giữ nguyên lịch sử. |
+| F1-H6 | Member sửa hồ sơ, email hoặc số điện thoại; Manager cập nhật hồ sơ tại center. | Chuẩn hóa và kiểm tra trùng email/điện thoại; trường không gửi trong PATCH được giữ nguyên; chỉ ghi metadata thay đổi, không đưa PII vào audit. |
+| F1-H7 | Manager/Receptionist tạo hoặc cập nhật Coach/Receptionist; Manager cập nhật trạng thái Member. | User và profile được lưu cùng transaction; status tài khoản được kiểm tra ở mọi request; audit có actor, center, thời điểm và thay đổi an toàn. |
+| F1-H8 | System Admin thay ma trận quyền hoặc xem audit toàn hệ thống. | Chỉ role SystemAdmin truy cập được; thay đổi quyền và audit được lưu trong transaction. |
+| F1-H9 | Client retry yêu cầu tạo subscription đang chờ hoặc thanh toán tiền mặt với cùng idempotency key. | Subscription/invoice đang mở được trả lại; cash payment không ghi hai lần nếu cùng actor/key/request. |
 
 ### 4.5 Unhappy cases / ngoại lệ
 
@@ -92,6 +109,12 @@ Tạo hoặc quản lý tài khoản và hồ sơ thành viên; chọn, mua ho�
 | F1-U6 | Hai request mua/gia hạn được gửi đồng thời hoặc client retry. | Không tạo giao dịch trùng ngoài ý muốn; hỗ trợ idempotency và transaction. |
 | F1-U7 | Database lỗi giữa tạo hồ sơ, subscription và invoice. | Rollback toàn bộ bước tạo liên quan; không để hồ sơ hoặc hóa đơn mồ côi. |
 | F1-U8 | Tài khoản bị khóa/disabled cố mua gói. | Từ chối theo trạng thái tài khoản; không thay đổi dữ liệu. |
+| F1-U9 | PATCH không gửi email/điện thoại, hoặc gửi email/điện thoại trùng user khác. | Trường bị bỏ qua được giữ nguyên; dữ liệu trùng bị từ chối và transaction rollback. |
+| F1-U10 | Manager/Receptionist truy cập sai center, sửa role matrix hoặc tự tạo System Admin. | Trả 403; không thay đổi dữ liệu. Chỉ System Admin bootstrap/đổi ma trận theo chính sách. |
+| F1-U11 | System Admin cuối cùng cố gỡ quyền quản lý ma trận; gán quyền này cho role khác; hoặc gửi permission code không tồn tại. | Từ chối toàn bộ thay đổi; ma trận hợp lệ trước đó vẫn còn. |
+| F1-U12 | VNPay callback thất bại, lặp, sai tiền tệ, trùng mã giao dịch hoặc báo thành công với invoice đã hủy/đã trả/amount vượt dư nợ. | Callback đã ký được lưu để truy vết. Trường hợp cổng báo thành công nhưng không thể đối soát vào invoice được đánh `ReviewRequired`; không kích hoạt membership và không cộng doanh thu tự động. |
+| F1-U13 | Hai nhân viên ghi cùng cash payment; idempotency key được tái dùng với invoice/amount khác. | Cùng key và cùng request trả payment đã ghi; khác request nhận conflict; không thu vượt dư nợ. |
+| F1-U14 | Hệ thống lỗi khi lưu user/profile, invoice/payment, quyền hoặc audit. | Các thay đổi trong cùng transaction rollback; không để entity nghiệp vụ thành công nhưng thiếu audit tương ứng. |
 
 ### 4.6 Acceptance criteria chính
 
@@ -100,6 +123,10 @@ Tạo hoặc quản lý tài khoản và hồ sơ thành viên; chọn, mua ho�
 - **AC-F1-03:** Given invoice chưa thanh toán đủ, when truy vấn quyền lợi gói, then subscription không được coi là Active.
 - **AC-F1-04:** Given thanh toán thành công, when xử lý hoàn tất, then subscription và invoice được cập nhật nhất quán, có ngày hiệu lực và ngày hết hạn.
 - **AC-F1-05:** Given receptionist tạo/gia hạn gói, then actor và thời điểm thao tác được lưu để audit.
+- **AC-F1-06:** Given một request đăng ký hoặc cash payment được retry, then hệ thống không tạo thêm subscription/payment cho cùng request.
+- **AC-F1-07:** Given tài khoản không có permission hoặc không thuộc center, then API trả 403/404 phù hợp và không rò dữ liệu ngoài phạm vi.
+- **AC-F1-08:** Given callback VNPay đã xác minh chữ ký nhưng giao dịch không thể gắn vào invoice hợp lệ, then attempt/audit được lưu; chỉ payment `Succeeded` mới được tính doanh thu hoặc kích hoạt subscription.
+- **AC-F1-09:** Given yêu cầu thay ma trận quyền từ role khác SystemAdmin hoặc yêu cầu gỡ quyền cuối của SystemAdmin, then hệ thống từ chối và giữ ma trận cũ.
 
 ## 5. Flow 2 — Class Booking and Schedule Management
 
@@ -308,4 +335,3 @@ Quy tắc: dùng DTO thay vì trả EF entity trực tiếp; API mutation có va
 | Manager quản lý lớp, bộ môn, phòng, lịch, coach | F2 | ClassEntity, Sport, Room, ClassSchedule, ClassSession, ClassCoach |
 | Member đăng ký/hủy lớp; Coach xem lịch/roster | F2 | ClassEnrollment, SessionBooking, ClassWaitlist, Attendance |
 | Receptionist thanh toán/xuất hóa đơn; Manager báo cáo doanh thu | F3 | Invoice, InvoiceItem, Payment, AuditLog |
-

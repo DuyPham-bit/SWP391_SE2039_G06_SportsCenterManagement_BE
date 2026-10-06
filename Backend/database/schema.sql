@@ -1693,3 +1693,176 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001022613_PendingMembershipEffectiveDates'
+)
+BEGIN
+    DECLARE @var nvarchar(max);
+    SELECT @var = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[dbo].[member_subscriptions]') AND [c].[name] = N'start_date');
+    IF @var IS NOT NULL EXEC(N'ALTER TABLE [dbo].[member_subscriptions] DROP CONSTRAINT ' + @var + ';');
+    ALTER TABLE [dbo].[member_subscriptions] ALTER COLUMN [start_date] date NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001022613_PendingMembershipEffectiveDates'
+)
+BEGIN
+    DECLARE @var1 nvarchar(max);
+    SELECT @var1 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[dbo].[member_subscriptions]') AND [c].[name] = N'end_date');
+    IF @var1 IS NOT NULL EXEC(N'ALTER TABLE [dbo].[member_subscriptions] DROP CONSTRAINT ' + @var1 + ';');
+    ALTER TABLE [dbo].[member_subscriptions] ALTER COLUMN [end_date] date NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001022613_PendingMembershipEffectiveDates'
+)
+BEGIN
+    ALTER TABLE [dbo].[member_subscriptions] ADD [duration_days] int NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001022613_PendingMembershipEffectiveDates'
+)
+BEGIN
+    UPDATE subscription
+    SET duration_days = package.duration_days
+    FROM dbo.member_subscriptions AS subscription
+    INNER JOIN dbo.membership_packages AS package
+        ON package.id = subscription.package_id;
+
+    UPDATE dbo.member_subscriptions
+    SET start_date = NULL, end_date = NULL
+    WHERE status = 'PendingPayment';
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001022613_PendingMembershipEffectiveDates'
+)
+BEGIN
+    DECLARE @var2 nvarchar(max);
+    SELECT @var2 = QUOTENAME([d].[name])
+    FROM [sys].[default_constraints] [d]
+    INNER JOIN [sys].[columns] [c] ON [d].[parent_column_id] = [c].[column_id] AND [d].[parent_object_id] = [c].[object_id]
+    WHERE ([d].[parent_object_id] = OBJECT_ID(N'[dbo].[member_subscriptions]') AND [c].[name] = N'duration_days');
+    IF @var2 IS NOT NULL EXEC(N'ALTER TABLE [dbo].[member_subscriptions] DROP CONSTRAINT ' + @var2 + ';');
+    ALTER TABLE [dbo].[member_subscriptions] ALTER COLUMN [duration_days] int NOT NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001022613_PendingMembershipEffectiveDates'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261001022613_PendingMembershipEffectiveDates', N'10.0.12');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001024850_Flow1MembershipScope'
+)
+BEGIN
+    DROP INDEX [IX_membership_packages_center_id] ON [dbo].[membership_packages];
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001024850_Flow1MembershipScope'
+)
+BEGIN
+    ALTER TABLE [dbo].[member_profiles] ADD [center_id] bigint NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001024850_Flow1MembershipScope'
+)
+BEGIN
+    WITH member_centers AS
+    (
+        SELECT member_id, MIN(center_id) AS center_id
+        FROM dbo.invoices
+        GROUP BY member_id
+        HAVING COUNT(DISTINCT center_id) = 1
+    )
+    UPDATE profile
+    SET center_id = member_centers.center_id
+    FROM dbo.member_profiles AS profile
+    INNER JOIN member_centers ON member_centers.member_id = profile.id;
+
+    WITH subscription_centers AS
+    (
+        SELECT subscription.member_id, MIN(package.center_id) AS center_id
+        FROM dbo.member_subscriptions AS subscription
+        INNER JOIN dbo.membership_packages AS package ON package.id = subscription.package_id
+        GROUP BY subscription.member_id
+        HAVING COUNT(DISTINCT package.center_id) = 1
+    )
+    UPDATE profile
+    SET center_id = subscription_centers.center_id
+    FROM dbo.member_profiles AS profile
+    INNER JOIN subscription_centers ON subscription_centers.member_id = profile.id
+    WHERE profile.center_id IS NULL
+      AND NOT EXISTS (SELECT 1 FROM dbo.invoices AS invoice WHERE invoice.member_id = profile.id);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001024850_Flow1MembershipScope'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_users_phone] ON [dbo].[users] ([phone]) WHERE [phone] IS NOT NULL');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001024850_Flow1MembershipScope'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_membership_packages_center_id_name] ON [dbo].[membership_packages] ([center_id], [name]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001024850_Flow1MembershipScope'
+)
+BEGIN
+    CREATE INDEX [IX_member_profiles_center_id] ON [dbo].[member_profiles] ([center_id]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001024850_Flow1MembershipScope'
+)
+BEGIN
+    ALTER TABLE [dbo].[member_profiles] ADD CONSTRAINT [FK_member_profiles_centers_center_id] FOREIGN KEY ([center_id]) REFERENCES [dbo].[centers] ([Id]) ON DELETE NO ACTION;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261001024850_Flow1MembershipScope'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261001024850_Flow1MembershipScope', N'10.0.12');
+END;
+
+COMMIT;
+GO
+

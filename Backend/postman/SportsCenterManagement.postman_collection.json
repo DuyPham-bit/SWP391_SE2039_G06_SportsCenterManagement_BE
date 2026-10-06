@@ -1,79 +1,188 @@
 {
   "info": {
-    "_postman_id": "68493cf7-1032-4f29-bdb5-701b24833819",
+    "_postman_id": "ee65057a-e6f0-4e26-86d7-87483b76dc5a",
     "name": "Sports Center Management API",
-    "description": "Auth, member profile/list/desk flows, package management and subscriptions.",
+    "description": "Collection cho các API hiện đã triển khai. Chọn environment 'Sports Center Management - Local' trước khi gửi request. Request tạo URL VNPay sẽ tạo subscription và invoice ở trạng thái chờ trong database.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
-  "auth": {
-    "type": "bearer",
-    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
-  },
-  "variable": [
-    { "key": "baseUrl", "value": "http://localhost:54162" },
-    { "key": "centerId", "value": "1" },
-    { "key": "accessToken", "value": "" },
-    { "key": "memberId", "value": "" },
-    { "key": "packageId", "value": "" },
-    { "key": "searchEmail", "value": "member@example.com" },
-    { "key": "searchPassword", "value": "ChangeMe123!" }
-  ],
   "item": [
     {
       "name": "Health",
       "item": [
-        { "name": "Health check", "request": { "method": "GET", "url": "{{baseUrl}}/api/health" } }
+        {
+          "name": "Health check (/health)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "Kiểm tra API đang hoạt động."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Response status is ok', function () {",
+                  "    pm.expect(pm.response.json().status).to.eql('ok');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Health check (/api/health)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/health",
+            "description": "Route health thay thế tương đương /health."
+          },
+          "response": []
+        }
       ]
     },
     {
-      "name": "Auth",
+      "name": "Catalog",
       "item": [
         {
-          "name": "Register member",
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "if (pm.response.code === 201) {",
-            "  const body = pm.response.json();",
-            "  pm.collectionVariables.set('accessToken', body.accessToken);",
-            "  pm.collectionVariables.set('memberId', String(body.member.memberId));",
-            "}"
-          ] } }],
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"centerId\": {{centerId}},\n  \"fullName\": \"Postman Member\",\n  \"email\": \"{{searchEmail}}\",\n  \"phone\": \"+84901234567\",\n  \"password\": \"{{searchPassword}}\"\n}" }, "url": "{{baseUrl}}/api/auth/register" }
+          "name": "Get active membership packages",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/membership-packages",
+            "description": "Lấy các gói tập có trạng thái Active của trung tâm. Dữ liệu mẫu dùng centerId = 1."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Response is an array', function () {",
+                  "    pm.expect(pm.response.json()).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "Login member",
-          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-            "if (pm.response.code === 200) {",
-            "  const body = pm.response.json();",
-            "  pm.collectionVariables.set('accessToken', body.accessToken);",
-            "  pm.collectionVariables.set('memberId', String(body.member.memberId));",
-            "}"
-          ] } }],
-          "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{searchEmail}}\",\n  \"password\": \"{{searchPassword}}\"\n}" }, "url": "{{baseUrl}}/api/auth/login", "auth": { "type": "noauth" } }
-        },
-        { "name": "Login invalid credentials (expect 401)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"missing@example.com\",\n  \"password\": \"wrong-password\"\n}" }, "url": "{{baseUrl}}/api/auth/login", "auth": { "type": "noauth" } }
-        },
-        { "name": "Current member profile", "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/me" } }
+          "name": "Get published classes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/classes",
+            "description": "Lấy các lớp có trạng thái Published của trung tâm. Nếu seed chưa có lớp published, API trả mảng rỗng."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Response is an array', function () {",
+                  "    pm.expect(pm.response.json()).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
       ]
     },
     {
-      "name": "Members",
+      "name": "Payments - VNPay",
+      "description": "Tạo yêu cầu thanh toán cần bearer token của Member.",
       "item": [
-        { "name": "Get my profile", "request": { "method": "GET", "url": "{{baseUrl}}/api/members/me" } },
-        { "name": "Update my profile", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"fullName\": \"Postman Member Updated\",\n  \"phone\": \"+84901234567\",\n  \"dateOfBirth\": \"1998-05-20\",\n  \"gender\": \"Other\",\n  \"address\": \"Ho Chi Minh City\",\n  \"emergencyContactName\": null,\n  \"emergencyContactPhone\": null,\n  \"fitnessGoal\": \"General fitness\",\n  \"fitnessLevel\": \"Beginner\"\n}" }, "url": "{{baseUrl}}/api/members/me" } },
-        { "name": "List members (requires Receptionist/Center Manager token)", "request": { "method": "GET", "url": { "raw": "{{baseUrl}}/api/centers/{{centerId}}/members?page=1&pageSize=20&search=member&status=Active&sortBy=name&sortDirection=asc", "host": ["{{baseUrl}}"], "path": ["api", "centers", "{{centerId}}", "members"], "query": [{ "key": "page", "value": "1" }, { "key": "pageSize", "value": "20" }, { "key": "search", "value": "member" }, { "key": "status", "value": "Active" }, { "key": "sortBy", "value": "name" }, { "key": "sortDirection", "value": "asc" }] } } },
-        { "name": "Reception desk lookup/create (requires Receptionist token)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"search\": \"{{searchEmail}}\",\n  \"email\": \"{{searchEmail}}\",\n  \"fullName\": \"Postman Member\",\n  \"phone\": \"+84901234567\",\n  \"password\": \"{{searchPassword}}\"\n}" }, "url": "{{baseUrl}}/api/centers/{{centerId}}/members/lookup-or-create" } }
-      ]
-    },
-    {
-      "name": "Membership",
-      "item": [
-        { "name": "List active packages", "request": { "method": "GET", "url": "{{baseUrl}}/api/centers/{{centerId}}/membership-packages", "auth": { "type": "noauth" } } },
-        { "name": "Create package (requires Center Manager token)", "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
-          "if (pm.response.code === 201) {",
-          "  pm.collectionVariables.set('packageId', String(pm.response.json().id));",
-          "}"
-        ] } }], "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Postman Monthly\",\n  \"description\": \"Test package\",\n  \"durationDays\": 30,\n  \"price\": 500000,\n  \"maxClasses\": 12,\n  \"accessType\": \"Group\",\n  \"status\": \"Draft\"\n}" }, "url": "{{baseUrl}}/api/centers/{{centerId}}/membership-packages" } },
-        { "name": "Create subscription (creates PendingPayment + invoice)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"memberId\": {{memberId}},\n  \"packageId\": {{packageId}}\n}" }, "url": "{{baseUrl}}/api/centers/{{centerId}}/membership-packages/subscriptions" } }
+        {
+          "name": "Create VNPay payment URL",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packageId\": {{packageId}},\n  \"bankCode\": \"{{bankCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/payments/create-vnpay-url",
+            "description": "Tái sử dụng hóa đơn PendingPayment phù hợp hoặc tạo subscription PendingPayment cùng invoice trong transaction."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Payment URL is returned', function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.success).to.eql(true);",
+                  "    pm.expect(body.paymentUrl).to.be.a('string').and.not.empty;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "VNPay callback - missing signature (safe negative test)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/payments/vnpay-callback",
+            "description": "Kiểm tra callback từ chối dữ liệu không có chữ ký. Không thay đổi dữ liệu thanh toán. Callback thành công phải dùng query string do VNPay Sandbox ký; không tự tạo chữ ký trong collection để tránh lộ secret."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Callback is rejected without signature', function () {",
+                  "    var body = pm.response.json();",
+                  "    pm.expect(body.success).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
       ]
     }
   ]

@@ -5,7 +5,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\SportsCenterManagement.Services\SportsCenterManagement.Services.csproj" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
+    <ProjectReference Include="..\SportsCenterManagement.BLL\SportsCenterManagement.BLL.csproj" />
+    <ProjectReference Include="..\SportsCenterManagement.DAL\SportsCenterManagement.DAL.csproj" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

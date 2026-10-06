@@ -32,6 +32,9 @@ public class ClassEntity : Common.BaseEntity
     [Column("capacity")]
     public int Capacity { get; set; }
 
+    [Column("allow_waitlist")]
+    public bool AllowWaitlist { get; set; } = true;
+
     [Column("duration_minutes")]
     public int DurationMinutes { get; set; }
 

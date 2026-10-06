@@ -99,9 +99,18 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
         modelBuilder.Entity<SessionBooking>()
             .HasIndex(entity => new { entity.SessionId, entity.MemberId })
             .IsUnique();
+        modelBuilder.Entity<SessionBooking>()
+            .HasIndex(entity => new { entity.SubscriptionId, entity.Status, entity.SessionId });
         modelBuilder.Entity<ClassEnrollment>()
             .HasIndex(entity => new { entity.ClassId, entity.MemberId })
             .IsUnique();
+        modelBuilder.Entity<ClassWaitlist>()
+            .HasIndex(entity => new { entity.SessionId, entity.MemberId })
+            .IsUnique()
+            .HasFilter("[session_id] IS NOT NULL AND [status] = N'Waiting'");
+        modelBuilder.Entity<ClassEntity>()
+            .Property(entity => entity.AllowWaitlist)
+            .HasDefaultValue(true);
         modelBuilder.Entity<Payment>()
             .HasIndex(entity => entity.TransactionCode)
             .IsUnique()
@@ -115,6 +124,12 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<Room>()
+            .HasOne<Center>()
+            .WithMany()
+            .HasForeignKey(entity => entity.CenterId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<Sport>()
             .HasOne<Center>()
             .WithMany()
             .HasForeignKey(entity => entity.CenterId)
@@ -238,6 +253,24 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .HasOne<MemberProfile>()
             .WithMany()
             .HasForeignKey(entity => entity.MemberId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<ClassWaitlist>()
+            .HasOne<ClassSession>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SessionId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<ClassWaitlist>()
+            .HasOne<MemberSubscription>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SubscriptionId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<ClassWaitlist>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(entity => entity.RegisteredBy)
             .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<CenterCheckin>()
@@ -388,6 +421,18 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .HasOne<ClassEnrollment>()
             .WithMany()
             .HasForeignKey(entity => entity.EnrollmentId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<SessionBooking>()
+            .HasOne<MemberSubscription>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SubscriptionId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<SessionBooking>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(entity => entity.RegisteredBy)
             .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<Attendance>()

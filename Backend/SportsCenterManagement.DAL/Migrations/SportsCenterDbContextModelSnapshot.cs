@@ -587,6 +587,12 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("int")
                         .HasColumnName("capacity");
 
+                    b.Property<bool>("AllowWaitlist")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true)
+                        .HasColumnName("allow_waitlist");
+
                     b.Property<long>("CenterId")
                         .HasColumnType("bigint")
                         .HasColumnName("center_id");
@@ -767,6 +773,18 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<long?>("SessionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("session_id");
+
+                    b.Property<long?>("RegisteredBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("registered_by");
+
+                    b.Property<long?>("SubscriptionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("subscription_id");
+
                     b.Property<long>("ClassId")
                         .HasColumnType("bigint")
                         .HasColumnName("class_id");
@@ -790,6 +808,16 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.HasIndex("ClassId");
 
                     b.HasIndex("MemberId");
+
+                    b.HasIndex("RegisteredBy");
+
+                    b.HasIndex("SessionId");
+
+                    b.HasIndex("SubscriptionId");
+
+                    b.HasIndex("SessionId", "MemberId")
+                        .IsUnique()
+                        .HasFilter("[session_id] IS NOT NULL AND [status] = N'Waiting'");
 
                     b.ToTable("class_waitlist", "dbo");
                 });
@@ -1026,6 +1054,14 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.Property<long?>("EnrollmentId")
                         .HasColumnType("bigint")
                         .HasColumnName("enrollment_id");
+
+                    b.Property<long?>("RegisteredBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("registered_by");
+
+                    b.Property<long?>("SubscriptionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("subscription_id");
 
                     b.Property<long>("InvoiceId")
                         .HasColumnType("bigint")
@@ -1710,8 +1746,14 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("MemberId");
 
+                    b.HasIndex("RegisteredBy");
+
+                    b.HasIndex("SubscriptionId");
+
                     b.HasIndex("SessionId", "MemberId")
                         .IsUnique();
+
+                    b.HasIndex("SubscriptionId", "Status", "SessionId");
 
                     b.ToTable("session_bookings", "dbo");
                 });
@@ -1723,6 +1765,10 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("bigint");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("CenterId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("center_id");
 
                     b.Property<string>("Description")
                         .HasMaxLength(500)
@@ -1742,6 +1788,8 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnName("status");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CenterId");
 
                     b.ToTable("sports", "dbo");
                 });
@@ -2529,6 +2577,29 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasForeignKey("MemberId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.Models.ClassSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SportsCenterManagement.Models.MemberSubscription", null)
+                        .WithMany()
+                        .HasForeignKey("SubscriptionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SportsCenterManagement.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("RegisteredBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.Models.Sport", b =>
+                {
+                    b.HasOne("SportsCenterManagement.Models.Center", null)
+                        .WithMany()
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("SportsCenterManagement.Models.CoachProfile", b =>
@@ -2736,6 +2807,16 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasForeignKey("SessionId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.Models.MemberSubscription", null)
+                        .WithMany()
+                        .HasForeignKey("SubscriptionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SportsCenterManagement.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("RegisteredBy")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("SportsCenterManagement.Models.StaffProfile", b =>

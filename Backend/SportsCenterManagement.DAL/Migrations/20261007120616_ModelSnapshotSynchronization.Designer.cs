@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SportsCenterManagement.DAL.Context;
 
@@ -11,9 +12,11 @@ using SportsCenterManagement.DAL.Context;
 namespace SportsCenterManagement.DAL.Migrations
 {
     [DbContext(typeof(SportsCenterDbContext))]
-    partial class SportsCenterDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261007120616_ModelSnapshotSynchronization")]
+    partial class ModelSnapshotSynchronization
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

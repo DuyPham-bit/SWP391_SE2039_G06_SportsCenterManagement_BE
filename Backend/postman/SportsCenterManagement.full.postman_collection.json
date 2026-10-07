@@ -1,0 +1,2945 @@
+{
+  "info": {
+    "description": "Generated from the running API OpenAPI document. Contains 78 operations. 4xx is allowed for safe invalid placeholders or missing auth; review state-changing operations and set authorized data before sending.",
+    "name": "Sports Center Management API - Full Route Smoke",
+    "_postman_id": "442020a0-dffe-4963-ad47-625e9eca062e",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "AuditLogs",
+      "item": [
+        {
+          "name": "GET /api/centers/{{centerId}}/audit-logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/audit-logs?page={{page}}&pageSize={{pageSize}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/admin/audit-logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/audit-logs?centerId={{centerId}}&page={{page}}&pageSize={{pageSize}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "POST /api/auth/register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/register",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/auth/login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/login",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/auth/request-password-reset",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/request-password-reset",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/auth/reset-password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/reset-password",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/auth/change-password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/auth/change-password",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ClassEnrollments",
+      "item": [
+        {
+          "name": "GET /api/members/me/enrollments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/members/me/enrollments",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/classes/{{classId}}/enrollments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}/enrollments",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE /api/classes/{{classId}}/enrollments/{{enrollmentId}}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}/enrollments/{{enrollmentId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Classes",
+      "item": [
+        {
+          "name": "GET /api/centers/{{centerId}}/classes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/classes",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/classes/{{classId}}/coaches",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}/coaches",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/classes/{{classId}}/coaches",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}/coaches",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE /api/classes/{{classId}}/coaches/{{coachId}}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}/coaches/{{coachId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ClassManagement",
+      "item": [
+        {
+          "name": "POST /api/classes",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/classes/{{classId}}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PUT /api/classes/{{classId}}",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE /api/classes/{{classId}}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/classes/{{classId}}/publish",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}/publish",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/classes/{{classId}}/schedules",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}/schedules",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/classes/{{classId}}/schedules",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}/schedules",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PUT /api/classes/{{classId}}/schedules/{{scheduleId}}",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}/schedules/{{scheduleId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE /api/classes/{{classId}}/schedules/{{scheduleId}}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/classes/{{classId}}/schedules/{{scheduleId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ClassSchedules",
+      "item": [
+        {
+          "name": "GET /api/class-sessions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/class-sessions?sportId={{sportId}}&coachId={{coachId}}&from={{from}}&to={{to}}&page={{page}}&pageSize={{pageSize}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/coaches/me/teaching-schedule",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/coaches/me/teaching-schedule?from={{from}}&to={{to}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/health",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/health",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "item": [
+        {
+          "name": "GET /api/invoices/{{invoiceNumber}}",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/invoices/{{invoiceNumber}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/invoices/{{invoiceNumber}}/payments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/invoices/{{invoiceNumber}}/payments",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Members",
+      "item": [
+        {
+          "name": "GET /api/members/me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/members/me",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /api/members/me",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/members/me",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/centers/{{centerId}}/members",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/members?query={{query}}&page={{page}}&pageSize={{pageSize}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/centers/{{centerId}}/members",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/members",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /api/centers/{{centerId}}/members/{{memberId}}",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/members/{{memberId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /api/centers/{{centerId}}/members/{{memberId}}/status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/members/{{memberId}}/status",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/members/me/subscriptions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/members/me/subscriptions",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/members/{{memberId}}/subscriptions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/members/{{memberId}}/subscriptions",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/members/{{memberId}}/subscriptions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/members/{{memberId}}/subscriptions",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "MembershipPackages",
+      "item": [
+        {
+          "name": "GET /api/centers/{{centerId}}/membership-packages",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/membership-packages",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/centers/{{centerId}}/membership-packages",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/membership-packages",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/centers/{{centerId}}/membership-packages/all",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/membership-packages/all",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PUT /api/centers/{{centerId}}/membership-packages/{{packageId}}",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/membership-packages/{{packageId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /api/centers/{{centerId}}/membership-packages/{{packageId}}/status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/membership-packages/{{packageId}}/status",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /api/membership-packages/{{packageId}}",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/membership-packages/{{packageId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "POST /api/payments/create-vnpay-url",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/create-vnpay-url",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/payments/vnpay-callback",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/vnpay-callback",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/payments/vnpay-ipn",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/vnpay-ipn",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/payments/create-momo-url",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/create-momo-url",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/payments/create-payos-url",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/create-payos-url",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/payments/momo-callback",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/momo-callback",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/payments/momo-ipn",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/momo-ipn",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/payments/payos-ipn",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/payos-ipn",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/payments/counter-checkout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/counter-checkout",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/payments/counter-void/{{invoiceNumber}}",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/counter-void/{{invoiceNumber}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/payments/{{gatewayReference}}/reconcile",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/{{gatewayReference}}/reconcile",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/payments/{{paymentId}}/refunds",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/{{paymentId}}/refunds",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/payments/refunds/{{refundId}}/reconcile",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/payments/refunds/{{refundId}}/reconcile",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/invoices/{{invoiceId}}/payments",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/invoices/{{invoiceId}}/payments",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Profile",
+      "item": [
+        {
+          "name": "GET /api/profile/me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/profile/me",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /api/profile/me",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/profile/me",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "item": [
+        {
+          "name": "GET /api/reports/revenue",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/reports/revenue?from={{from}}&to={{to}}&groupBy={{groupBy}}&centerId={{centerId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/reports/membership",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/reports/membership?from={{from}}&to={{to}}&groupBy={{groupBy}}&centerId={{centerId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/reports/classes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/reports/classes?from={{from}}&to={{to}}&groupBy={{groupBy}}&centerId={{centerId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RolePermissions",
+      "item": [
+        {
+          "name": "GET /api/admin/roles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/roles",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PUT /api/admin/roles/{{roleId}}/permissions",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/admin/roles/{{roleId}}/permissions",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Roles",
+      "item": [
+        {
+          "name": "GET /api/roles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/roles",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/roles",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/roles",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/permissions",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/roles/{{roleId}}/permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/roles/{{roleId}}/permissions",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PUT /api/roles/{{roleId}}/permissions",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/roles/{{roleId}}/permissions",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PUT /api/roles/{{roleId}}",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/roles/{{roleId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE /api/roles/{{roleId}}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/roles/{{roleId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SessionBookings",
+      "item": [
+        {
+          "name": "GET /api/members/me/session-bookings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/members/me/session-bookings",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/class-sessions/{{sessionId}}/bookings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/class-sessions/{{sessionId}}/bookings",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE /api/session-bookings/{{bookingId}}",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/session-bookings/{{bookingId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Staff",
+      "item": [
+        {
+          "name": "GET /api/centers/{{centerId}}/staff",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/staff?query={{query}}&page={{page}}&pageSize={{pageSize}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST /api/centers/{{centerId}}/staff",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/staff",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "PATCH /api/centers/{{centerId}}/staff/{{staffUserId}}",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "value": "application/json",
+                "key": "Accept",
+                "type": "text"
+              },
+              {
+                "value": "application/json",
+                "key": "Content-Type",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/api/centers/{{centerId}}/staff/{{staffUserId}}",
+            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
+            "body": {
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{}",
+              "mode": "raw"
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Route does not return a server error', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

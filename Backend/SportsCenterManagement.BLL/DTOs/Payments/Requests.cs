@@ -59,6 +59,9 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
         [JsonPropertyName("desc")]
         public string Desc { get; set; } = string.Empty;
 
+        [JsonPropertyName("success")]
+        public bool Success { get; set; }
+
         [JsonPropertyName("data")]
         public PayOsWebhookData? Data { get; set; }
 
@@ -72,7 +75,7 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
         public long OrderCode { get; set; }
 
         [JsonPropertyName("amount")]
-        public decimal Amount { get; set; }
+        public int Amount { get; set; }
 
         [JsonPropertyName("description")]
         public string Description { get; set; } = string.Empty;
@@ -97,6 +100,24 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
 
         [JsonPropertyName("desc")]
         public string Desc { get; set; } = string.Empty;
+
+        [JsonPropertyName("counterAccountBankId")]
+        public string CounterAccountBankId { get; set; } = string.Empty;
+
+        [JsonPropertyName("counterAccountBankName")]
+        public string CounterAccountBankName { get; set; } = string.Empty;
+
+        [JsonPropertyName("counterAccountName")]
+        public string CounterAccountName { get; set; } = string.Empty;
+
+        [JsonPropertyName("counterAccountNumber")]
+        public string CounterAccountNumber { get; set; } = string.Empty;
+
+        [JsonPropertyName("virtualAccountName")]
+        public string VirtualAccountName { get; set; } = string.Empty;
+
+        [JsonPropertyName("virtualAccountNumber")]
+        public string VirtualAccountNumber { get; set; } = string.Empty;
     }
 
     public sealed class ReconcilePendingPaymentRequest
@@ -160,7 +181,7 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
         }
 
         public sealed record RecordCashPaymentRequest(
-            [property: Range(typeof(decimal), "0.01", "9999999999.99")] decimal Amount,
-            [property: Required, StringLength(100, MinimumLength = 16)] string IdempotencyKey);
+            [param: Range(typeof(decimal), "0.01", "9999999999.99")] decimal Amount,
+            [param: Required, StringLength(100, MinimumLength = 16)] string IdempotencyKey);
     }
 }

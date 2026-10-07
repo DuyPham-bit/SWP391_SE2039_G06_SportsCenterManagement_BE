@@ -129,6 +129,30 @@ public sealed class PaymentsController : ControllerBase
         return Ok(new { success = true, paymentUrl });
     }
 
+    [Authorize]
+    [HttpPost("create-payos-url")]
+    public async Task<IActionResult> CreatePayOsPaymentUrl(
+        [FromBody] CreatePaymentRequest request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            return BadRequest(new { success = false, message = "Header Idempotency-Key là bắt buộc." });
+        }
+
+        var userId = GetRequiredUserId();
+        var memberId = await GetCurrentMemberIdAsync(userId, cancellationToken);
+        if (request.PackageId > 0)
+        {
+            await _memberService.EnsureCanBuyPackageAsync(userId, request.PackageId, cancellationToken);
+        }
+
+        var paymentUrl = await _paymentService.CreatePayOsPaymentUrlAsync(
+            memberId, request, idempotencyKey.Trim(), cancellationToken);
+        return Ok(new { success = true, paymentUrl });
+    }
+
     [AllowAnonymous]
     [HttpGet("momo-callback")]
     public async Task<ActionResult<PaymentResultResponse>> MomoPaymentCallback(CancellationToken cancellationToken)
@@ -156,6 +180,25 @@ public sealed class PaymentsController : ControllerBase
         var result = await _paymentService.ProcessMomoCallbackAsync(fields, cancellationToken);
         if (!result.Processed) _logger.LogWarning("Rejected MoMo IPN. TraceId: {TraceId}", HttpContext.TraceIdentifier);
         return Ok(new { resultCode = result.Processed ? 0 : 1, message = result.Processed ? "Success" : "Not confirmed" });
+    }
+
+    [AllowAnonymous]
+    [HttpPost("payos-ipn")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> PayOsPaymentIpn(
+        [FromBody] PayOsWebhookRequest webhookRequest,
+        CancellationToken cancellationToken)
+    {
+        var result = await _paymentService.ProcessPayOsWebhookAsync(webhookRequest, cancellationToken);
+        if (!result.Success)
+        {
+            _logger.LogWarning("PayOS webhook was acknowledged without confirming payment. TraceId: {TraceId}",
+                HttpContext.TraceIdentifier);
+        }
+
+        // payOS retries deliveries that do not receive a 2xx response; signed events are always acknowledged.
+        return Ok(new { code = 0, message = "Success", data = result });
     }
 
     [Authorize(Roles = "Receptionist,Manager,Admin")]

@@ -34,6 +34,8 @@ Backend cho hệ thống quản lý trung tâm thể thao. Repository hiện dù
 
 Yêu cầu .NET SDK 10 và SQL Server LocalDB hoặc SQL Server tương thích.
 
+Trước khi chạy các lệnh, cần cấu hình `Jwt__Key` riêng dài tối thiểu 32 byte (không có JWT secret mặc định trong source). Với database chưa có System Admin, cấu hình thêm ba biến `Bootstrap__SystemAdmin__Username`, `Bootstrap__SystemAdmin__Email`, `Bootstrap__SystemAdmin__Password` như mục **Bootstrap System Admin đầu tiên** bên dưới.
+
 ```powershell
 dotnet restore .\SWP391_SE2039_G06_SportsCenterManagement1.slnx
 dotnet tool restore
@@ -60,7 +62,10 @@ API được xây bằng ASP.NET Core MVC Controllers và trả JSON; không dù
 | POST | `/api/centers/{centerId}/membership-packages` | Manager tạo gói |
 | PATCH | `/api/membership-packages/{packageId}` | Manager cập nhật gói |
 | POST | `/api/payments/create-vnpay-url` | Tạo hoặc tiếp tục thanh toán gói của Member |
+| POST | `/api/payments/create-momo-url` | Tạo hoặc tiếp tục thanh toán MoMo |
+| POST | `/api/payments/create-payos-url` | Tạo hoặc tiếp tục thanh toán PayOS |
 | GET | `/api/payments/vnpay-callback` | Xác thực kết quả callback VNPay |
+| POST | `/api/payments/payos-ipn` | Xác thực webhook PayOS và ghi nhận giao dịch hợp lệ |
 | POST | `/api/invoices/{invoiceId}/payments` | Manager/Receptionist ghi nhận tiền mặt; chỉ kích hoạt khi đã thu đủ |
 | GET | `/api/centers/{centerId}/audit-logs` | Manager xem audit của center được phân công |
 | GET | `/api/admin/audit-logs` | System Admin xem audit toàn hệ thống |
@@ -95,8 +100,10 @@ Các API Flow 3 yêu cầu JWT, ngoại trừ callback/IPN do cổng thanh toán
 |---|---|---|---|
 | POST | `/api/payments/create-vnpay-url` | Member | Tạo hoặc phát lại link VNPay |
 | POST | `/api/payments/create-momo-url` | Member | Tạo hoặc phát lại link MoMo |
+| POST | `/api/payments/create-payos-url` | Member | Tạo hoặc phát lại link PayOS |
 | GET | `/api/payments/vnpay-callback`, `/api/payments/vnpay-ipn` | Cổng thanh toán | Xác nhận callback/IPN có chữ ký |
 | GET/POST | `/api/payments/momo-callback`, `/api/payments/momo-ipn` | Cổng thanh toán | Xác nhận callback/IPN có chữ ký |
+| POST | `/api/payments/payos-ipn` | PayOS | Xác thực chữ ký webhook; chỉ callback thành công đúng orderCode/số tiền mới ghi nhận thanh toán |
 | POST | `/api/payments/counter-checkout` | Receptionist, Manager, Admin | Thu CASH/POS tại quầy; hỗ trợ thu một phần bằng tiền mặt |
 | POST | `/api/invoices/{invoiceNumber}/payments` | Receptionist, Manager, Admin | Thu tiếp số dư bằng CASH/POS |
 | GET | `/api/invoices/{invoiceNumber}` | Người có quyền trên hóa đơn | Tra cứu và xuất lại hóa đơn/biên nhận |
@@ -109,13 +116,15 @@ Các API Flow 3 yêu cầu JWT, ngoại trừ callback/IPN do cổng thanh toán
 
 Manager chỉ xem và thao tác trong center gắn với JWT. Admin phải truyền `centerId` khi xem báo cáo. Payment/refund timeout được giữ `Pending`; Manager cần kiểm tra ở nhà cung cấp và ghi bằng chứng trước khi reconcile. `Reports:TimeZoneId` mặc định `Asia/Ho_Chi_Minh` (Windows dùng `SE Asia Standard Time`); cấu hình này xác định ranh giới ngày báo cáo và ngày bắt đầu subscription. `EndDate` là ngày sử dụng cuối cùng, nên gói `DurationDays=30` có đúng 30 ngày hiệu lực.
 
+PayOS cần cấu hình URL webhook công khai trỏ tới `POST /api/payments/payos-ipn` trong kênh thanh toán PayOS trước khi nhận giao dịch. Return URL chỉ phục vụ điều hướng giao diện; backend chỉ kích hoạt subscription từ webhook có chữ ký hợp lệ. Hoàn tiền PayOS chưa được hỗ trợ tự động; giao dịch này cần xử lý theo quy trình đối soát hiện có.
+
 Schema hiện chưa gắn `MemberProfile` trực tiếp với center. Báo cáo thành viên tính một hội viên thuộc center nếu họ có ít nhất một subscription ở center đó; `NewMembers` được tính theo thời điểm subscription đầu tiên tại center được tạo. Hồ sơ chưa từng mua subscription chưa được phân bổ vào center.
 
 Cổng được in ra khi chạy ứng dụng.
 
 ## Cấu hình database
 
-Connection string key là `ConnectionStrings:SportsCenter`. Giá trị mặc định nằm trong `SportsCenterManagement.API/appsettings.json`; `.env.example` chỉ là mẫu vì .NET không tự nạp file `.env`.
+Connection string key là `ConnectionStrings:SportsCenter`. Môi trường Development dùng SQL Server LocalDB như cấu hình và lệnh bên dưới. `.env.example` chỉ là mẫu vì .NET không tự nạp file `.env`; đặt các biến cần thiết trong terminal, User Secrets hoặc cấu hình môi trường của nơi triển khai.
 
 PowerShell, chỉ cho phiên terminal hiện tại:
 
@@ -125,16 +134,18 @@ $env:ConnectionStrings__SportsCenter = "Server=(localdb)\MSSQLLocalDB;Database=S
 
 Không commit thông tin đăng nhập hoặc secret thật. Dùng User Secrets hoặc environment variables ngoài máy local.
 
-JWT cần secret riêng dài tối thiểu 32 byte. Có thể tạo nhanh cho phiên PowerShell hiện tại:
+JWT cần secret riêng dài tối thiểu 32 byte. Cấu hình bắt buộc `Jwt__Key` trước khi chạy. Có thể tạo nhanh cho phiên PowerShell hiện tại:
 
 ```powershell
 $jwtBytes = New-Object byte[] 48
 [System.Security.Cryptography.RandomNumberGenerator]::Fill($jwtBytes)
-$env:Jwt__SecretKey = [Convert]::ToBase64String($jwtBytes)
+$env:Jwt__Key = [Convert]::ToBase64String($jwtBytes)
 $env:Jwt__Issuer = "SportsCenterManagement"
-$env:Jwt__Audience = "SportsCenterManagement.Client"
+$env:Jwt__Audience = "SportsCenterManagement.FE"
 $env:Cors__AllowedOrigins__0 = "http://localhost:5173"
 ```
+
+Gateway secret được đọc từ biến môi trường/User Secrets: `VnPay__HashSecret`, `Momo__AccessKey`, `Momo__SecretKey`, `PayOS__ClientId`, `PayOS__ApiKey`, `PayOS__ChecksumKey`. Không cấu hình provider thì các API khác vẫn chạy; endpoint tạo link của provider đó trả `503` trước khi tạo payment attempt.
 
 ## Database và migrations
 

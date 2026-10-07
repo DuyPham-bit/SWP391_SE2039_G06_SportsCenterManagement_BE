@@ -5,6 +5,6 @@ namespace SportsCenterManagement.BLL.DTOs.AccessControl
     public static class Requests
     {
         public sealed record ReplaceRolePermissionsRequest(
-            [property: Required] IReadOnlyList<string> PermissionCodes);
+            [param: Required] IReadOnlyList<string> PermissionCodes);
     }
 }

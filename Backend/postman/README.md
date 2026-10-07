@@ -3,9 +3,15 @@
 ## Import và chạy
 
 1. Chạy API theo hướng dẫn trong `Backend/README.md`.
-2. Trong Postman, import cả hai tệp JSON trong thư mục này.
-3. Chọn environment **Sports Center Management - Local**.
-4. Gửi `Health check (/health)` để xác nhận URL API.
+2. Trong Postman, import collection và environment **Local** để chạy các ví dụ luồng có sẵn.
+3. Để có danh sách đầy đủ route từ API đang chạy, dùng environment PowerShell tại thư mục này:
+
+   ```powershell
+   .\Generate-FullApiSmokeCollection.ps1
+   ```
+
+   Import thêm `SportsCenterManagement.full.postman_collection.json` và `SportsCenterManagement.full.postman_environment.json`, sau đó chọn environment **Sports Center Management - Full Route Smoke**. Script đọc OpenAPI từ `baseUrl/swagger/v1/swagger.json`; truyền `-BaseUrl` nếu API chạy ở cổng khác.
+4. Gửi `Health check (/health)` trong collection ví dụ để xác nhận URL API.
 
 Mặc định `baseUrl` là `http://localhost:54162`, lấy từ launch profile hiện tại. Nếu ứng dụng chạy trên cổng khác, chỉ cần thay đổi biến `baseUrl` trong environment.
 
@@ -18,6 +24,8 @@ Mặc định `baseUrl` là `http://localhost:54162`, lấy từ launch profile 
 | `token` | *(empty)* | Bearer token lấy từ `/api/auth/login` |
 | `packageId` | `1` | Gói tập seed mẫu |
 | `bankCode` | `VNBANK` | Mã ngân hàng tùy chọn của VNPay |
+
+Collection đầy đủ được tạo động để phản ánh chính xác các operation OpenAPI của instance đang chạy. Giá trị mặc định cho ID là `0`; request dùng payload `{}`. Các phản hồi 4xx được chấp nhận với ID giả, payload chưa hoàn chỉnh hoặc thiếu token. Hãy thay payload/ID bằng dữ liệu được phép trước khi chạy luồng nghiệp vụ; không dùng collection này như bộ dữ liệu production.
 
 ## Lưu ý thanh toán
 

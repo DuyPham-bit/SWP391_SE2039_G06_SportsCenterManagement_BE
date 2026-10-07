@@ -108,9 +108,12 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         var oldPhone = user.Phone;
         var updatedPhone = request.Phone is null ? oldPhone : phone;
         profile.FullName = request.FullName.Trim();
-        profile.DateOfBirth = request.DateOfBirth;
-        profile.Gender = Normalize(request.Gender);
-        profile.Address = Normalize(request.Address);
+        if (request.DateOfBirth.HasValue)
+            profile.DateOfBirth = request.DateOfBirth;
+        if (request.Gender is not null)
+            profile.Gender = Normalize(request.Gender);
+        if (request.Address is not null)
+            profile.Address = Normalize(request.Address);
         profile.UpdatedAt = DateTime.UtcNow;
         if (email is not null)
         {

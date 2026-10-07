@@ -406,7 +406,7 @@ public static class DbInitializer
                 [RoleNames.Receptionist] = receptionistCodes,
                 ["Receptionist"] = receptionistCodes,
                 [RoleNames.SystemAdmin] = [PermissionCodes.RolePermissionManage, "ROLE_MANAGE"],
-                ["Admin"] = managerCodes.Concat(new[] { PermissionCodes.RolePermissionManage, "ROLE_MANAGE" }).Distinct().ToArray()
+                ["Admin"] = managerCodes.Concat(new[] { "ROLE_MANAGE" }).Distinct().ToArray()
             };
 
             foreach (var (roleName, codes) in grants)
@@ -468,6 +468,20 @@ public static class DbInitializer
                     RoleId = systemAdminRole.Id,
                     PermissionId = permManage.Id
                 });
+                await context.SaveChangesAsync();
+            }
+
+            // Legacy seed data granted this permission to Admin/custom roles; the current policy reserves it for SystemAdmin.
+            var nonSystemAdminRoleIds = await context.Roles
+                .Where(role => role.Id != systemAdminRole.Id)
+                .Select(role => role.Id)
+                .ToListAsync();
+            var invalidGrants = await context.RolePermissions
+                .Where(link => nonSystemAdminRoleIds.Contains(link.RoleId) && link.PermissionId == permManage.Id)
+                .ToListAsync();
+            if (invalidGrants.Count > 0)
+            {
+                context.RolePermissions.RemoveRange(invalidGrants);
                 await context.SaveChangesAsync();
             }
         }

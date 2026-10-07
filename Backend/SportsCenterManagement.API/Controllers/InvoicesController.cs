@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SportsCenterManagement.BLL.DTOs.Payments;
 using SportsCenterManagement.BLL.Interfaces;
+using SportsCenterManagement.BLL.Common;
 
 namespace SportsCenterManagement.API.Controllers;
 
@@ -61,7 +62,7 @@ public sealed class InvoicesController(IPaymentService paymentService) : Control
         var value = User.FindFirstValue("centerId");
         if (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var centerId) || centerId <= 0)
         {
-            throw new InvalidOperationException("JWT is missing a valid center id claim.");
+        throw BusinessException.Forbidden("Tài khoản nhân viên chưa được gán vào trung tâm hoạt động.");
         }
         return centerId;
     }

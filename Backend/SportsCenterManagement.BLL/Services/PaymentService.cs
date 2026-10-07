@@ -280,6 +280,10 @@ public sealed class PaymentService(
             .SingleOrDefaultAsync(candidate => candidate.Id == request.PackageId && candidate.Status == "Active", cancellationToken)
             ?? throw BusinessException.NotFound("Gói tập không tồn tại hoặc đã ngừng hoạt động.");
         EnsureCenterScope(staffCenterId, package.CenterId);
+        if (member.CenterId.HasValue && member.CenterId.Value != package.CenterId)
+        {
+            throw BusinessException.Conflict("Hội viên và gói tập không thuộc cùng trung tâm.");
+        }
         if (package.Price <= 0 || package.DurationDays <= 0)
         {
             throw BusinessException.Conflict("Gói tập phải có giá và thời hạn hợp lệ trước khi thu tiền.");
@@ -307,13 +311,18 @@ public sealed class PaymentService(
 
         var captured = Math.Min(received, package.Price);
         var now = DateTime.UtcNow;
-        var today = ToBusinessDate(now);
+        if (!member.CenterId.HasValue)
+        {
+            member.CenterId = package.CenterId;
+            member.UpdatedAt = now;
+        }
         var subscription = new MemberSubscription
         {
             MemberId = member.Id,
             PackageId = package.Id,
-            StartDate = today,
-            EndDate = today.AddDays(package.DurationDays - 1),
+            StartDate = null,
+            EndDate = null,
+            DurationDays = package.DurationDays,
             Price = package.Price,
             Status = "PendingPayment",
             AutoRenew = false,
@@ -692,14 +701,22 @@ public sealed class PaymentService(
                 ProviderRefundResult providerResult;
                 if (method.StartsWith("VNPAY", StringComparison.Ordinal))
                 {
+                    var paymentReference = payment.GatewayReference;
+                    var providerTransactionId = payment.ProviderTransactionId;
+                    var paidAt = payment.PaidAt;
+                    if (string.IsNullOrWhiteSpace(paymentReference)
+                        || string.IsNullOrWhiteSpace(providerTransactionId) || !paidAt.HasValue)
+                    {
+                        throw BusinessException.Conflict("Payment thiếu dữ liệu đối soát để refund qua VNPay.");
+                    }
                     var refundedBefore = await GetSuccessfulRefundAmountAsync(payment.Id, cancellationToken);
                     var isFullRefund = refundedBefore == 0m && request.Amount == payment.Amount;
                     providerResult = await _vnPayService.RefundAsync(
-                        payment.GatewayReference,
+                        paymentReference,
                         requestId,
-                        StripProviderPrefix(payment.ProviderTransactionId, "VNPAY"),
+                        StripProviderPrefix(providerTransactionId, "VNPAY"),
                         isFullRefund,
-                        payment.PaidAt.Value,
+                        paidAt.Value,
                         request.Amount,
                         reason,
                         managerUserId.ToString(CultureInfo.InvariantCulture),
@@ -708,10 +725,13 @@ public sealed class PaymentService(
                 }
                 else if (method.StartsWith("MOMO", StringComparison.Ordinal))
                 {
+                    var providerTransactionId = payment.ProviderTransactionId;
+                    if (string.IsNullOrWhiteSpace(providerTransactionId))
+                        throw BusinessException.Conflict("Payment thiếu mã giao dịch để refund qua MoMo.");
                     providerResult = await _moMoService.RefundAsync(
                         requestId,
                         $"RFO{refund.Id}",
-                        StripProviderPrefix(payment.ProviderTransactionId, "MOMO"),
+                        StripProviderPrefix(providerTransactionId, "MOMO"),
                         request.Amount,
                         reason,
                         cancellationToken);
@@ -1015,13 +1035,22 @@ public sealed class PaymentService(
             }
 
             var now = DateTime.UtcNow;
-            var today = ToBusinessDate(now);
+            if (member.CenterId.HasValue && member.CenterId.Value != package.CenterId)
+            {
+                throw BusinessException.Forbidden("Gói tập không thuộc trung tâm của hội viên.");
+            }
+            if (!member.CenterId.HasValue)
+            {
+                member.CenterId = package.CenterId;
+                member.UpdatedAt = now;
+            }
             var subscription = new MemberSubscription
             {
                 MemberId = memberId,
                 PackageId = package.Id,
-                StartDate = today,
-                EndDate = today.AddDays(package.DurationDays - 1),
+                StartDate = null,
+                EndDate = null,
+                DurationDays = package.DurationDays,
                 Price = package.Price,
                 Status = "PendingPayment",
                 AutoRenew = false,
@@ -1074,15 +1103,33 @@ public sealed class PaymentService(
                 .SingleAsync(candidate => candidate.Id == item.PackageId, cancellationToken);
         }
 
-        if (provider == "MOMO" && package.Price != decimal.Truncate(package.Price))
+        var memberProfile = await _unitOfWork.Context.MemberProfiles
+            .SingleAsync(candidate => candidate.Id == memberId, cancellationToken);
+        if (!await _unitOfWork.Context.Users.AnyAsync(
+                user => user.Id == memberProfile.UserId && user.Status == "Active"
+                        && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow), cancellationToken))
         {
-            throw BusinessException.Conflict("MoMo chỉ nhận số tiền VND nguyên; giá gói đang có phần thập phân.");
+            throw BusinessException.Forbidden("Tài khoản hội viên không hoạt động.");
+        }
+        if (invoice.CenterId != package.CenterId ||
+            (memberProfile.CenterId.HasValue && memberProfile.CenterId.Value != package.CenterId))
+        {
+            throw BusinessException.Forbidden("Hóa đơn, hội viên và gói tập không thuộc cùng trung tâm.");
+        }
+        if (!memberProfile.CenterId.HasValue)
+        {
+            memberProfile.CenterId = package.CenterId;
+            memberProfile.UpdatedAt = DateTime.UtcNow;
         }
 
         var remaining = invoice.TotalAmount - await GetSucceededAmountAsync(invoice.Id, cancellationToken);
         if (remaining <= 0)
         {
             throw BusinessException.Conflict("Hóa đơn đã được thanh toán đủ.");
+        }
+        if (provider == "MOMO" && remaining != decimal.Truncate(remaining))
+        {
+            throw BusinessException.Conflict("MoMo chỉ nhận số tiền VND nguyên; số dư hóa đơn đang có phần thập phân.");
         }
         if (await _unitOfWork.Context.Payments.AnyAsync(
                 candidate => candidate.InvoiceId == invoice.Id && candidate.PaymentStatus == "Pending",
@@ -1302,7 +1349,9 @@ public sealed class PaymentService(
                                     candidate.Status == "Active" && candidate.EndDate >= today)
                 .MaxAsync(candidate => (DateOnly?)candidate.EndDate, cancellationToken);
             subscription.StartDate = currentEnd.HasValue ? currentEnd.Value.AddDays(1) : today;
-            subscription.EndDate = subscription.StartDate.Value.AddDays(package.DurationDays - 1);
+            var durationDays = subscription.DurationDays > 0 ? subscription.DurationDays : package.DurationDays;
+            subscription.EndDate = subscription.StartDate.Value.AddDays(durationDays - 1);
+            subscription.DurationDays = durationDays;
             subscription.Status = "Active";
             subscription.UpdatedAt = now;
         }

@@ -1,8 +1,10 @@
 # Đặc tả nháp: Ba luồng nghiệp vụ bắt buộc
 
-**Trạng thái:** Flow 1 đã được triển khai theo các quyết định ghi dưới đây; Flow 2/3 còn là blueprint và cần xác nhận chính sách trước khi chốt.
+**Trạng thái:** Flow 1 đã được triển khai theo các quyết định ghi dưới đây. Backend đã có API MVP cho Flow 2 và Flow 3; một số chính sách nghiệp vụ còn mở và ma trận case trong tài liệu chưa phải bằng chứng automated test đã pass.
 **Phạm vi:** Flow 1 User & Membership Management; Flow 2 Class Booking & Schedule Management; Flow 3 Payment & Report Management.
 **Nguồn:** Yêu cầu vai trò Center Manager, Coach, Member, Receptionist do người dùng cung cấp; đối chiếu entities và EF Core DbContext hiện có.
+
+> **Lưu ý kiểm thử:** Các case H/U dưới đây là tình huống và kết quả cần kiểm thử; việc có case trong tài liệu không chứng minh đã có automated test hoặc test đã pass. Các tình huống concurrency/transaction phải được kiểm chứng bằng relational database hỗ trợ transaction; EF InMemory không thay thế được kiểm thử đó.
 
 ## 1. Mục tiêu và phạm vi
 
@@ -90,12 +92,14 @@ Tạo hoặc quản lý tài khoản và hồ sơ thành viên; chọn, mua ho�
 | F1-H1 | Member đăng ký bằng email/số điện thoại chưa tồn tại và dữ liệu hợp lệ. | Tạo đúng một User và MemberProfile; role Member; trả mã thành viên; không lộ password hash. |
 | F1-H2 | Member chọn gói đang Active. | Tạo subscription `PendingPayment`, invoice và invoice item cùng transaction; giá/thời hạn được lưu snapshot. |
 | F1-H3 | Receptionist tạo member tại quầy rồi thu đủ tiền. | User/profile/subscription/invoice/payment liên kết đúng; ghi người thao tác; gói Active sau khi payment thành công. |
-| F1-H4 | Member gia hạn khi gói hiện tại còn hiệu lực. | Gia hạn theo chính sách được chốt (nối tiếp ngày hết hạn hoặc bắt đầu ngay); không làm mất lịch sử subscription cũ. |
+| F1-H4 | Member gia hạn khi subscription hiện tại còn hiệu lực. | Sau khi thanh toán đủ, gói mới bắt đầu vào ngày kế tiếp ngày hết hạn hiện tại; ngày kết thúc inclusive; subscription cũ được giữ nguyên. |
 | F1-H5 | Manager vô hiệu hóa một gói. | Gói không xuất hiện trong lựa chọn mua mới; các subscription đã mua và hóa đơn cũ vẫn giữ nguyên lịch sử. |
 | F1-H6 | Member sửa hồ sơ, email hoặc số điện thoại; Manager cập nhật hồ sơ tại center. | Chuẩn hóa và kiểm tra trùng email/điện thoại; trường không gửi trong PATCH được giữ nguyên; chỉ ghi metadata thay đổi, không đưa PII vào audit. |
 | F1-H7 | Manager/Receptionist tạo hoặc cập nhật Coach/Receptionist; Manager cập nhật trạng thái Member. | User và profile được lưu cùng transaction; status tài khoản được kiểm tra ở mọi request; audit có actor, center, thời điểm và thay đổi an toàn. |
 | F1-H8 | System Admin thay ma trận quyền hoặc xem audit toàn hệ thống. | Chỉ role SystemAdmin truy cập được; thay đổi quyền và audit được lưu trong transaction. |
 | F1-H9 | Client retry yêu cầu tạo subscription đang chờ hoặc thanh toán tiền mặt với cùng idempotency key. | Subscription/invoice đang mở được trả lại; cash payment không ghi hai lần nếu cùng actor/key/request. |
+| F1-H10 | Giá hoặc thời hạn gói thay đổi sau khi invoice đã phát hành nhưng trước khi thanh toán. | Invoice, invoice item và subscription giữ snapshot đã chốt lúc mua; thay đổi danh mục không sửa ngược giao dịch đã tạo. |
+| F1-H11 | Cổng thanh toán xác nhận thành công nhưng callback/reconcile được gửi lại cùng giao dịch. | Payment chỉ được ghi nhận một lần; invoice và subscription đạt trạng thái cuối nhất quán; lần xử lý lại trả kết quả idempotent. |
 
 ### 4.5 Unhappy cases / ngoại lệ
 
@@ -115,6 +119,14 @@ Tạo hoặc quản lý tài khoản và hồ sơ thành viên; chọn, mua ho�
 | F1-U12 | VNPay callback thất bại, lặp, sai tiền tệ, trùng mã giao dịch hoặc báo thành công với invoice đã hủy/đã trả/amount vượt dư nợ. | Callback đã ký được lưu để truy vết. Trường hợp cổng báo thành công nhưng không thể đối soát vào invoice được đánh `ReviewRequired`; không kích hoạt membership và không cộng doanh thu tự động. |
 | F1-U13 | Hai nhân viên ghi cùng cash payment; idempotency key được tái dùng với invoice/amount khác. | Cùng key và cùng request trả payment đã ghi; khác request nhận conflict; không thu vượt dư nợ. |
 | F1-U14 | Hệ thống lỗi khi lưu user/profile, invoice/payment, quyền hoặc audit. | Các thay đổi trong cùng transaction rollback; không để entity nghiệp vụ thành công nhưng thiếu audit tương ứng. |
+| F1-U15 | Đăng ký với email/điện thoại trùng sau khi chuẩn hóa hoa-thường, khoảng trắng hoặc định dạng. | Ràng buộc uniqueness vẫn chặn tạo bản ghi trùng; không để hai tài khoản đại diện cùng một định danh. |
+| F1-U16 | Member đọc hoặc sửa hồ sơ/subscription của Member khác bằng cách đổi ID trên request. | API từ chối (`403`/`404` theo chính sách); không trả PII, lịch sử gói hoặc hóa đơn của người khác. |
+| F1-U17 | Tài khoản đăng nhập sai đến ngưỡng khóa; thử mật khẩu đúng trong và sau thời gian khóa. | Khóa 15 phút sau 5 lần sai; mật khẩu đúng trong thời gian khóa vẫn bị từ chối; sau 15 phút đăng nhập được nếu không có trạng thái chặn khác. |
+| F1-U18 | Hai yêu cầu mua/gia hạn đồng thời cho cùng Member và cùng gói. | Không tạo hai khoản thu hoặc hai entitlement trùng ngoài ý muốn; request thứ hai trả kết quả hiện có hoặc conflict theo chính sách idempotency. |
+| F1-U19 | Provider gửi callback sai chữ ký. | Không thay đổi Payment/Invoice/Subscription; ghi log an toàn, không ghi secret hoặc dữ liệu nhạy cảm của callback. |
+| F1-U20 | Callback có amount, currency hoặc gateway reference không khớp invoice/payment intent. | Mỗi điều kiện không khớp đều bị từ chối/đưa vào `ReviewRequired`; không kích hoạt subscription và không cộng doanh thu. |
+| F1-U21 | Provider báo đã thu tiền nhưng database lỗi trước khi hoàn tất cập nhật invoice/subscription. | Giao dịch có thể được reconcile an toàn; retry không tạo payment hoặc kích hoạt subscription lần hai; không mất dấu khoản tiền provider đã thu. |
+| F1-U22 | Subscription được truy vấn đúng tại ngày hết hạn và ngay sau ngày hết hạn theo timezone center. | Ngày kết thúc inclusive được áp dụng nhất quán; quyền lợi hết đúng thời điểm theo ngày nghiệp vụ, không lệch do chuyển UTC/local time. |
 
 ### 4.6 Acceptance criteria chính
 
@@ -127,6 +139,8 @@ Tạo hoặc quản lý tài khoản và hồ sơ thành viên; chọn, mua ho�
 - **AC-F1-07:** Given tài khoản không có permission hoặc không thuộc center, then API trả 403/404 phù hợp và không rò dữ liệu ngoài phạm vi.
 - **AC-F1-08:** Given callback VNPay đã xác minh chữ ký nhưng giao dịch không thể gắn vào invoice hợp lệ, then attempt/audit được lưu; chỉ payment `Succeeded` mới được tính doanh thu hoặc kích hoạt subscription.
 - **AC-F1-09:** Given yêu cầu thay ma trận quyền từ role khác SystemAdmin hoặc yêu cầu gỡ quyền cuối của SystemAdmin, then hệ thống từ chối và giữ ma trận cũ.
+- **AC-F1-10:** Given cùng gateway transaction được xử lý nhiều lần hoặc lỗi xảy ra sau khi provider đã thu tiền, then reconciliation không tạo payment/entitlement trùng và không bỏ mất khoản thu.
+- **AC-F1-11:** Given request truy cập dữ liệu Member khác, tài khoản đang bị khóa hoặc subscription ở ranh giới hết hạn, then authorization và ngày hiệu lực được kiểm tra ở backend; không lộ dữ liệu ngoài scope.
 
 ## 5. Flow 2 — Class Booking and Schedule Management
 
@@ -172,6 +186,7 @@ Manager tạo lớp, phòng, lịch và phân công coach; member ghi danh lớp
 | F2-H4 | Lớp đầy nhưng bật waitlist. | Đăng ký được lưu trạng thái `Waitlisted`, không tính là chỗ đã xác nhận. |
 | F2-H5 | Coach xem lịch. | Chỉ thấy sessions thuộc lớp được phân công; member roster chỉ gồm người đã xác nhận. |
 | F2-H6 | Member hủy đúng thời hạn. | Booking/enrollment chuyển `Cancelled`; giữ lịch sử và giải phóng chỗ đúng một lần. |
+| F2-H7 | Member hủy đúng hạn khi có waitlist. | Chỗ được giải phóng và chỉ Member đầu tiên đủ điều kiện được promote một lần; lịch cá nhân và trạng thái waitlist được cập nhật nhất quán. |
 
 ### 5.5 Unhappy cases / ngoại lệ
 
@@ -180,12 +195,19 @@ Manager tạo lớp, phòng, lịch và phân công coach; member ghi danh lớp
 | F2-U1 | Gói hết hạn, chưa thanh toán hoặc không có quyền vào lớp. | Từ chối đăng ký; trả lý do nghiệp vụ; không giữ chỗ. |
 | F2-U2 | Lớp/session hủy, chưa Published, đóng đăng ký hoặc đã bắt đầu. | Từ chối booking; trả trạng thái hiện tại. |
 | F2-U3 | Lớp đầy và không bật waitlist. | Từ chối với lỗi capacity; không tạo booking xác nhận. |
-| F2-U4 | Hai người cùng đặt chỗ cuối cùng. | Chỉ một request thành công; request còn lại nhận full/waitlist; xử lý atomic ở DB để không vượt sức chứa. |
+| F2-U4 | Hai người cùng đặt chỗ cuối cùng. | Chỉ một request được xác nhận; request còn lại nhận full/waitlist; kiểm chứng trên relational database với request chạy đồng thời, không chỉ bằng EF InMemory. |
 | F2-U5 | Member đã đăng ký cùng lớp/session hoặc gửi lại request. | Không tạo duplicate; trả booking hiện tại hoặc lỗi conflict theo API contract. |
 | F2-U6 | Coach hoặc phòng bị trùng lịch. | Không cho Publish/lưu lịch bị xung đột; trả đối tượng và khung giờ xung đột. |
-| F2-U7 | Coach không được phân công vào lớp hoặc member xem dữ liệu người khác. | Trả 403/404 theo chính sách; không lộ roster ngoài phạm vi. |
+| F2-U7 | Coach không được phân công gọi API lịch/roster lớp. | Trả 403/404 theo chính sách; không lộ roster ngoài phạm vi. |
 | F2-U8 | Member hủy sau deadline hoặc session đã diễn ra. | Từ chối hủy tự phục vụ hoặc chuyển sang yêu cầu hỗ trợ; giữ nguyên attendance và lịch sử. |
 | F2-U9 | Đổi lịch sau khi đã có booking. | Cập nhật session theo chính sách; thông báo người bị ảnh hưởng; không âm thầm chuyển booking sang lịch khác. |
+| F2-U10 | Cùng Member gửi hai request đặt cùng session đồng thời hoặc retry sau timeout. | Chỉ có một booking active; retry cùng request trả kết quả idempotent; không giữ hai chỗ hoặc tạo hai waitlist entry. |
+| F2-U11 | Hai cancellation đồng thời làm trống chỗ trong khi có nhiều người waitlist. | Một chỗ chỉ promote một người; thứ tự và tính đủ điều kiện tuân theo chính sách waitlist đã chốt; không promote lặp hoặc vượt capacity. |
+| F2-U12 | Người được promote đã có booking khác trùng giờ, đã hủy tài khoản hoặc không còn subscription hợp lệ. | Hệ thống không tạo booking không hợp lệ; xử lý tiếp người kế tiếp hoặc giữ chỗ theo chính sách waitlist được chốt và ghi lại kết quả. |
+| F2-U13 | Member dùng subscription sai center, sai access type, hết quota hoặc hết hạn tại thời điểm session bắt đầu. | Từ chối booking trước khi giữ chỗ; response không tiết lộ dữ liệu lớp ngoài center. |
+| F2-U14 | Manager hủy lớp sau khi đã có booking. | Không xóa lịch sử; session và booking được chuyển trạng thái nhất quán theo policy; danh sách Member bị ảnh hưởng có thể truy vết và nhận thông báo theo phạm vi hỗ trợ. |
+| F2-U15 | Coach gọi API xem roster của lớp không được phân công hoặc Member đổi ID để xem booking của người khác. | Trả `403`/`404`; không trả roster, mục tiêu tập luyện hoặc dữ liệu cá nhân ngoài phạm vi. |
+| F2-U16 | Đặt/hủy ở đúng ranh giới mở/đóng booking và mốc hủy trước buổi tập 2 giờ. | Kết quả nhất quán theo timezone `Asia/Ho_Chi_Minh`; kiểm thử trước, đúng tại và sau mốc, không phụ thuộc timezone máy chủ. |
 
 ### 5.6 Acceptance criteria chính
 
@@ -195,6 +217,8 @@ Manager tạo lớp, phòng, lịch và phân công coach; member ghi danh lớp
 - **AC-F2-04:** Given coach/phòng có session trùng thời gian, when manager Publish lịch mới, then hệ thống từ chối và nêu xung đột.
 - **AC-F2-05:** Given coach được gán vào lớp, when xem lịch, then chỉ thấy lớp/session được phép truy cập.
 - **AC-F2-06:** Given booking bị hủy hợp lệ, then chỗ được giải phóng đúng một lần và trạng thái cũ được lưu.
+- **AC-F2-07:** Given concurrent booking/cancel/waitlist promotion, then sức chứa không vượt giới hạn và mỗi chỗ chỉ được cấp cho một Member.
+- **AC-F2-08:** Given Manager đổi lịch hoặc Coach/Member truy cập ngoài scope, then lịch sử booking được bảo toàn và dữ liệu không được phép không bị trả về.
 
 ## 6. Flow 3 — Payment and Report Management
 
@@ -222,6 +246,8 @@ Tạo khoản phải thu có chi tiết và giá tại thời điểm bán; ghi 
 | F3-H3 | Hóa đơn được trả nhiều lần. | Các payment được lưu riêng; invoice `PartiallyPaid` cho đến khi tổng thành công đạt total. |
 | F3-H4 | Manager xem doanh thu theo ngày/tháng/center. | Tổng hợp chỉ lấy giao dịch thành công, lọc đúng múi giờ và center, có thể đối soát về invoice/payment. |
 | F3-H5 | Khách yêu cầu xuất lại hóa đơn đã thanh toán. | Trả đúng chứng từ đã lưu, không tạo khoản thu mới. |
+| F3-H6 | Invoice được thanh toán nhiều lần và lần cuối vừa đủ số dư. | Trạng thái đi từ `PartiallyPaid` sang `Paid` đúng một lần; entitlement chỉ kích hoạt một lần; tổng payment bằng total invoice. |
+| F3-H7 | Refund toàn phần hoặc một phần được provider xác nhận và reconcile thành công. | Lưu refund riêng, giữ payment gốc, lưu người duyệt; receipt và báo cáo thể hiện khoản refund theo policy đã chốt. |
 
 ### 6.4 Unhappy cases / ngoại lệ
 
@@ -230,12 +256,21 @@ Tạo khoản phải thu có chi tiết và giá tại thời điểm bán; ghi 
 | F3-U1 | Thanh toán thất bại/hủy/timeout. | Lưu trạng thái thất bại hoặc pending để tra soát; không kích hoạt quyền lợi; cho phép retry không nhân đôi khoản thu. |
 | F3-U2 | Callback gửi lặp hoặc client retry request. | Xử lý idempotent; chỉ ghi nhận một payment thành công cho transaction ngoài. |
 | F3-U3 | Callback amount/currency/invoice không khớp hoặc chữ ký sai. | Từ chối cập nhật; ghi log an toàn; không đánh dấu invoice Paid. |
-| F3-U4 | Tiền mặt khách đưa nhiều hơn số phải thu / POS hoặc callback lệch số tiền. | Cash ghi nhận tối đa số đến hạn và trả tiền thối; POS phải đúng số dư; callback không khớp amount bị từ chối. Khoản thừa đã được cổng xác nhận được đánh dấu `Overpaid` để hoàn phần dư. |
+| F3-U4 | Khách đưa tiền mặt nhiều hơn số dư hóa đơn. | Payment chỉ ghi nhận số tiền đến hạn; tiền thừa được tính thành tiền trả lại, không làm invoice thành `Overpaid`. |
 | F3-U5 | Invoice bị void/đã Paid nhưng nhận thêm lệnh thu; callback thành công đến muộn sau khi void. | Từ chối lệnh thu mới. Nếu cổng xác nhận đã thu tiền sau void, lưu payment thành công, đặt invoice `PaidAfterVoid` và yêu cầu Manager/Admin refund; không bỏ qua khoản tiền đã thu. |
-| F3-U6 | Refund được thực hiện. | Lưu giao dịch refund và người duyệt; không xóa payment gốc; cập nhật số ròng và trạng thái invoice theo chính sách. |
+| F3-U6 | Yêu cầu refund vượt số tiền đã thu hoặc do người không có quyền duyệt gửi. | Từ chối; không tạo refund thành công hoặc sửa payment/invoice gốc; ghi actor và lý do từ chối an toàn. |
 | F3-U7 | Giao dịch chưa rõ trạng thái do cổng thanh toán timeout. | Giữ pending và đối soát; không giả định thất bại hoặc thành công chỉ từ timeout. |
 | F3-U8 | Nhân viên không có quyền xem báo cáo hoặc ghi payment ở center khác. | Từ chối truy cập (`403`; center ngoài scope có thể trả `404` để không tiết lộ dữ liệu), không trả nội dung tài chính. |
-| F3-U9 | Hai request thu tiền đồng thời, trùng idempotency key hoặc deadlock DB. | Ràng buộc unique/transaction ngăn ghi trùng; trả `409` cho xung đột key, `503` cho deadlock và yêu cầu retry với cùng key. |
+| F3-U9 | Hai request thu tiền đồng thời, trùng idempotency key hoặc deadlock DB. | Ràng buộc unique/transaction ngăn ghi trùng; cùng key/cùng payload idempotent, cùng key/khác payload trả `409`; deadlock trả lỗi retryable và không tạo khoản thu thứ hai. |
+| F3-U10 | Callback/IPN có chữ ký sai hoặc thiếu trường chữ ký bắt buộc. | Không thay đổi dữ liệu tài chính; ghi log an toàn, không lưu secret hoặc toàn bộ payload nhạy cảm. |
+| F3-U11 | Callback có amount khác số tiền intent/invoice hoặc vượt số dư còn phải thu. | Không tự đánh dấu `Paid`; khoản provider đã xác nhận thu nhưng không đối soát được chuyển `ReviewRequired`/`Overpaid` theo policy và không được cộng nhầm doanh thu. |
+| F3-U12 | Callback có currency, invoice number, gateway reference hoặc transaction code không khớp. | Không gắn payment vào invoice khác; giữ bằng chứng đối soát; không kích hoạt subscription. Mỗi kiểu mismatch có test riêng. |
+| F3-U13 | Cùng gateway transaction gửi callback lặp; lần lặp có payload mâu thuẫn với lần đầu. | Callback giống hệt được xử lý idempotent; payload mâu thuẫn không ghi đè trạng thái thành công và được đưa vào đối soát. |
+| F3-U14 | Provider timeout nhưng sau đó gửi callback thành công hoặc Manager reconcile giao dịch. | Pending được hoàn tất đúng một lần; không ghi nhận thất bại vĩnh viễn, không cộng doanh thu hai lần. |
+| F3-U15 | Thu tiền mặt khi tender lớn hơn dư nợ; thu tiếp khi invoice đã Paid; hoặc hai cashier cùng thu số dư cuối. | Tiền thối tách khỏi amount đã thanh toán; không over-collect ngoài policy; chỉ một request dùng được số dư cuối. |
+| F3-U16 | Refund callback/reconcile gửi lặp, refund một phần rồi refund tiếp vượt số tiền đã thu, hoặc refund thất bại. | Không refund vượt khoản thu ròng; giữ payment gốc và lịch sử các lần refund; số liệu gross/refund/net không bị nhân đôi. |
+| F3-U17 | Báo cáo chạy sát ranh giới ngày/tháng, có payment pending/failed/void/refund hoặc center không thuộc quyền nhân viên. | Tính theo timezone center và policy ghi nhận doanh thu; pending/failed không tính; refund được phân kỳ nhất quán; scope sai không trả dữ liệu tài chính. |
+| F3-U18 | Invoice/payment đồng thời được cập nhật từ cash checkout và callback online. | Transaction/idempotency ngăn tổng thu vượt dư nợ hoặc trạng thái bị ghi đè; mọi giao dịch provider đã thu đều có đường reconcile. |
 
 ### 6.5 Acceptance criteria chính
 
@@ -245,6 +280,9 @@ Tạo khoản phải thu có chi tiết và giá tại thời điểm bán; ghi 
 - **AC-F3-04:** Given payment thất bại hoặc pending, then báo cáo doanh thu không cộng khoản đó.
 - **AC-F3-05:** Given refund, then payment gốc không bị xóa và báo cáo thể hiện doanh thu gộp/refund/ròng theo kỳ.
 - **AC-F3-06:** Given khoảng ngày báo cáo [from, to], then điều kiện ngày áp dụng nhất quán theo timezone báo cáo được cấu hình và có thể đối soát với danh sách giao dịch.
+- **AC-F3-07:** Given provider callback thiếu/sai chữ ký hoặc sai amount/currency/reference, then không payment nào được gắn nhầm invoice hoặc kích hoạt entitlement.
+- **AC-F3-08:** Given webhook, reconcile, cash checkout hoặc refund được retry đồng thời, then mỗi giao dịch chỉ được hạch toán một lần và tổng thu/refund không vượt giới hạn hợp lệ.
+- **AC-F3-09:** Given payment, void, refund và báo cáo thuộc các kỳ khác nhau, then gross/refund/net có thể đối soát về giao dịch nguồn theo một policy thời gian được cấu hình.
 
 ### 6.6 Hợp đồng Flow 3 đã triển khai trong backend
 
@@ -344,13 +382,12 @@ Quy tắc: dùng DTO thay vì trả EF entity trực tiếp; API mutation có va
 ### Open Questions (ưu tiên cần chốt)
 
 1. Một user có thể có nhiều role hoặc làm ở nhiều center không?
-2. Member tự đăng ký cần xác minh email/OTP trước khi dùng hệ thống không?
-3. Gói bắt đầu ngay, theo ngày thanh toán hay ngày nhân viên chọn? Gia hạn khi còn hạn sẽ nối tiếp hay chồng lấn?
-4. Gói có giới hạn số buổi/lớp hay chỉ theo thời hạn? Gói nào được vào lớp nào?
-5. Đăng ký lớp là theo cả khóa hay từng buổi? Hủy trước bao lâu? Có waitlist và phí hủy không?
-6. Thanh toán chỉ tiền mặt hay tích hợp cổng thanh toán? Có thanh toán một phần, refund, discount và thuế không?
-7. Doanh thu báo cáo là tiền thu trong kỳ hay giá trị hóa đơn phát hành trong kỳ? Refund ghi âm ở kỳ refund hay điều chỉnh kỳ gốc?
-8. Center Manager và Receptionist có thể xem dữ liệu tài chính/PII tới phạm vi nào?
+2. Member tự đăng ký có cần xác minh email/OTP trước khi dùng hệ thống không?
+3. Gói có giới hạn số buổi/lớp hay chỉ theo thời hạn? Quy tắc ghép gói với bộ môn/lớp nào?
+4. MVP hiện đặt theo từng session và dùng mốc hủy tự phục vụ trước 2 giờ. Cần chốt đăng ký cả khóa, thứ tự/expiry của waitlist, xử lý người được promote không còn đủ điều kiện, no-show/phí hủy và đổi lịch sau khi đã có booking.
+5. MVP hiện có tiền mặt, VNPay, MoMo, thanh toán một phần và reconcile refund; discount/tax đang bằng 0. Cần quyết định miễn phí/ghi nợ, discount và thuế trước khi hỗ trợ các trường hợp đó.
+6. Báo cáo ghi nhận doanh thu theo ngày thu tiền hay ngày phát hành invoice? Refund ghi vào kỳ refund hay điều chỉnh kỳ payment gốc; `PaidAfterVoid`/`Overpaid` ảnh hưởng gross/net ra sao?
+7. Center Manager và Receptionist được xem PII và dữ liệu tài chính trong phạm vi nào; cần che những trường nào trên màn hình, API và audit?
 
 ## 10. Ưu tiên triển khai
 

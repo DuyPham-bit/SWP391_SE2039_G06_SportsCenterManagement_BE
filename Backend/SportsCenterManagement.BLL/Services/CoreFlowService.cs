@@ -98,7 +98,6 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         }
 
         var now = DateTime.UtcNow;
-        var today = ToBusinessDate(now);
         // Gắn member vào center cùng transaction với hóa đơn và subscription.
         if (!member.CenterId.HasValue)
         {
@@ -111,8 +110,9 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         {
             MemberId = memberId,
             PackageId = package.Id,
-            StartDate = today,
-            EndDate = today.AddDays(package.DurationDays - 1),
+            // Chỉ chốt ngày hiệu lực khi payment đủ; thời hạn đã được snapshot tại lúc mua.
+            StartDate = null,
+            EndDate = null,
             DurationDays = package.DurationDays,
             Price = package.Price,
             Status = "PendingPayment",
@@ -167,6 +167,8 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         long? registeredBy,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
         var classEntity = await _unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
             ?? throw new InvalidOperationException("Class was not found.");
         if (classEntity.Status != "Published")
@@ -177,6 +179,19 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         if (classEntity.Capacity <= 0)
         {
             throw new InvalidOperationException("Class capacity is not configured.");
+        }
+
+        var member = await _unitOfWork.Repository<MemberProfile>().GetByIdAsync(memberId, cancellationToken)
+            ?? throw new KeyNotFoundException("Member was not found.");
+        if (!await _unitOfWork.Repository<User>().AnyAsync(
+                user => user.Id == member.UserId && user.Status == "Active"
+                        && (!user.LockedUntil.HasValue || user.LockedUntil <= DateTime.UtcNow), cancellationToken))
+        {
+            throw new UnauthorizedAccessException("Member account is not active.");
+        }
+        if (member.CenterId.HasValue && member.CenterId.Value != classEntity.CenterId)
+        {
+            throw new UnauthorizedAccessException("Member and class belong to different centers.");
         }
 
         var today = ToBusinessDate(DateTime.UtcNow);
@@ -197,6 +212,11 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
             throw new InvalidOperationException("Membership and class belong to different centers.");
         }
 
+        if (member.CenterId.HasValue && member.CenterId.Value != membershipPackage.CenterId)
+        {
+            throw new UnauthorizedAccessException("Member and membership package belong to different centers.");
+        }
+
         if (membershipPackage.MaxClasses is int maxClasses)
         {
             var activeClassCount = await _unitOfWork.Repository<ClassEnrollment>().CountAsync(
@@ -211,7 +231,6 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
             }
         }
 
-        await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
         var existing = await _unitOfWork.Repository<ClassEnrollment>().Find(
             enrollment => enrollment.ClassId == classId && enrollment.MemberId == memberId)
             .SingleOrDefaultAsync(cancellationToken);
@@ -275,16 +294,6 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return enrollment;
-    }
-
-    public Task<Payment> RecordCashPaymentAsync(
-        long invoiceId,
-        long processedBy,
-        decimal amount,
-        CancellationToken cancellationToken = default)
-    {
-        var autoKey = $"CASH-NOIDEM-{Guid.NewGuid():N}";
-        return RecordCashPaymentAsync(invoiceId, processedBy, amount, autoKey, cancellationToken);
     }
 
     public async Task<Payment> RecordCashPaymentAsync(

@@ -38,94 +38,51 @@ public sealed class ProfileController(SportsCenterDbContext dbContext) : Control
         var user = await FindCurrentUserAsync(cancellationToken);
         if (user is null) return Unauthorized();
 
+        var memberProfile = await dbContext.MemberProfiles
+            .SingleOrDefaultAsync(profile => profile.UserId == user.Id, cancellationToken);
+        var coachProfile = await dbContext.CoachProfiles
+            .SingleOrDefaultAsync(profile => profile.UserId == user.Id, cancellationToken);
+        var staffProfile = await dbContext.StaffProfiles
+            .SingleOrDefaultAsync(profile => profile.UserId == user.Id, cancellationToken);
+        if (memberProfile is null && coachProfile is null && staffProfile is null)
+        {
+            return NotFound(new { message = "Hồ sơ chưa được cấp phát cho tài khoản này." });
+        }
+
         var fullName = request.FullName.Trim();
-        var phone = string.IsNullOrWhiteSpace(request.Phone)
-            ? null
-            : request.Phone.Trim().Replace(" ", string.Empty, StringComparison.Ordinal);
+        var phone = request.Phone is null
+            ? user.Phone
+            : string.IsNullOrWhiteSpace(request.Phone)
+                ? null
+                : request.Phone.Trim().Replace(" ", string.Empty, StringComparison.Ordinal);
 
         if (fullName.Length == 0)
         {
             return BadRequest(new { message = "Họ và tên không được để trống." });
         }
 
-        if (phone is not null && !Regex.IsMatch(phone, "^0\\d{9}$"))
+        if (phone is not null && !Regex.IsMatch(phone, @"^\+?[0-9]{8,15}$"))
         {
-            return BadRequest(new { message = "Số điện thoại phải gồm 10 chữ số và bắt đầu bằng số 0." });
+            return BadRequest(new { message = "Số điện thoại cần có từ 8 đến 15 chữ số; có thể bắt đầu bằng dấu +." });
         }
 
         user.Phone = phone;
-        var memberProfile = await dbContext.MemberProfiles
-            .SingleOrDefaultAsync(profile => profile.UserId == user.Id, cancellationToken);
         if (memberProfile is not null)
         {
             memberProfile.FullName = fullName;
             memberProfile.UpdatedAt = DateTime.UtcNow;
         }
 
-        var coachProfile = await dbContext.CoachProfiles
-            .SingleOrDefaultAsync(profile => profile.UserId == user.Id, cancellationToken);
         if (coachProfile is not null)
         {
             coachProfile.FullName = fullName;
             coachProfile.UpdatedAt = DateTime.UtcNow;
         }
 
-        var staffProfile = await dbContext.StaffProfiles
-            .SingleOrDefaultAsync(profile => profile.UserId == user.Id, cancellationToken);
         if (staffProfile is not null)
         {
             staffProfile.FullName = fullName;
             staffProfile.UpdatedAt = DateTime.UtcNow;
-        }
-
-        if (memberProfile is null && coachProfile is null && staffProfile is null)
-        {
-            var roleName = await dbContext.Roles
-                .Where(r => r.Id == user.RoleId)
-                .Select(r => r.Name)
-                .FirstOrDefaultAsync(cancellationToken) ?? "Member";
-
-            var defaultCenter = await dbContext.Centers.FirstOrDefaultAsync(cancellationToken);
-            var centerId = defaultCenter?.Id ?? 1;
-
-            if (string.Equals(roleName, "Coach", StringComparison.OrdinalIgnoreCase))
-            {
-                coachProfile = new CoachProfile
-                {
-                    UserId = user.Id,
-                    CenterId = centerId,
-                    CoachCode = $"CH{user.Id:D5}",
-                    FullName = fullName,
-                    Status = "Active",
-                    CreatedAt = DateTime.UtcNow
-                };
-                await dbContext.CoachProfiles.AddAsync(coachProfile, cancellationToken);
-            }
-            else if (string.Equals(roleName, "Member", StringComparison.OrdinalIgnoreCase))
-            {
-                memberProfile = new MemberProfile
-                {
-                    UserId = user.Id,
-                    MemberCode = $"MB{user.Id:D5}",
-                    FullName = fullName,
-                    CreatedAt = DateTime.UtcNow
-                };
-                await dbContext.MemberProfiles.AddAsync(memberProfile, cancellationToken);
-            }
-            else
-            {
-                staffProfile = new StaffProfile
-                {
-                    UserId = user.Id,
-                    CenterId = centerId,
-                    StaffCode = $"ST{user.Id:D5}",
-                    FullName = fullName,
-                    Position = roleName,
-                    Status = "Active",
-                    CreatedAt = DateTime.UtcNow
-                };
-                await dbContext.StaffProfiles.AddAsync(staffProfile, cancellationToken);
-            }
         }
 
         user.UpdatedAt = DateTime.UtcNow;
@@ -155,11 +112,7 @@ public sealed class ProfileController(SportsCenterDbContext dbContext) : Control
         var staffProfile = await dbContext.StaffProfiles
             .SingleOrDefaultAsync(profile => profile.UserId == user.Id, cancellationToken);
 
-        var centerId = staffProfile?.CenterId ?? coachProfile?.CenterId;
-        centerId ??= await dbContext.Centers
-            .OrderBy(center => center.Id)
-            .Select(center => (long?)center.Id)
-            .FirstOrDefaultAsync(cancellationToken);
+        var centerId = staffProfile?.CenterId ?? coachProfile?.CenterId ?? memberProfile?.CenterId;
         var fullName = memberProfile?.FullName ?? coachProfile?.FullName ?? staffProfile?.FullName ?? user.Email;
         return new ProfileResponse(
             user.Id,

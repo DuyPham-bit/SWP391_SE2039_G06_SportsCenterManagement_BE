@@ -143,18 +143,18 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
             throw new InvalidOperationException($"HLV {coachProfile.FullName} đã được duyệt nghỉ trong thời gian của lớp học.");
         }
 
-        // 3. Nếu phân công HLV chính (IsPrimary = true), tự động gián cấp các HLV chính khác trong lớp thành HLV phụ
-        var anotherCoachAssigned = await db.ClassCoaches
-            .AnyAsync(cc => cc.ClassId == classId && cc.CoachId != request.CoachId, cancellationToken);
-        if (anotherCoachAssigned)
+        // A class may have assistant coaches, but it must keep exactly one primary coach.
+        var assignments = await db.ClassCoaches.Where(cc => cc.ClassId == classId).ToListAsync(cancellationToken);
+        var existingClassCoach = assignments.SingleOrDefault(cc => cc.CoachId == request.CoachId);
+        if (!request.IsPrimary && !assignments.Any(cc => cc.IsPrimary && cc.CoachId != request.CoachId))
         {
-            throw new InvalidOperationException("Lớp học đã có HLV được phân công. Hãy gỡ HLV hiện tại trước khi thay thế.");
+            throw new InvalidOperationException("Lớp phải có một huấn luyện viên chính.");
         }
-
-        // 4. Thực hiện gán HLV vào lớp
-        var existingClassCoach = await unitOfWork.Repository<ClassCoach>()
-            .Find(cc => cc.ClassId == classId && cc.CoachId == request.CoachId)
-            .SingleOrDefaultAsync(cancellationToken);
+        if (request.IsPrimary)
+        {
+            foreach (var assignment in assignments.Where(cc => cc.CoachId != request.CoachId))
+                assignment.IsPrimary = false;
+        }
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         if (existingClassCoach is null)
@@ -173,6 +173,18 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
             existingClassCoach.IsPrimary = request.IsPrimary;
             existingClassCoach.AssignedDate = today;
         }
+
+        var primaryCoachId = request.IsPrimary
+            ? coachProfile.Id
+            : assignments.FirstOrDefault(assignment => assignment.IsPrimary)?.CoachId;
+        var localToday = ScheduleTime.VietnamToday;
+        var localNow = TimeOnly.FromDateTime(ScheduleTime.VietnamNow);
+        var upcomingSessions = await db.ClassSessions
+            .Where(session => session.ClassId == classId && session.SessionStatus == FlowStatuses.SessionScheduled
+                && (session.SessionDate > localToday || (session.SessionDate == localToday && session.StartTime > localNow)))
+            .ToListAsync(cancellationToken);
+        foreach (var session in upcomingSessions)
+            session.CoachId = primaryCoachId;
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -218,6 +230,11 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
         long coachId,
         CancellationToken cancellationToken = default)
     {
+        await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+        var db = unitOfWork.Context;
+        var classEntity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
+            ?? throw new InvalidOperationException("Lớp học không tồn tại.");
         var classCoach = await unitOfWork.Repository<ClassCoach>()
             .Find(cc => cc.ClassId == classId && cc.CoachId == coachId)
             .SingleOrDefaultAsync(cancellationToken)
@@ -225,6 +242,28 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
 
         unitOfWork.Repository<ClassCoach>().Remove(classCoach);
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var remaining = await db.ClassCoaches.Where(cc => cc.ClassId == classId)
+            .OrderBy(cc => cc.AssignedDate).ThenBy(cc => cc.CoachId).ToListAsync(cancellationToken);
+        if (remaining.Count == 0 && classEntity.Status == "Published")
+        {
+            throw new InvalidOperationException("Không thể gỡ huấn luyện viên cuối cùng khỏi lớp đang mở; hãy hủy lớp trước.");
+        }
+        if (classCoach.IsPrimary && remaining.Count > 0 && !remaining.Any(cc => cc.IsPrimary))
+        {
+            remaining[0].IsPrimary = true;
+        }
+        var primaryCoachId = remaining.FirstOrDefault(cc => cc.IsPrimary)?.CoachId;
+        var today = ScheduleTime.VietnamToday;
+        var now = TimeOnly.FromDateTime(ScheduleTime.VietnamNow);
+        var upcomingSessions = await db.ClassSessions
+            .Where(session => session.ClassId == classId && session.SessionStatus == FlowStatuses.SessionScheduled
+                && (session.SessionDate > today || (session.SessionDate == today && session.StartTime > now)))
+            .ToListAsync(cancellationToken);
+        foreach (var session in upcomingSessions)
+            session.CoachId = primaryCoachId;
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     private static bool DateRangesOverlap(DateOnly? start1, DateOnly? end1, DateOnly? start2, DateOnly? end2)

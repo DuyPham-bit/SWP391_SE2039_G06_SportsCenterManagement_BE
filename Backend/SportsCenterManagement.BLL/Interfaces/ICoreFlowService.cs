@@ -35,12 +35,6 @@ public interface ICoreFlowService
         string idempotencyKey,
         CancellationToken cancellationToken = default);
 
-    Task<Payment> RecordCashPaymentAsync(
-        long invoiceId,
-        long processedBy,
-        decimal amount,
-        CancellationToken cancellationToken = default);
-
     Task<RevenueSummary> GetRevenueAsync(
         long centerId,
         DateOnly from,

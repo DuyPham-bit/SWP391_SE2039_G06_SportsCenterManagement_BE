@@ -6,6 +6,7 @@ namespace SportsCenterManagement.BLL.Interfaces;
 public interface IClassManagementService
 {
     Task<ClassDetailResponse> CreateClassAsync(CreateClassRequest request, CancellationToken cancellationToken = default);
+    Task<ClassDetailResponse> PublishClassAsync(long classId, CancellationToken cancellationToken = default);
     Task<ClassDetailResponse> GetClassAsync(long classId, CancellationToken cancellationToken = default);
     Task<ClassDetailResponse> UpdateClassAsync(long classId, UpdateClassRequest request, CancellationToken cancellationToken = default);
 

@@ -35,6 +35,7 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
             join cls in Db.Classes on session.ClassId equals cls.Id
             join sport in Db.Sports on cls.SportId equals sport.Id
             where session.SessionDate >= fromDate && session.SessionDate <= toDate
+                && cls.Status == FlowStatuses.ClassPublished
             select new { session, cls, sport };
 
         if (query.SportId is { } sportId) sessions = sessions.Where(x => x.cls.SportId == sportId);
@@ -59,6 +60,7 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                 x.session.SessionStatus,
                 ClassStatus = x.cls.Status,
                 x.cls.Capacity,
+                x.cls.AllowWaitlist,
                 RoomCapacity = x.session.RoomId == null
                     ? (int?)null
                     : Db.Rooms.Where(r => r.Id == x.session.RoomId).Select(r => (int?)r.Capacity).FirstOrDefault(),
@@ -79,12 +81,15 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
         {
             var capacity = p.RoomCapacity is { } rc ? Math.Min(p.Capacity, rc) : p.Capacity;
             coachByClass.TryGetValue(p.ClassId, out var coach);
-            var open = p.SessionStatus == FlowStatuses.SessionScheduled && !FlowStatuses.IsClosed(p.ClassStatus);
+            var open = p.SessionStatus == FlowStatuses.SessionScheduled && p.ClassStatus == FlowStatuses.ClassPublished;
+            var available = Math.Max(0, capacity - p.Booked);
             return new SessionScheduleItemResponse(
                 p.Id, p.ClassId, p.ClassName, p.SportId, p.SportName, p.RoomId,
                 coach?.Id, coach?.FullName, p.SessionDate, p.StartTime, p.EndTime,
-                p.SessionStatus, p.ClassStatus, capacity, p.Booked, Math.Max(0, capacity - p.Booked),
-                IsBookable: open && p.SessionDate.ToDateTime(p.StartTime) > ScheduleTime.VietnamNow);
+                p.SessionStatus, p.ClassStatus, capacity, p.Booked, available,
+                IsBookable: open && p.SessionDate.ToDateTime(p.StartTime) > ScheduleTime.VietnamNow
+                    && (available > 0 || p.AllowWaitlist),
+                AllowWaitlist: p.AllowWaitlist);
         }).ToList();
 
         return new PagedResult<SessionScheduleItemResponse>(items, query.Page, query.PageSize, total);

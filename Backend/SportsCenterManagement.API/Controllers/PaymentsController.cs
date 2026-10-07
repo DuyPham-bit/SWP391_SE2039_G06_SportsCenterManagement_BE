@@ -2,11 +2,14 @@ using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Security.Claims;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SportsCenterManagement.API.Authorization;
+using SportsCenterManagement.BLL.Common;
 using SportsCenterManagement.BLL.DTOs.Payments;
 using SportsCenterManagement.BLL.Interfaces;
+using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Authorization;
 
 namespace SportsCenterManagement.API.Controllers;
@@ -17,19 +20,22 @@ public sealed class PaymentsController : ControllerBase
 {
     private readonly IPaymentService _paymentService;
     private readonly ILogger<PaymentsController> _logger;
-    private readonly IMemberService? _memberService;
-    private readonly ICoreFlowService? _coreFlowService;
+    private readonly IMemberService _memberService;
+    private readonly ICoreFlowService _coreFlowService;
+    private readonly SportsCenterDbContext _dbContext;
 
     public PaymentsController(
         IPaymentService paymentService,
         ILogger<PaymentsController> logger,
-        IMemberService? memberService = null,
-        ICoreFlowService? coreFlowService = null)
+        IMemberService memberService,
+        ICoreFlowService coreFlowService,
+        SportsCenterDbContext dbContext)
     {
         _paymentService = paymentService;
         _logger = logger;
         _memberService = memberService;
         _coreFlowService = coreFlowService;
+        _dbContext = dbContext;
     }
 
     /// <summary>
@@ -44,17 +50,18 @@ public sealed class PaymentsController : ControllerBase
     {
         try
         {
-            var memberId = GetCurrentMemberId();
-            if (_memberService is not null && User.Identity?.IsAuthenticated == true)
+            if (string.IsNullOrWhiteSpace(idempotencyKey))
+                return BadRequest(new { success = false, message = "Header Idempotency-Key là bắt buộc." });
+            var userId = GetRequiredUserId();
+            var memberId = await GetCurrentMemberIdAsync(userId, cancellationToken);
+            if (request.PackageId > 0)
             {
-                await _memberService.EnsureCanBuyPackageAsync(memberId, request.PackageId, cancellationToken);
+                await _memberService.EnsureCanBuyPackageAsync(userId, request.PackageId, cancellationToken);
             }
 
             var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
-            var key = string.IsNullOrWhiteSpace(idempotencyKey) ? Guid.NewGuid().ToString("N") : idempotencyKey;
-
             var paymentUrl = await _paymentService.CreatePaymentUrlAsync(
-                memberId, request, ipAddress, key, cancellationToken);
+                memberId, request, ipAddress, idempotencyKey.Trim(), cancellationToken);
 
             return Ok(new { success = true, paymentUrl });
         }
@@ -109,10 +116,16 @@ public sealed class PaymentsController : ControllerBase
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         CancellationToken cancellationToken)
     {
-        var memberId = GetCurrentMemberId();
-        var key = string.IsNullOrWhiteSpace(idempotencyKey) ? Guid.NewGuid().ToString("N") : idempotencyKey;
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+            return BadRequest(new { success = false, message = "Header Idempotency-Key là bắt buộc." });
+        var userId = GetRequiredUserId();
+        var memberId = await GetCurrentMemberIdAsync(userId, cancellationToken);
+        if (request.PackageId > 0)
+        {
+            await _memberService.EnsureCanBuyPackageAsync(userId, request.PackageId, cancellationToken);
+        }
         var paymentUrl = await _paymentService.CreateMomoPaymentUrlAsync(
-            memberId, request, key, cancellationToken);
+            memberId, request, idempotencyKey.Trim(), cancellationToken);
         return Ok(new { success = true, paymentUrl });
     }
 
@@ -215,11 +228,6 @@ public sealed class PaymentsController : ControllerBase
         [FromBody] SportsCenterManagement.BLL.DTOs.Payments.Requests.RecordCashPaymentRequest request,
         CancellationToken cancellationToken)
     {
-        if (_coreFlowService is null || _memberService is null)
-        {
-            return StatusCode(StatusCodes.Status501NotImplemented);
-        }
-
         try
         {
             var actorId = GetRequiredUserId();
@@ -248,16 +256,13 @@ public sealed class PaymentsController : ControllerBase
         }
     }
 
-    private long GetCurrentMemberId()
+    private async Task<long> GetCurrentMemberIdAsync(long userId, CancellationToken cancellationToken)
     {
-        var claim = User.FindFirstValue("memberId")
-            ?? User.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? User.FindFirstValue("sub");
-        if (!string.IsNullOrEmpty(claim) && long.TryParse(claim, NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0)
-        {
-            return id;
-        }
-        return 1;
+        return await _dbContext.MemberProfiles
+            .Where(profile => profile.UserId == userId)
+            .Select(profile => (long?)profile.Id)
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw BusinessException.NotFound("Không tìm thấy hồ sơ thành viên cho tài khoản hiện tại.");
     }
 
     private long GetRequiredUserId()
@@ -281,7 +286,7 @@ public sealed class PaymentsController : ControllerBase
         {
             return id;
         }
-        return null;
+        throw BusinessException.Forbidden("Tài khoản nhân viên chưa được gán vào trung tâm hoạt động.");
     }
 
     private static IDictionary<string, string> ToStringDictionary(IEnumerable<KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues>> values) =>

@@ -153,23 +153,32 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
         // Verify the entered password against the stored password hash
         if (!PasswordHashing.Verify(request.Password, user.PasswordHash))
         {
-            // Increment failed attempt counter and lock account for 15 minutes after 5 consecutive failures
-            user.FailedLoginAttempts++;
-            if (user.FailedLoginAttempts >= 5)
-            {
-                user.FailedLoginAttempts = 0;
-                user.LockedUntil = now.AddMinutes(15);
-            }
-            unitOfWork.Repository<User>().Update(user);
-            await unitOfWork.SaveChangesAsync(cancellationToken);
+            // Atomic update prevents simultaneous failed logins from losing increments or bypassing the lock threshold.
+            await unitOfWork.Context.Users
+                .Where(item => item.Id == user.Id && item.Status == "Active"
+                    && (!item.LockedUntil.HasValue || item.LockedUntil.Value <= now))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(item => item.FailedLoginAttempts,
+                        item => item.FailedLoginAttempts >= 4 ? 0 : item.FailedLoginAttempts + 1)
+                    .SetProperty(item => item.LockedUntil,
+                        item => item.FailedLoginAttempts >= 4 ? now.AddMinutes(15) : item.LockedUntil)
+                    .SetProperty(item => item.UpdatedAt, now), cancellationToken);
             throw new InvalidOperationException("Invalid username or password.");
         }
 
         // Reset failed login counter and update login timestamp on successful authentication
-        user.FailedLoginAttempts = 0;
-        user.LockedUntil = null;
-        user.LastLoginAt = now;
-        unitOfWork.Repository<User>().Update(user);
+        var updated = await unitOfWork.Context.Users
+            .Where(item => item.Id == user.Id && item.Status == "Active"
+                && (!item.LockedUntil.HasValue || item.LockedUntil.Value <= now))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.FailedLoginAttempts, 0)
+                .SetProperty(item => item.LockedUntil, (DateTime?)null)
+                .SetProperty(item => item.LastLoginAt, now)
+                .SetProperty(item => item.UpdatedAt, now), cancellationToken);
+        if (updated == 0)
+        {
+            throw new InvalidOperationException("Account is currently unavailable for login.");
+        }
 
         // Fetch user role name
         var role = await unitOfWork.Repository<Role>().GetByIdAsync(user.RoleId, cancellationToken)
@@ -180,8 +189,6 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
             .Find(profile => profile.UserId == user.Id && profile.Status == "Active")
             .Select(profile => (long?)profile.CenterId)
             .SingleOrDefaultAsync(cancellationToken);
-
-        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new AuthResponses.AuthenticatedUser(user.Id, user.Username, role.Name, centerId);
     }

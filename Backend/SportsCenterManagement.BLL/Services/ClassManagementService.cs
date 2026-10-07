@@ -24,8 +24,9 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
     {
         ValidateClassInput(request.Name, request.Capacity, request.DurationMinutes);
 
-        var centerExists = await unitOfWork.Repository<Center>().AnyAsync(c => c.Id == request.CenterId, cancellationToken);
-        if (!centerExists) throw FlowException.NotFound("Cơ sở không tồn tại.");
+        var centerExists = await unitOfWork.Repository<Center>().AnyAsync(
+            c => c.Id == request.CenterId && c.Status == "Active", cancellationToken);
+        if (!centerExists) throw FlowException.NotFound("Cơ sở không tồn tại hoặc đã ngừng hoạt động.");
 
         await EnsureSportAndRoomAsync(request.CenterId, request.SportId, request.RoomId, request.Capacity, cancellationToken);
 
@@ -38,12 +39,59 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
             Description = request.Description?.Trim(),
             Level = request.Level?.Trim(),
             Capacity = request.Capacity,
+            AllowWaitlist = request.AllowWaitlist,
             DurationMinutes = request.DurationMinutes,
-            Status = FlowStatuses.ClassPublished,
+            Status = FlowStatuses.ClassDraft,
             CreatedAt = DateTime.UtcNow
         };
         await unitOfWork.Repository<ClassEntity>().AddAsync(entity, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
+        return ToResponse(entity);
+    }
+
+    public async Task<ClassDetailResponse> PublishClassAsync(long classId, CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await Db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+        var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
+            ?? throw FlowException.NotFound("Lớp học không tồn tại.");
+        if (entity.Status == FlowStatuses.ClassPublished)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return ToResponse(entity);
+        }
+        if (FlowStatuses.IsClosed(entity.Status))
+            throw FlowException.Conflict($"Không thể mở lớp ở trạng thái '{entity.Status}'.");
+
+        var hasSchedule = await Db.ClassSchedules.AnyAsync(
+            schedule => schedule.ClassId == classId && schedule.Status == FlowStatuses.ScheduleActive,
+            cancellationToken);
+        if (!hasSchedule)
+            throw FlowException.Conflict("Cần tạo ít nhất một lịch hoạt động trước khi mở lớp.");
+
+        var hasActiveCoach = await (
+            from assignment in Db.ClassCoaches
+            join coach in Db.CoachProfiles on assignment.CoachId equals coach.Id
+            join user in Db.Users on coach.UserId equals user.Id
+            where assignment.ClassId == classId && assignment.IsPrimary && coach.CenterId == entity.CenterId
+                && coach.Status == "Active" && user.Status == "Active"
+                && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
+            select assignment.CoachId).AnyAsync(cancellationToken);
+        if (!hasActiveCoach)
+            throw FlowException.Conflict("Cần phân công ít nhất một huấn luyện viên đang hoạt động trước khi mở lớp.");
+
+        var hasUpcomingSession = await Db.ClassSessions.AnyAsync(session =>
+            session.ClassId == classId && session.SessionStatus == FlowStatuses.SessionScheduled
+            && (session.SessionDate > ScheduleTime.VietnamToday
+                || (session.SessionDate == ScheduleTime.VietnamToday && session.StartTime > TimeOnly.FromDateTime(ScheduleTime.VietnamNow))),
+            cancellationToken);
+        if (!hasUpcomingSession)
+            throw FlowException.Conflict("Lịch lớp chưa tạo buổi học sắp tới trong khoảng hiệu lực.");
+
+        entity.Status = FlowStatuses.ClassPublished;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return ToResponse(entity);
     }
 
@@ -106,6 +154,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         entity.Description = request.Description?.Trim();
         entity.Level = request.Level?.Trim();
         entity.Capacity = request.Capacity;
+        entity.AllowWaitlist = request.AllowWaitlist;
         entity.DurationMinutes = request.DurationMinutes;
         entity.UpdatedAt = DateTime.UtcNow;
 
@@ -283,7 +332,8 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
 
     private async Task EnsureSportAndRoomAsync(long centerId, long sportId, long? roomId, int capacity, CancellationToken ct)
     {
-        if (!await unitOfWork.Repository<Sport>().AnyAsync(s => s.Id == sportId, ct))
+        var sport = await unitOfWork.Repository<Sport>().GetByIdAsync(sportId, ct);
+        if (sport is null || sport.Status != "Active" || (sport.CenterId.HasValue && sport.CenterId.Value != centerId))
             throw FlowException.NotFound("Bộ môn không tồn tại.");
 
         if (roomId is null) return;
@@ -291,6 +341,8 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
             ?? throw FlowException.NotFound("Phòng tập không tồn tại.");
         if (room.CenterId != centerId)
             throw FlowException.BadRequest("Phòng tập không thuộc cơ sở của lớp học.");
+        if (!string.Equals(room.Status, "Active", StringComparison.OrdinalIgnoreCase))
+            throw FlowException.Conflict("Phòng tập đã ngừng hoạt động.");
         if (capacity > room.Capacity) // BR-CLASS-01
             throw FlowException.BadRequest($"Sức chứa lớp ({capacity}) vượt quá sức chứa phòng '{room.Name}' ({room.Capacity}).");
     }
@@ -399,10 +451,12 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
 
         var today = ScheduleTime.VietnamToday;
         var first = schedule.StartDate.Value > today ? schedule.StartDate.Value : today;
+        var now = ScheduleTime.VietnamNow;
         var created = 0;
         for (var date = first; date <= schedule.EndDate.Value; date = date.AddDays(1))
         {
             if ((int)date.DayOfWeek != schedule.DayOfWeek || existingDates.Contains(date)) continue;
+            if (date == today && schedule.StartTime <= TimeOnly.FromDateTime(now)) continue;
             await Db.ClassSessions.AddAsync(new ClassSession
             {
                 ClassId = entity.Id,
@@ -434,11 +488,16 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
 
         foreach (var session in sessions) session.SessionStatus = FlowStatuses.SessionCancelled;
         foreach (var booking in bookings) booking.Status = FlowStatuses.BookingCancelled;
+        var waitlists = await Db.ClassWaitlists
+            .Where(item => ids.Contains(item.SessionId ?? 0) && item.Status == FlowStatuses.WaitlistWaiting)
+            .ToListAsync(ct);
+        foreach (var waitlist in waitlists) waitlist.Status = FlowStatuses.WaitlistCancelled;
         return (sessions.Count, bookings.Count);
     }
 
     private static ClassDetailResponse ToResponse(ClassEntity c) => new(
-        c.Id, c.CenterId, c.SportId, c.RoomId, c.Name, c.Description, c.Level, c.Capacity, c.DurationMinutes, c.Status);
+        c.Id, c.CenterId, c.SportId, c.RoomId, c.Name, c.Description, c.Level,
+        c.Capacity, c.DurationMinutes, c.Status, c.AllowWaitlist);
 
     private static ClassScheduleResponse ToResponse(ClassSchedule s, int generated) => new(
         s.Id, s.ClassId, s.RoomId, s.DayOfWeek, s.StartTime, s.EndTime, s.StartDate, s.EndDate, s.Status, generated);

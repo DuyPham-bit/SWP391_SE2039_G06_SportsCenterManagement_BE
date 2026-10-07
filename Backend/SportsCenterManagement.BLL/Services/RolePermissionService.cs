@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.BLL.DTOs.Roles;
 using SportsCenterManagement.BLL.Interfaces;
+using SportsCenterManagement.DAL.Authorization;
 using SportsCenterManagement.DAL.Entities;
 using SportsCenterManagement.DAL.Repositories.Interfaces;
 
@@ -61,7 +62,7 @@ public sealed class RolePermissionService(IUnitOfWork unitOfWork) : IRolePermiss
 
     private static readonly HashSet<string> ProtectedSystemRoles = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Admin", "Super Admin", "Manager", "Receptionist", "Coach", "Member"
+        "Admin", "Super Admin", RoleNames.SystemAdmin, "Manager", "Receptionist", "Coach", "Member"
     };
 
     public async Task<RoleResponse> CreateRoleAsync(CreateRoleRequest request, CancellationToken cancellationToken = default)
@@ -161,6 +162,20 @@ public sealed class RolePermissionService(IUnitOfWork unitOfWork) : IRolePermiss
         long? currentUserId = null,
         CancellationToken cancellationToken = default)
     {
+        if (!currentUserId.HasValue)
+            throw new UnauthorizedAccessException("Chỉ System Admin được quản lý quyền vai trò.");
+        var actorRoleId = await unitOfWork.Context.Users
+            .Where(user => user.Id == currentUserId.Value && user.Status == "Active"
+                && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow))
+            .Select(user => (long?)user.RoleId)
+            .SingleOrDefaultAsync(cancellationToken);
+        var systemAdminRoleId = await unitOfWork.Context.Roles
+            .Where(role => role.Name == RoleNames.SystemAdmin)
+            .Select(role => (long?)role.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (actorRoleId is null || systemAdminRoleId is null || actorRoleId.Value != systemAdminRoleId.Value)
+            throw new UnauthorizedAccessException("Chỉ System Admin được quản lý quyền vai trò.");
+
         if (request?.PermissionIds is null || request.PermissionIds.Count == 0)
         {
             throw new InvalidOperationException("Phải chọn ít nhất một quyền trước khi lưu.");
@@ -190,6 +205,10 @@ public sealed class RolePermissionService(IUnitOfWork unitOfWork) : IRolePermiss
 
             // Tự động bổ sung quyền cha nếu gán quyền con (Parent-Child Dependency Resolution)
             var currentCodes = existingPerms.Select(p => p.Code).ToHashSet();
+            if (currentCodes.Contains(PermissionCodes.RolePermissionManage))
+            {
+                throw new InvalidOperationException("Quyền quản lý ma trận chỉ được gán cho SystemAdmin qua API quản trị ma trận.");
+            }
             var requiredParentCodes = new HashSet<string>();
 
             if (currentCodes.Contains("CLASS_MANAGE") || currentCodes.Contains("COACH_ASSIGN"))
@@ -220,7 +239,8 @@ public sealed class RolePermissionService(IUnitOfWork unitOfWork) : IRolePermiss
             var currentUser = await db.Users.FirstOrDefaultAsync(u => u.Id == currentUserId.Value, cancellationToken);
             if (currentUser is not null && currentUser.RoleId == roleId)
             {
-                var roleManagePerm = await db.Permissions.FirstOrDefaultAsync(p => p.Code == "ROLE_MANAGE", cancellationToken);
+                var roleManagePerm = await db.Permissions.FirstOrDefaultAsync(
+                    p => p.Code == PermissionCodes.RolePermissionManage, cancellationToken);
                 if (roleManagePerm is not null && !distinctPermissionIds.Contains(roleManagePerm.Id))
                 {
                     throw new InvalidOperationException(

@@ -2,12 +2,13 @@
 using Microsoft.AspNetCore.Mvc;
 using SportsCenterManagement.BLL.DTOs.Roles;
 using SportsCenterManagement.BLL.Interfaces;
+using SportsCenterManagement.DAL.Authorization;
 
 namespace SportsCenterManagement.API.Controllers;
 
 /// <summary>Endpoints for system roles and permissions management (UC-15).</summary>
 [ApiController]
-[Authorize(Roles = "MANAGER,ADMIN,SUPER ADMIN")]
+[Authorize(Roles = RoleNames.SystemAdmin)]
 [Route("api")]
 public sealed class RolesController(IRolePermissionService rolePermissionService) : ControllerBase
 {

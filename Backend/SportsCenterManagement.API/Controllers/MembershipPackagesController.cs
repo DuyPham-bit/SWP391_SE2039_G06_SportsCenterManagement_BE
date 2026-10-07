@@ -6,12 +6,16 @@ using SportsCenterManagement.API.Authorization;
 using SportsCenterManagement.BLL.DTOs.MembershipPackages;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.DAL.Authorization;
+using SportsCenterManagement.DAL.Context;
 
 namespace SportsCenterManagement.API.Controllers;
 
 [ApiController]
+[FlowExceptionFilter]
 [Route("api/centers/{centerId:long}/membership-packages")]
-public sealed class MembershipPackagesController(IMembershipPackageService packageService) : ControllerBase
+public sealed class MembershipPackagesController(
+    IMembershipPackageService packageService,
+    SportsCenterDbContext db) : ControllerBase
 {
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<MembershipPackageResponse>), StatusCodes.Status200OK)]
@@ -19,6 +23,8 @@ public sealed class MembershipPackagesController(IMembershipPackageService packa
         long centerId,
         CancellationToken cancellationToken)
     {
+        if (!await db.Centers.AnyAsync(center => center.Id == centerId && center.Status == "Active", cancellationToken))
+            return NotFound(new { message = "Cơ sở không tồn tại hoặc đã ngừng hoạt động." });
         var packages = await packageService.GetActivePackagesAsync(centerId, cancellationToken);
         return Ok(packages);
     }
@@ -30,6 +36,7 @@ public sealed class MembershipPackagesController(IMembershipPackageService packa
         long centerId,
         CancellationToken cancellationToken)
     {
+        await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
         var packages = await packageService.GetPackagesAsync(centerId, cancellationToken);
         return Ok(packages);
     }
@@ -44,6 +51,7 @@ public sealed class MembershipPackagesController(IMembershipPackageService packa
         [FromBody] SaveMembershipPackageRequest request,
         CancellationToken cancellationToken)
     {
+        await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
         try
         {
             var package = await packageService.CreatePackageAsync(centerId, request, cancellationToken);
@@ -78,6 +86,7 @@ public sealed class MembershipPackagesController(IMembershipPackageService packa
         [FromBody] SaveMembershipPackageRequest request,
         CancellationToken cancellationToken)
     {
+        await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
         try
         {
             return Ok(await packageService.UpdatePackageAsync(centerId, packageId, request, cancellationToken));
@@ -108,9 +117,10 @@ public sealed class MembershipPackagesController(IMembershipPackageService packa
     public async Task<ActionResult<MembershipPackageResponse>> SetStatus(
         long centerId,
         long packageId,
-        [FromBody] SetMembershipPackageStatusRequest request,
+        [FromBody] Requests.SetMembershipPackageStatusRequest request,
         CancellationToken cancellationToken)
     {
+        await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
         try
         {
             return Ok(await packageService.SetPackageStatusAsync(centerId, packageId, request.Status, cancellationToken));
@@ -156,4 +166,3 @@ public sealed class MembershipPackagesController(IMembershipPackageService packa
     }
 }
 
-public sealed record SetMembershipPackageStatusRequest(string Status);

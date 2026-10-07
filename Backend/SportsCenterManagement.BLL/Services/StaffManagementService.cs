@@ -83,7 +83,7 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
 
         var normalizedUsername = request.Username.Trim().ToLowerInvariant();
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-        var normalizedPhone = Normalize(request.Phone);
+        var normalizedPhone = PhoneNumberNormalization.Normalize(request.Phone);
         if (await unitOfWork.Context.Users.AnyAsync(user => user.Username == normalizedUsername
                                                              || user.Email == normalizedEmail
                                                              || (normalizedPhone != null && user.Phone == normalizedPhone), cancellationToken))
@@ -183,7 +183,9 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
         }
 
         var email = string.IsNullOrWhiteSpace(request.Email) ? user.Email : request.Email.Trim().ToLowerInvariant();
-        var phone = Normalize(request.Phone);
+        var phone = request.Phone is null
+            ? user.Phone
+            : PhoneNumberNormalization.Normalize(request.Phone);
         if (!new EmailAddressAttribute().IsValid(email))
         {
             throw new ValidationException("Email không hợp lệ.");
@@ -289,12 +291,9 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
         {
             throw new ValidationException("Email không hợp lệ.");
         }
-        if (password.Length < 12 || !Regex.IsMatch(password, "[A-Z]") || !Regex.IsMatch(password, "[a-z]")
-            || !Regex.IsMatch(password, "[0-9]") || !Regex.IsMatch(password, "[^a-zA-Z0-9]"))
-        {
-            throw new ValidationException("Mật khẩu cần ít nhất 12 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt.");
-        }
-        if (phone is not null && !Regex.IsMatch(phone.Trim(), @"^\+?[0-9]{8,15}$"))
+        phone = PhoneNumberNormalization.Normalize(phone);
+        PasswordPolicy.ValidateOrThrow(password, email, phone);
+        if (phone is not null && !Regex.IsMatch(phone, @"^\+?[0-9]{8,15}$"))
         {
             throw new ValidationException("Số điện thoại cần có từ 8 đến 15 chữ số.");
         }

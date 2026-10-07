@@ -125,6 +125,9 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
         [Required, RegularExpression("^(Succeeded|Failed)$")]
         public string Status { get; set; } = string.Empty;
 
+        [Range(typeof(decimal), "0.01", "1000000000")]
+        public decimal? ConfirmedAmount { get; set; }
+
         [MaxLength(150)]
         public string? ProviderTransactionId { get; set; }
 

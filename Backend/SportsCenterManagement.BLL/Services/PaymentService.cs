@@ -165,26 +165,32 @@ public sealed class PaymentService(
         }
     }
 
-    public Task<PaymentResultResponse> ProcessPaymentCallbackAsync(
+    public async Task<PaymentResultResponse> ProcessPaymentCallbackAsync(
         IDictionary<string, string> queryParams,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(_configuration["VnPay:HashSecret"]))
         {
-            return Task.FromResult(FailedCallback("VNPay chưa được cấu hình chữ ký.", providerAckCode: "97"));
+            return FailedCallback("VNPay chưa được cấu hình chữ ký.", providerAckCode: "97");
         }
 
         var callback = _vnPayService.ProcessCallback(queryParams);
         if (!callback.IsValidSignature)
         {
-            return Task.FromResult(FailedCallback("Chữ ký VNPay không hợp lệ.", providerAckCode: "97"));
+            return FailedCallback("Chữ ký VNPay không hợp lệ.", providerAckCode: "97");
         }
         if (!string.Equals(callback.CurrencyCode, "VND", StringComparison.Ordinal))
         {
-            return Task.FromResult(FailedCallback("Currency callback VNPay không hợp lệ.", providerAckCode: "04"));
+            if (callback.IsSuccess)
+            {
+                return await MarkSignedGatewayCallbackReviewRequiredAsync(
+                    "VNPAY", callback.InvoiceNumber, "Currency callback không phải VND",
+                    callback.Amount, callback.TransactionNo, cancellationToken);
+            }
+            return FailedCallback("Currency callback VNPay không hợp lệ.", providerAckCode: "04");
         }
 
-        return CompleteGatewayPaymentAsync(
+        return await CompleteGatewayPaymentAsync(
             "VNPAY", callback.InvoiceNumber, null, callback.IsSuccess, callback.IsPending,
             callback.TransactionNo, callback.Amount, $"VNPay response {callback.ResponseCode}", cancellationToken);
     }
@@ -204,7 +210,7 @@ public sealed class PaymentService(
             callback.TransId, callback.Amount, $"MoMo result {callback.ResultCode}", cancellationToken);
     }
 
-    public Task<PaymentResultResponse> ProcessPayOsWebhookAsync(
+    public async Task<PaymentResultResponse> ProcessPayOsWebhookAsync(
         PayOsWebhookRequest webhookRequest,
         CancellationToken cancellationToken = default)
     {
@@ -217,23 +223,32 @@ public sealed class PaymentService(
         if (!webhookRequest.Success || !string.Equals(webhookRequest.Code, "00", StringComparison.Ordinal) ||
             !string.Equals(data.Code, "00", StringComparison.Ordinal))
         {
-            return Task.FromResult(new PaymentResultResponse
+            return new PaymentResultResponse
             {
                 Success = false,
                 Processed = true,
                 Message = "Webhook PayOS hợp lệ nhưng giao dịch chưa được xác nhận thành công. Payment vẫn Pending để đối soát.",
                 Amount = data.Amount
-            });
+            };
         }
 
         if (data.OrderCode <= 0 || data.Amount <= 0 ||
             !string.Equals(data.Currency, "VND", StringComparison.Ordinal) ||
             string.IsNullOrWhiteSpace(data.Reference))
         {
-            return Task.FromResult(FailedCallback("Webhook PayOS thiếu mã giao dịch, số tiền hoặc currency hợp lệ."));
+            if (data.OrderCode > 0)
+            {
+                return await MarkSignedGatewayCallbackReviewRequiredAsync(
+                    "PAYOS", data.OrderCode.ToString(CultureInfo.InvariantCulture),
+                    !string.Equals(data.Currency, "VND", StringComparison.Ordinal)
+                        ? "Currency callback không phải VND"
+                        : "Webhook thiếu amount hoặc reference hợp lệ",
+                    data.Amount, data.Reference, cancellationToken);
+            }
+            return FailedCallback("Webhook PayOS thiếu mã giao dịch, số tiền hoặc currency hợp lệ.");
         }
 
-        return CompleteGatewayPaymentAsync(
+        return await CompleteGatewayPaymentAsync(
             "PAYOS",
             data.OrderCode.ToString(CultureInfo.InvariantCulture),
             null,
@@ -272,7 +287,7 @@ public sealed class PaymentService(
             await transaction.CommitAsync(cancellationToken);
             return PaymentSuccess(invoice, payment, "Giao dịch đã được xác nhận trước đó.");
         }
-        if (payment.PaymentStatus is not ("Pending" or "Failed" or "Voided"))
+        if (payment.PaymentStatus is not ("Pending" or "Failed" or "Voided" or "ReviewRequired"))
         {
             throw BusinessException.Conflict("Trạng thái giao dịch không cho phép đối soát.");
         }
@@ -299,6 +314,18 @@ public sealed class PaymentService(
         if (string.IsNullOrWhiteSpace(request.ProviderTransactionId))
         {
             throw BusinessException.BadRequest("Cần mã giao dịch từ cổng thanh toán để xác nhận thành công.");
+        }
+        if (payment.PaymentStatus == "ReviewRequired" && !request.ConfirmedAmount.HasValue)
+        {
+            throw BusinessException.BadRequest("Payment ReviewRequired cần ConfirmedAmount đúng theo bằng chứng đối soát.");
+        }
+        if (request.ConfirmedAmount.HasValue)
+        {
+            EnsurePaymentAmount(request.ConfirmedAmount.Value, "ConfirmedAmount");
+            if (request.ConfirmedAmount.Value <= 0)
+                throw BusinessException.BadRequest("ConfirmedAmount phải lớn hơn 0.");
+            payment.Amount = request.ConfirmedAmount.Value;
+            payment.AmountReceived = request.ConfirmedAmount.Value;
         }
         var normalizedId = NormalizeProviderTransactionId(GetProvider(payment.PaymentMethod), request.ProviderTransactionId);
         if (await _unitOfWork.Context.Payments.AnyAsync(
@@ -366,7 +393,8 @@ public sealed class PaymentService(
             .SingleOrDefaultAsync(candidate => candidate.Id == request.MemberId, cancellationToken)
             ?? throw BusinessException.NotFound("Không tìm thấy hội viên.");
         if (!await _unitOfWork.Context.Users.AnyAsync(
-                user => user.Id == member.UserId && user.Status == "Active", cancellationToken))
+                user => user.Id == member.UserId && user.Status == "Active"
+                    && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow), cancellationToken))
         {
             throw BusinessException.Conflict("Tài khoản hội viên không hoạt động.");
         }
@@ -379,9 +407,20 @@ public sealed class PaymentService(
         {
             throw BusinessException.Conflict("Hội viên và gói tập không thuộc cùng trung tâm.");
         }
+        if (!await _unitOfWork.Context.Centers.AnyAsync(
+                center => center.Id == package.CenterId && center.Status == "Active", cancellationToken))
+        {
+            throw BusinessException.Conflict("Trung tâm của gói tập không còn hoạt động.");
+        }
         if (package.Price <= 0 || package.DurationDays <= 0)
         {
             throw BusinessException.Conflict("Gói tập phải có giá và thời hạn hợp lệ trước khi thu tiền.");
+        }
+        var pendingInvoiceNumber = await FindOpenPendingInvoiceNumberAsync(member.Id, package.Id, cancellationToken);
+        if (pendingInvoiceNumber is not null)
+        {
+            throw BusinessException.Conflict(
+                $"Hội viên đã có hóa đơn chờ thanh toán cho gói này ({pendingInvoiceNumber}); hãy tiếp tục thanh toán hóa đơn đó.");
         }
 
         var received = request.AmountReceived;
@@ -389,6 +428,7 @@ public sealed class PaymentService(
         {
             received = package.Price;
         }
+        EnsurePaymentAmount(received, "Số tiền nhận");
         if (received <= 0)
         {
             throw BusinessException.BadRequest("Số tiền nhận phải lớn hơn 0.");
@@ -572,6 +612,7 @@ public sealed class PaymentService(
         RecordInvoicePaymentRequest request,
         CancellationToken cancellationToken = default)
     {
+        EnsurePaymentAmount(request.Amount, "Số tiền thanh toán");
         var scopedKey = ScopeIdempotencyKey(staffUserId, idempotencyKey);
         var method = request.PaymentMethod.Trim().ToUpperInvariant();
         await using var transaction = await _unitOfWork.Context.Database
@@ -600,6 +641,15 @@ public sealed class PaymentService(
         if (invoice.Status is not ("Issued" or "PartiallyPaid"))
         {
             throw BusinessException.Conflict("Hóa đơn không còn số dư cần thanh toán.");
+        }
+        if (!await (
+                from profile in _unitOfWork.Context.MemberProfiles
+                join user in _unitOfWork.Context.Users on profile.UserId equals user.Id
+                where profile.Id == invoice.MemberId && user.Status == "Active"
+                    && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
+                select profile.Id).AnyAsync(cancellationToken))
+        {
+            throw BusinessException.Conflict("Tài khoản hội viên không hoạt động hoặc đang bị khóa.");
         }
 
         var alreadyPaid = await GetSucceededAmountAsync(invoice.Id, cancellationToken);
@@ -666,6 +716,7 @@ public sealed class PaymentService(
         string ipAddress,
         CancellationToken cancellationToken = default)
     {
+        EnsurePaymentAmount(request.Amount, "Số tiền hoàn");
         var reason = request.Reason?.Trim() ?? string.Empty;
         if (reason.Length < 5)
         {
@@ -1102,6 +1153,10 @@ public sealed class PaymentService(
             invoice = await _unitOfWork.Context.Invoices.SingleOrDefaultAsync(
                 candidate => candidate.InvoiceNumber == request.InvoiceNumber && candidate.MemberId == memberId,
                 cancellationToken);
+            if (invoice is null)
+            {
+                throw BusinessException.NotFound("Không tìm thấy hóa đơn của hội viên.");
+            }
         }
         else
         {
@@ -1117,7 +1172,8 @@ public sealed class PaymentService(
                 .SingleOrDefaultAsync(candidate => candidate.Id == memberId, cancellationToken)
                 ?? throw BusinessException.NotFound("Không tìm thấy hồ sơ hội viên.");
             if (!await _unitOfWork.Context.Users.AnyAsync(
-                    user => user.Id == member.UserId && user.Status == "Active", cancellationToken))
+                    user => user.Id == member.UserId && user.Status == "Active"
+                        && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow), cancellationToken))
             {
                 throw BusinessException.Forbidden("Tài khoản hội viên không hoạt động.");
             }
@@ -1133,6 +1189,17 @@ public sealed class PaymentService(
             if (member.CenterId.HasValue && member.CenterId.Value != package.CenterId)
             {
                 throw BusinessException.Forbidden("Gói tập không thuộc trung tâm của hội viên.");
+            }
+            if (!await _unitOfWork.Context.Centers.AnyAsync(
+                    center => center.Id == package.CenterId && center.Status == "Active", cancellationToken))
+            {
+                throw BusinessException.Conflict("Trung tâm của gói tập không còn hoạt động.");
+            }
+            var pendingInvoiceNumber = await FindOpenPendingInvoiceNumberAsync(member.Id, package.Id, cancellationToken);
+            if (pendingInvoiceNumber is not null)
+            {
+                throw BusinessException.Conflict(
+                    $"Hội viên đã có hóa đơn chờ thanh toán cho gói này ({pendingInvoiceNumber}); hãy tiếp tục thanh toán hóa đơn đó.");
             }
             if (!member.CenterId.HasValue)
             {
@@ -1284,12 +1351,38 @@ public sealed class PaymentService(
         }
         var invoice = await _unitOfWork.Context.Invoices
             .SingleAsync(candidate => candidate.Id == payment.InvoiceId, cancellationToken);
+        if (payment.PaymentStatus == "ReviewRequired")
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return new PaymentResultResponse
+            {
+                Success = false,
+                Processed = true,
+                Message = "Payment đang ReviewRequired; cần hoàn tất đối soát thủ công.",
+                InvoiceNumber = invoice.InvoiceNumber,
+                Amount = payment.Amount
+            };
+        }
         if (provider == "MOMO" && !string.Equals(requestId, payment.GatewayReference, StringComparison.Ordinal))
         {
+            if (isSuccess && payment.PaymentStatus != "Succeeded")
+            {
+                var review = await MarkPaymentReviewRequiredAsync(payment, provider,
+                    "RequestId không khớp payment attempt", amount, providerTransactionId, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return review;
+            }
             return FailedCallback("RequestId không khớp payment attempt.", invoice.InvoiceNumber);
         }
         if (amount <= 0 || amount != payment.Amount)
         {
+            if (isSuccess && payment.PaymentStatus != "Succeeded")
+            {
+                var review = await MarkPaymentReviewRequiredAsync(payment, provider,
+                    "Amount không khớp payment attempt", amount, providerTransactionId, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return review;
+            }
             return FailedCallback("Amount không khớp payment attempt.", invoice.InvoiceNumber);
         }
         if (payment.PaymentStatus == "Succeeded")
@@ -1382,6 +1475,13 @@ public sealed class PaymentService(
         }
         if (string.IsNullOrWhiteSpace(providerTransactionId))
         {
+            if (isSuccess && payment.PaymentStatus != "Succeeded")
+            {
+                var review = await MarkPaymentReviewRequiredAsync(payment, provider,
+                    "Provider không gửi transaction ID", amount, null, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return review;
+            }
             return FailedCallback("Amount hoặc transaction id không khớp payment attempt.", invoice.InvoiceNumber);
         }
         var normalizedId = NormalizeProviderTransactionId(provider, providerTransactionId);
@@ -1389,6 +1489,13 @@ public sealed class PaymentService(
                 candidate => candidate.ProviderTransactionId == normalizedId && candidate.Id != payment.Id,
                 cancellationToken))
         {
+            if (isSuccess && payment.PaymentStatus != "Succeeded")
+            {
+                var review = await MarkPaymentReviewRequiredAsync(payment, provider,
+                    "Provider transaction ID đã gắn với payment khác", amount, providerTransactionId, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return review;
+            }
             return FailedCallback("Mã giao dịch của cổng đã được ghi nhận.", invoice.InvoiceNumber);
         }
 
@@ -1610,6 +1717,17 @@ public sealed class PaymentService(
         _unitOfWork.Context.InvoiceItems.AnyAsync(
             item => item.InvoiceId == invoiceId && item.PackageId == packageId, cancellationToken);
 
+    private Task<string?> FindOpenPendingInvoiceNumberAsync(
+        long memberId, long packageId, CancellationToken cancellationToken) =>
+        (from item in _unitOfWork.Context.InvoiceItems
+         join invoice in _unitOfWork.Context.Invoices on item.InvoiceId equals invoice.Id
+         join subscription in _unitOfWork.Context.MemberSubscriptions on item.SubscriptionId equals subscription.Id
+         where invoice.MemberId == memberId && item.PackageId == packageId
+             && subscription.Status == "PendingPayment"
+             && (invoice.Status == "Issued" || invoice.Status == "PartiallyPaid")
+         orderby invoice.IssuedAt descending
+         select invoice.InvoiceNumber).FirstOrDefaultAsync(cancellationToken);
+
     private static AuditLog CreateAudit(long? actorId, string action, string entityType, long entityId, object newValues, DateTime createdAt) =>
         new()
         {
@@ -1649,6 +1767,100 @@ public sealed class PaymentService(
 
     private static string CreateInvoiceNumber(DateTime now) =>
         $"SC-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..30];
+
+    private async Task<PaymentResultResponse> MarkPaymentReviewRequiredAsync(
+        Payment payment,
+        string provider,
+        string reason,
+        decimal reportedAmount,
+        string? providerTransactionId,
+        CancellationToken cancellationToken)
+    {
+        payment.PaymentStatus = "ReviewRequired";
+        payment.PaidAt = null;
+        payment.Note = $"ReviewRequired: {reason}; expected={payment.Amount.ToString(CultureInfo.InvariantCulture)}; " +
+                       $"reported={reportedAmount.ToString(CultureInfo.InvariantCulture)}";
+        _unitOfWork.Context.AuditLogs.Add(CreateAudit(null, "Payment.GatewayReviewRequired", "Payment", payment.Id,
+            new
+            {
+                provider,
+                payment.GatewayReference,
+                ExpectedAmount = payment.Amount,
+                ReportedAmount = reportedAmount,
+                Reason = reason,
+                ProviderTransactionId = string.IsNullOrWhiteSpace(providerTransactionId)
+                    ? null
+                    : providerTransactionId.Trim()[..Math.Min(providerTransactionId.Trim().Length, 150)]
+            }, DateTime.UtcNow));
+        await _unitOfWork.Context.SaveChangesAsync(cancellationToken);
+
+        return new PaymentResultResponse
+        {
+            Success = false,
+            Processed = true,
+            Message = "Provider báo đã thu nhưng dữ liệu không khớp; payment được giữ ReviewRequired để đối soát.",
+            InvoiceNumber = await _unitOfWork.Context.Invoices
+                .Where(invoice => invoice.Id == payment.InvoiceId)
+                .Select(invoice => invoice.InvoiceNumber)
+                .SingleAsync(cancellationToken),
+            TransactionId = string.IsNullOrWhiteSpace(providerTransactionId)
+                ? null
+                : providerTransactionId.Trim()[..Math.Min(providerTransactionId.Trim().Length, 150)],
+            Amount = reportedAmount
+        };
+    }
+
+    private async Task<PaymentResultResponse> MarkSignedGatewayCallbackReviewRequiredAsync(
+        string provider,
+        string gatewayReference,
+        string reason,
+        decimal reportedAmount,
+        string? providerTransactionId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(gatewayReference))
+            return FailedCallback("Thiếu mã tham chiếu giao dịch.");
+
+        await using var transaction = await _unitOfWork.Context.Database
+            .BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var payment = await _unitOfWork.Context.Payments
+            .SingleOrDefaultAsync(candidate => candidate.GatewayReference == gatewayReference, cancellationToken);
+        if (payment is null || !payment.PaymentMethod.StartsWith(provider, StringComparison.OrdinalIgnoreCase))
+            return FailedCallback("Không tìm thấy payment attempt tương ứng.");
+
+        var invoice = await _unitOfWork.Context.Invoices
+            .SingleAsync(candidate => candidate.Id == payment.InvoiceId, cancellationToken);
+        if (payment.PaymentStatus == "Succeeded")
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return FailedCallback("Payment đã được chốt; callback mâu thuẫn không thể ghi đè giao dịch.", invoice.InvoiceNumber);
+        }
+        if (payment.PaymentStatus == "ReviewRequired")
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return new PaymentResultResponse
+            {
+                Success = false,
+                Processed = true,
+                Message = "Payment đang ReviewRequired; cần hoàn tất đối soát thủ công.",
+                InvoiceNumber = invoice.InvoiceNumber,
+                Amount = payment.Amount
+            };
+        }
+
+        var result = await MarkPaymentReviewRequiredAsync(payment, provider, reason,
+            reportedAmount, providerTransactionId, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return result;
+    }
+
+    private static void EnsurePaymentAmount(decimal amount, string fieldName)
+    {
+        if (amount < 0 || amount > 1_000_000_000m || decimal.Round(amount, 2) != amount)
+        {
+            throw BusinessException.BadRequest($"{fieldName} phải nằm trong khoảng 0–1.000.000.000 VND và tối đa 2 chữ số thập phân.");
+        }
+    }
 
     private static string ScopeIdempotencyKey(long actorId, string rawKey)
     {

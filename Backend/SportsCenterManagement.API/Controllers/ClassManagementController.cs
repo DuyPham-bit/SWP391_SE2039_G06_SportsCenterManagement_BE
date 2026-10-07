@@ -15,7 +15,7 @@ public sealed class ClassManagementController(IClassManagementService service, S
     public async Task<IActionResult> Create([FromBody] CreateClassRequest request, CancellationToken ct)
     {
         await CenterScope.EnsureCenterAccessAsync(db, User, request.CenterId, ct);
-        var result = await service.CreateClassAsync(request, ct);
+        var result = await service.CreateClassAsync(CurrentUserId, request, ct);
         return CreatedAtAction(nameof(Get), new { classId = result.Id }, result);
     }
 
@@ -30,14 +30,14 @@ public sealed class ClassManagementController(IClassManagementService service, S
     public async Task<IActionResult> Update(long classId, [FromBody] UpdateClassRequest request, CancellationToken ct)
     {
         await CenterScope.EnsureClassAccessAsync(db, User, classId, ct);
-        return Ok(await service.UpdateClassAsync(classId, request, ct));
+        return Ok(await service.UpdateClassAsync(CurrentUserId, classId, request, ct));
     }
 
     [HttpPost("classes/{classId:long}/publish")]
     public async Task<IActionResult> Publish(long classId, CancellationToken ct)
     {
         await CenterScope.EnsureClassAccessAsync(db, User, classId, ct);
-        return Ok(await service.PublishClassAsync(classId, ct));
+        return Ok(await service.PublishClassAsync(CurrentUserId, classId, ct));
     }
 
     /// <summary>Soft cancel; the response reports how many members/bookings were affected.</summary>
@@ -45,7 +45,7 @@ public sealed class ClassManagementController(IClassManagementService service, S
     public async Task<IActionResult> Cancel(long classId, CancellationToken ct)
     {
         await CenterScope.EnsureClassAccessAsync(db, User, classId, ct);
-        return Ok(await service.CancelClassAsync(classId, ct));
+        return Ok(await service.CancelClassAsync(CurrentUserId, classId, ct));
     }
 
     [HttpGet("classes/{classId:long}/schedules")]
@@ -59,20 +59,20 @@ public sealed class ClassManagementController(IClassManagementService service, S
     public async Task<IActionResult> CreateSchedule(long classId, [FromBody] CreateClassScheduleRequest request, CancellationToken ct)
     {
         await CenterScope.EnsureClassAccessAsync(db, User, classId, ct);
-        return StatusCode(StatusCodes.Status201Created, await service.CreateScheduleAsync(classId, request, ct));
+        return StatusCode(StatusCodes.Status201Created, await service.CreateScheduleAsync(CurrentUserId, classId, request, ct));
     }
 
     [HttpPut("classes/{classId:long}/schedules/{scheduleId:long}")]
     public async Task<IActionResult> UpdateSchedule(long classId, long scheduleId, [FromBody] UpdateClassScheduleRequest request, CancellationToken ct)
     {
         await CenterScope.EnsureClassAccessAsync(db, User, classId, ct);
-        return Ok(await service.UpdateScheduleAsync(classId, scheduleId, request, ct));
+        return Ok(await service.UpdateScheduleAsync(CurrentUserId, classId, scheduleId, request, ct));
     }
 
     [HttpDelete("classes/{classId:long}/schedules/{scheduleId:long}")]
     public async Task<IActionResult> CancelSchedule(long classId, long scheduleId, CancellationToken ct)
     {
         await CenterScope.EnsureClassAccessAsync(db, User, classId, ct);
-        return Ok(await service.CancelScheduleAsync(classId, scheduleId, ct));
+        return Ok(await service.CancelScheduleAsync(CurrentUserId, classId, scheduleId, ct));
     }
 }

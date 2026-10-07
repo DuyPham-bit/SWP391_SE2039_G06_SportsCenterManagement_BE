@@ -42,6 +42,8 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
             cancellationToken);
         if (existingBooking is not null)
         {
+            await CancelWaitingEntriesAsync(sessionId, member.Id, cancellationToken);
+            await SaveAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return new BookSessionResult(true, false, ToResponse(existingBooking, session, cls), null,
                 "Bạn đã đặt buổi học này trước đó.");
@@ -81,6 +83,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
         }
 
         var booking = await CreateOrReactivateBookingAsync(member.Id, sessionId, subscription.Id, cancellationToken);
+        await CancelWaitingEntriesAsync(sessionId, member.Id, cancellationToken);
         await SaveAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new BookSessionResult(true, false, ToResponse(booking, session, cls), null, "Đặt lịch thành công.");
@@ -161,6 +164,27 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
             throw FlowException.Conflict("Buổi học đã bị hủy hoặc không còn nhận đặt chỗ.");
         if (cls.Status != FlowStatuses.ClassPublished)
             throw FlowException.Conflict("Lớp học chưa được mở đăng ký hoặc đã đóng.");
+        if (!await Db.Centers.AnyAsync(center => center.Id == cls.CenterId && center.Status == "Active", ct))
+            throw FlowException.Conflict("Trung tâm của lớp hiện không nhận đặt lịch.");
+        if (!await Db.Sports.AnyAsync(sport => sport.Id == cls.SportId && sport.Status == "Active"
+            && (!sport.CenterId.HasValue || sport.CenterId.Value == cls.CenterId), ct))
+            throw FlowException.Conflict("Bộ môn của lớp hiện không hoạt động tại trung tâm.");
+
+        var roomId = session.RoomId ?? cls.RoomId;
+        if (roomId.HasValue && !await Db.Rooms.AnyAsync(room => room.Id == roomId.Value
+                && room.CenterId == cls.CenterId && room.Status == "Active", ct))
+            throw FlowException.Conflict("Phòng học đã ngừng hoạt động hoặc không còn thuộc trung tâm của lớp.");
+
+        var hasActivePrimaryCoach = await (
+            from assignment in Db.ClassCoaches
+            join coach in Db.CoachProfiles on assignment.CoachId equals coach.Id
+            join user in Db.Users on coach.UserId equals user.Id
+            where assignment.ClassId == cls.Id && assignment.IsPrimary
+                && coach.CenterId == cls.CenterId && coach.Status == "Active" && user.Status == "Active"
+                && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
+            select assignment.CoachId).AnyAsync(ct);
+        if (!hasActivePrimaryCoach)
+            throw FlowException.Conflict("Lớp chưa có huấn luyện viên chính đang hoạt động; hãy liên hệ trung tâm.");
 
         // BR-MEM-01
         var eligibleSubscriptions = await (
@@ -170,38 +194,39 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
                 && subscription.StartDate <= session.SessionDate && subscription.EndDate >= session.SessionDate
                 && package.CenterId == cls.CenterId
             orderby subscription.EndDate descending
-            select new { Subscription = subscription, package.MaxClasses }).ToListAsync(ct);
+            select new { Subscription = subscription, package.MaxClasses, package.AllowedSports }).ToListAsync(ct);
         if (eligibleSubscriptions.Count == 0)
             throw FlowException.Forbidden("Bạn cần có gói tập còn hiệu lực để đặt lịch.");
 
-        var classIds = await Db.ClassEnrollments
-            .Where(enrollment => enrollment.MemberId == member.Id && enrollment.Status == FlowStatuses.EnrollmentConfirmed)
-            .Select(enrollment => new { enrollment.ClassId, enrollment.SubscriptionId })
-            .ToListAsync(ct);
-        var bookedClassIds = await (
+        var enrollmentEntitlements = await (
+            from enrollment in Db.ClassEnrollments
+            join enrolledClass in Db.Classes on enrollment.ClassId equals enrolledClass.Id
+            where enrollment.MemberId == member.Id && enrollment.Status == FlowStatuses.EnrollmentConfirmed
+            select new { enrollment.ClassId, enrolledClass.SportId, enrollment.SubscriptionId }).ToListAsync(ct);
+        var bookedEntitlements = await (
             from booking in Db.SessionBookings
             join bookedSession in Db.ClassSessions on booking.SessionId equals bookedSession.Id
-            where booking.MemberId == member.Id && booking.Status == FlowStatuses.BookingBooked
-            select new { ClassId = bookedSession.ClassId, booking.SubscriptionId }).ToListAsync(ct);
+            join bookedClass in Db.Classes on bookedSession.ClassId equals bookedClass.Id
+            where booking.MemberId == member.Id
+                && (booking.Status == FlowStatuses.BookingBooked
+                    || booking.Status == FlowStatuses.BookingCancelledLate)
+            select new { ClassId = bookedSession.ClassId, bookedClass.SportId, booking.SubscriptionId }).ToListAsync(ct);
 
         MemberSubscription? selectedSubscription = null;
         foreach (var candidate in eligibleSubscriptions)
         {
-            if (candidate.MaxClasses is null)
-            {
-                selectedSubscription = candidate.Subscription;
-                break;
-            }
-
-            var enrolledClassIds = classIds
+            var entitlements = enrollmentEntitlements
                 .Where(row => row.SubscriptionId == candidate.Subscription.Id)
-                .Select(row => row.ClassId)
-                .Concat(bookedClassIds
-                    .Where(row => row.SubscriptionId == candidate.Subscription.Id)
-                    .Select(row => row.ClassId))
-                .Distinct()
+                .Concat(bookedEntitlements.Where(row => row.SubscriptionId == candidate.Subscription.Id))
+                .DistinctBy(row => row.ClassId)
                 .ToArray();
-            if (enrolledClassIds.Contains(cls.Id) || enrolledClassIds.Length < candidate.MaxClasses.Value)
+            var enrolledClassIds = entitlements.Select(row => row.ClassId).ToHashSet();
+            var enrolledSportIds = entitlements.Select(row => row.SportId).ToHashSet();
+            var classLimitAvailable = candidate.MaxClasses is null || enrolledClassIds.Contains(cls.Id)
+                || enrolledClassIds.Count < candidate.MaxClasses.Value;
+            var sportLimitAvailable = enrolledSportIds.Contains(cls.SportId)
+                || enrolledSportIds.Count < candidate.AllowedSports;
+            if (classLimitAvailable && sportLimitAvailable)
             {
                 selectedSubscription = candidate.Subscription;
                 break;
@@ -290,6 +315,14 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
 
         foreach (var entry in waiting)
         {
+            if (await Db.SessionBookings.AnyAsync(
+                    booking => booking.SessionId == session.Id && booking.MemberId == entry.MemberId
+                        && booking.Status == FlowStatuses.BookingBooked, ct))
+            {
+                entry.Status = FlowStatuses.WaitlistCancelled;
+                continue;
+            }
+
             var candidate = await Db.MemberProfiles.SingleOrDefaultAsync(m => m.Id == entry.MemberId, ct);
             if (candidate is null) continue;
             try
@@ -314,6 +347,16 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
     private async Task<MemberProfile> GetMemberAsync(long userId, CancellationToken ct) =>
         await Db.MemberProfiles.SingleOrDefaultAsync(m => m.UserId == userId, ct)
         ?? throw FlowException.Forbidden("Tài khoản hiện tại chưa có hồ sơ hội viên.");
+
+    private async Task CancelWaitingEntriesAsync(long sessionId, long memberId, CancellationToken ct)
+    {
+        var entries = await Db.ClassWaitlists
+            .Where(waitlist => waitlist.SessionId == sessionId && waitlist.MemberId == memberId
+                && waitlist.Status == FlowStatuses.WaitlistWaiting)
+            .ToListAsync(ct);
+        foreach (var entry in entries)
+            entry.Status = FlowStatuses.WaitlistCancelled;
+    }
 
     private async Task SaveAsync(CancellationToken ct)
     {

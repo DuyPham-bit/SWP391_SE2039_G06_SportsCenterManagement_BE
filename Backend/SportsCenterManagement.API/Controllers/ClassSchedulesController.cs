@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SportsCenterManagement.BLL.DTOs.Classes;
+using SportsCenterManagement.BLL.Exceptions;
 using SportsCenterManagement.BLL.Interfaces;
 
 namespace SportsCenterManagement.API.Controllers;
@@ -18,8 +19,19 @@ public sealed class ClassSchedulesController(IClassScheduleQueryService service)
         [FromQuery] DateOnly? to,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        CancellationToken ct = default) =>
-        Ok(await service.GetSessionsAsync(new SessionScheduleQuery(sportId, coachId, from, to, page, pageSize), ct));
+        CancellationToken ct = default)
+    {
+        long? centerId = null;
+        if (User.IsInRole("MANAGER") || User.IsInRole("RECEPTIONIST"))
+        {
+            if (!long.TryParse(User.FindFirst("centerId")?.Value, out var assignedCenterId) || assignedCenterId <= 0)
+                throw FlowException.Forbidden("Tài khoản nhân viên chưa được gán vào trung tâm hoạt động.");
+            centerId = assignedCenterId;
+        }
+
+        return Ok(await service.GetSessionsAsync(
+            new SessionScheduleQuery(sportId, coachId, from, to, page, pageSize, centerId), ct));
+    }
 
     /// <summary>No coach id parameter on purpose: the coach is taken from the token.</summary>
     [Authorize(Roles = "COACH")]

@@ -22,12 +22,15 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
         => await MapPackagesAsync(centerId, activeOnly: true, cancellationToken);
 
     public async Task<MembershipPackageResponse> CreatePackageAsync(
+        long actorUserId,
         long centerId,
         SaveMembershipPackageRequest request,
         CancellationToken cancellationToken = default)
     {
         await EnsureCenterExistsAsync(centerId, cancellationToken);
         Validate(request);
+        await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
 
         var now = DateTime.UtcNow;
         var package = new MembershipPackage
@@ -48,6 +51,11 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
 
         await unitOfWork.Repository<MembershipPackage>().AddAsync(package, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
+        AuditLogWriter.Add(unitOfWork, actorUserId, centerId, "membership_package.created",
+            "MembershipPackage", package.Id,
+            newValues: new { package.Name, package.Price, package.DurationDays, package.Status });
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return ToResponse(package);
     }
 
@@ -91,13 +99,17 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
     }
 
     public async Task<MembershipPackageResponse> UpdatePackageAsync(
+        long actorUserId,
         long centerId,
         long packageId,
         SaveMembershipPackageRequest request,
         CancellationToken cancellationToken = default)
     {
         Validate(request);
+        await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
         var package = await FindPackageAsync(centerId, packageId, cancellationToken);
+        var oldValues = new { package.Name, package.Price, package.DurationDays, package.Status };
         package.Name = request.Name.Trim();
         package.Description = Normalize(request.Description);
         package.DurationDays = request.DurationDays;
@@ -110,6 +122,11 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
         package.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+        AuditLogWriter.Add(unitOfWork, actorUserId, centerId, "membership_package.updated",
+            "MembershipPackage", package.Id, oldValues,
+            new { package.Name, package.Price, package.DurationDays, package.Status });
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return ToResponse(package);
     }
 
@@ -152,6 +169,7 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
     }
 
     public async Task<MembershipPackageResponse> SetPackageStatusAsync(
+        long actorUserId,
         long centerId,
         long packageId,
         string status,
@@ -163,10 +181,24 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
             throw new ArgumentException("Status must be Active or Inactive.", nameof(status));
         }
 
+        await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
         var package = await FindPackageAsync(centerId, packageId, cancellationToken);
-        package.Status = string.Equals(status, "Active", StringComparison.OrdinalIgnoreCase) ? "Active" : "Inactive";
+        var previousStatus = package.Status;
+        var newStatus = string.Equals(status, "Active", StringComparison.OrdinalIgnoreCase) ? "Active" : "Inactive";
+        if (string.Equals(previousStatus, newStatus, StringComparison.OrdinalIgnoreCase))
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return ToResponse(package);
+        }
+        package.Status = newStatus;
         package.UpdatedAt = DateTime.UtcNow;
         await unitOfWork.SaveChangesAsync(cancellationToken);
+        AuditLogWriter.Add(unitOfWork, actorUserId, centerId, "membership_package.status_updated",
+            "MembershipPackage", package.Id,
+            new { Status = previousStatus }, new { Status = package.Status });
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return ToResponse(package);
     }
 

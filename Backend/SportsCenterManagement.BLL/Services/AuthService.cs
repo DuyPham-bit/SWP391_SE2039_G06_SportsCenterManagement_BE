@@ -24,8 +24,6 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
         {
             throw new ValidationException("Full name is required.");
         }
-        // Validate password against security rules before processing
-        ValidatePassword(request.Password);
         centerId ??= request.CenterId;
 
         // Normalize to detect duplicates regardless of letter casing or whitespace
@@ -45,8 +43,9 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
         }
 
         // Normalize and validate phone number
-        var phone = NormalizeOptional(request.Phone);
+        var phone = PhoneNumberNormalization.Normalize(request.Phone);
         ValidatePhone(phone);
+        PasswordPolicy.ValidateOrThrow(request.Password, email, phone);
 
         // Validate date of birth cannot be in the future
         if (request.DateOfBirth > DateOnly.FromDateTime(DateTime.UtcNow))
@@ -155,7 +154,7 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
         {
             // Atomic update prevents simultaneous failed logins from losing increments or bypassing the lock threshold.
             await unitOfWork.Context.Users
-                .Where(item => item.Id == user.Id && item.Status == "Active"
+                .Where(item => item.Id == user.Id && item.PasswordHash == user.PasswordHash && item.Status == "Active"
                     && (!item.LockedUntil.HasValue || item.LockedUntil.Value <= now))
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(item => item.FailedLoginAttempts,
@@ -168,7 +167,7 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
 
         // Reset failed login counter and update login timestamp on successful authentication
         var updated = await unitOfWork.Context.Users
-            .Where(item => item.Id == user.Id && item.Status == "Active"
+            .Where(item => item.Id == user.Id && item.PasswordHash == user.PasswordHash && item.Status == "Active"
                 && (!item.LockedUntil.HasValue || item.LockedUntil.Value <= now))
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(item => item.FailedLoginAttempts, 0)
@@ -190,7 +189,7 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
             .Select(profile => (long?)profile.CenterId)
             .SingleOrDefaultAsync(cancellationToken);
 
-        return new AuthResponses.AuthenticatedUser(user.Id, user.Username, role.Name, centerId);
+        return new AuthResponses.AuthenticatedUser(user.Id, user.Username, role.Name, centerId, user.Email);
     }
 
     /// <summary>

@@ -23,11 +23,8 @@ public sealed class AuthController(
     SportsCenterDbContext dbContext,
     IConfiguration configuration,
     IHostEnvironment environment,
-    IAuthService? authService = null,
-    BearerTokenIssuer? tokenIssuer = null) : ControllerBase
+    IAuthService authService) : ControllerBase
 {
-    private readonly BearerTokenIssuer? _tokenIssuer = tokenIssuer;
-
     [HttpPost("register")]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -36,11 +33,6 @@ public sealed class AuthController(
         [FromBody] SportsCenterManagement.BLL.DTOs.Auth.Requests.RegisterRequest request,
         CancellationToken cancellationToken)
     {
-        if (authService is null)
-        {
-            return StatusCode(StatusCodes.Status501NotImplemented);
-        }
-
         try
         {
             var profile = await authService.RegisterAsync(request, cancellationToken: cancellationToken);
@@ -67,43 +59,26 @@ public sealed class AuthController(
         [FromBody] LoginRequest request,
         CancellationToken cancellationToken)
     {
-        var loginIdentifier = request.Email?.Trim();
+        var loginIdentifier = request.Email.Trim();
         if (string.IsNullOrWhiteSpace(loginIdentifier))
         {
             return Unauthorized(new { message = "Thông tin đăng nhập không hợp lệ." });
         }
 
-        var user = await dbContext.Users
-            .SingleOrDefaultAsync(item => item.Email == loginIdentifier || item.Username == loginIdentifier, cancellationToken);
-
-        if (user is null || !string.Equals(user.Status, "Active", StringComparison.OrdinalIgnoreCase))
+        SportsCenterManagement.BLL.DTOs.Auth.Responses.AuthenticatedUser authenticated;
+        try
         {
+            authenticated = await authService.LoginAsync(
+                new SportsCenterManagement.BLL.DTOs.Auth.Requests.LoginRequest(loginIdentifier, request.Password),
+                cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            // Keep unknown, disabled and locked accounts indistinguishable to callers.
             return Unauthorized(new { message = "Thông tin đăng nhập không hợp lệ." });
         }
 
-        if (user.LockedUntil is not null && user.LockedUntil > DateTime.UtcNow)
-        {
-            return Unauthorized(new { message = "Tài khoản đang bị khóa tạm thời." });
-        }
-
-        if (!VerifyPassword(request.Password, user.PasswordHash))
-        {
-            user.FailedLoginAttempts++;
-            if (user.FailedLoginAttempts >= 5)
-            {
-                user.LockedUntil = DateTime.UtcNow.AddMinutes(15);
-            }
-
-            await dbContext.SaveChangesAsync(cancellationToken);
-            return Unauthorized(new { message = "Thông tin đăng nhập không hợp lệ." });
-        }
-
-        user.FailedLoginAttempts = 0;
-        user.LockedUntil = null;
-        user.LastLoginAt = DateTime.UtcNow;
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        return Ok(await CreateAuthResponseAsync(user, cancellationToken));
+        return Ok(CreateAuthResponse(authenticated));
     }
 
     [HttpPost("request-password-reset")]
@@ -112,10 +87,14 @@ public sealed class AuthController(
         [FromBody] RequestPasswordResetRequest request,
         CancellationToken cancellationToken)
     {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
         var user = await dbContext.Users
-            .SingleOrDefaultAsync(item => item.Email == request.Email.Trim(), cancellationToken);
+            .SingleOrDefaultAsync(item => item.Email == normalizedEmail, cancellationToken);
         if (user is null)
         {
+            await transaction.CommitAsync(cancellationToken);
             return Ok(new PasswordResetRequestResponse(
                 "Nếu email tồn tại, mã xác thực đã được gửi.",
                 null));
@@ -138,6 +117,7 @@ public sealed class AuthController(
             CreatedAt = DateTime.UtcNow
         }, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return Ok(new PasswordResetRequestResponse(
             "Nếu email tồn tại, mã xác thực đã được gửi.",
@@ -151,8 +131,11 @@ public sealed class AuthController(
         [FromBody] ResetPasswordRequest request,
         CancellationToken cancellationToken)
     {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
         var user = await dbContext.Users
-            .SingleOrDefaultAsync(item => item.Email == request.Email.Trim(), cancellationToken);
+            .SingleOrDefaultAsync(item => item.Email == normalizedEmail, cancellationToken);
         if (user is null)
         {
             return BadRequest(new { message = "Mã xác thực không hợp lệ hoặc đã hết hạn." });
@@ -180,6 +163,7 @@ public sealed class AuthController(
         user.UpdatedAt = DateTime.UtcNow;
         token.UsedAt = DateTime.UtcNow;
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return NoContent();
     }
 
@@ -220,11 +204,18 @@ public sealed class AuthController(
             return BadRequest(new { message = passwordError });
         }
 
-        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword, workFactor: 12);
-        user.FailedLoginAttempts = 0;
-        user.LockedUntil = null;
-        user.UpdatedAt = DateTime.UtcNow;
-        await dbContext.SaveChangesAsync(cancellationToken);
+        var now = DateTime.UtcNow;
+        var updated = await dbContext.Users
+            .Where(item => item.Id == user.Id && item.PasswordHash == user.PasswordHash && item.Status == "Active")
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.PasswordHash, BCrypt.Net.BCrypt.HashPassword(request.NewPassword, workFactor: 12))
+                .SetProperty(item => item.FailedLoginAttempts, 0)
+                .SetProperty(item => item.LockedUntil, (DateTime?)null)
+                .SetProperty(item => item.UpdatedAt, now), cancellationToken);
+        if (updated == 0)
+        {
+            return Unauthorized(new { message = "Mật khẩu hiện tại không còn hợp lệ." });
+        }
 
         return Ok(await CreateAuthResponseAsync(user, cancellationToken));
     }
@@ -243,28 +234,44 @@ public sealed class AuthController(
             .Select(item => item.Name)
             .SingleOrDefaultAsync(cancellationToken) ?? "USER";
         role = role.ToUpperInvariant();
+        var centerId = await dbContext.StaffProfiles
+            .Where(profile => profile.UserId == user.Id && profile.Status == "Active")
+            .Select(profile => (long?)profile.CenterId)
+            .SingleOrDefaultAsync(cancellationToken);
 
+        return CreateAuthResponse(new SportsCenterManagement.BLL.DTOs.Auth.Responses.AuthenticatedUser(
+            user.Id, user.Username, role, centerId, user.Email));
+    }
+
+    private AuthResponse CreateAuthResponse(
+        SportsCenterManagement.BLL.DTOs.Auth.Responses.AuthenticatedUser user)
+    {
+        var role = user.Role.ToUpperInvariant();
         var expiresAt = DateTimeOffset.UtcNow.AddMinutes(configuration.GetValue("Jwt:ExpiresMinutes", 60));
         var claims = new[]
         {
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
+            new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
             new Claim(ClaimTypes.Role, role),
             new Claim(JwtRegisteredClaimNames.Email, user.Email)
         };
+
+        var allClaims = user.CenterId.HasValue
+            ? claims.Append(new Claim("centerId", user.CenterId.Value.ToString()))
+            : claims;
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(GetJwtKey()));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
             issuer: configuration["Jwt:Issuer"],
             audience: configuration["Jwt:Audience"],
-            claims: claims,
+            claims: allClaims,
             expires: expiresAt.UtcDateTime,
             signingCredentials: credentials);
 
         return new AuthResponse(
             new JwtSecurityTokenHandler().WriteToken(token),
-            user.Id,
+            user.UserId,
             role,
             expiresAt);
     }
@@ -272,25 +279,7 @@ public sealed class AuthController(
     private string GetJwtKey() => configuration["Jwt:Key"]
         ?? throw new InvalidOperationException("Jwt:Key is not configured.");
 
-    private static bool VerifyPassword(string password, string storedHash)
-    {
-        if (storedHash.StartsWith("$2", StringComparison.Ordinal))
-        {
-            return BCrypt.Net.BCrypt.Verify(password, storedHash);
-        }
-        if (storedHash.StartsWith("pbkdf2", StringComparison.Ordinal))
-        {
-            return PasswordHashing.Verify(password, storedHash);
-        }
-        try
-        {
-            return BCrypt.Net.BCrypt.Verify(password, storedHash);
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    private static bool VerifyPassword(string password, string storedHash) => PasswordHashing.Verify(password, storedHash);
 
     private static string? ValidateNewPassword(string password, User user)
     {
@@ -299,29 +288,6 @@ public sealed class AuthController(
             return "Mật khẩu mới phải khác mật khẩu hiện tại.";
         }
 
-        if (password.Any(char.IsWhiteSpace))
-        {
-            return "Mật khẩu mới không được chứa khoảng trắng.";
-        }
-
-        if (!password.Any(char.IsUpper)
-            || !password.Any(char.IsLower)
-            || !password.Any(char.IsDigit)
-            || password.All(char.IsLetterOrDigit))
-        {
-            return "Mật khẩu mới phải gồm chữ hoa, chữ thường, số và ký tự đặc biệt.";
-        }
-
-        if (password.Contains(user.Email, StringComparison.OrdinalIgnoreCase))
-        {
-            return "Mật khẩu mới không được chứa email đăng nhập.";
-        }
-
-        if (!string.IsNullOrWhiteSpace(user.Phone) && password.Contains(user.Phone, StringComparison.Ordinal))
-        {
-            return "Mật khẩu mới không được chứa số điện thoại.";
-        }
-
-        return null;
+        return PasswordPolicy.GetValidationError(password, user.Email, user.Phone);
     }
 }

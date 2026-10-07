@@ -65,7 +65,8 @@ public sealed class ProtectedBearerHandler(
                 principal = tokenIssuer.Validate(tokenStr);
             }
         }
-        catch (Exception exception) when (exception is CryptographicException or InvalidOperationException or JsonException or SecurityTokenException)
+        catch (Exception exception) when (exception is CryptographicException or InvalidOperationException
+            or JsonException or SecurityTokenException or FormatException or ArgumentException)
         {
             return AuthenticateResult.Fail("Token không hợp lệ hoặc đã hết hạn.");
         }

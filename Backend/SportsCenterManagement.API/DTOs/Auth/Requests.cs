@@ -5,20 +5,21 @@ namespace SportsCenterManagement.API.DTOs.Auth
     /// <summary>Credentials used to authenticate a user.</summary>
     public sealed record LoginRequest
     {
-        [Required, EmailAddress]
+        // The historic JSON field is named Email, but it accepts either a username or an email address.
+        [Required, StringLength(150)]
         public required string Email { get; init; }
 
-        [Required]
+        [Required, StringLength(150)]
         public required string Password { get; init; }
     }
 
     /// <summary>Current and replacement password for an authenticated user.</summary>
     public sealed record ChangePasswordRequest
     {
-        [Required]
+        [Required, StringLength(150)]
         public required string CurrentPassword { get; init; }
 
-        [Required, MinLength(8), MaxLength(128)]
+        [Required, MinLength(12), MaxLength(128)]
         public required string NewPassword { get; init; }
     }
 
@@ -45,10 +46,10 @@ namespace SportsCenterManagement.API.DTOs.Auth
         [Required, EmailAddress]
         public required string Email { get; init; }
 
-        [Required, MinLength(4), MaxLength(10)]
+        [Required, RegularExpression("^\\d{6}$")]
         public required string Otp { get; init; }
 
-        [Required, MinLength(8), MaxLength(128)]
+        [Required, MinLength(12), MaxLength(128)]
         public required string NewPassword { get; init; }
     }
 }

@@ -20,11 +20,16 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
         SessionScheduleQuery query, CancellationToken cancellationToken = default)
     {
         // UH02: validate before touching the database.
-        if (query.Page < 1) throw FlowException.BadRequest("Số trang phải lớn hơn hoặc bằng 1.");
+        if (query.Page is < 1 or > 1_000_000)
+            throw FlowException.BadRequest("Số trang phải từ 1 đến 1.000.000.");
         if (query.PageSize is < 1 or > MaxPageSize)
             throw FlowException.BadRequest($"Kích thước trang phải từ 1 đến {MaxPageSize}.");
+        if (query.SportId is <= 0 || query.CoachId is <= 0)
+            throw FlowException.BadRequest("SportId và CoachId phải là số dương khi được cung cấp.");
 
         var fromDate = query.From ?? ScheduleTime.VietnamToday;
+        if (!query.To.HasValue && fromDate == DateOnly.MaxValue)
+            throw FlowException.BadRequest("Không thể tạo khoảng ngày mặc định từ ngày lớn nhất.");
         var toDate = query.To ?? fromDate.AddDays(DefaultWindowDays);
         if (toDate < fromDate) throw FlowException.BadRequest("Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.");
         if (toDate.DayNumber - fromDate.DayNumber > MaxWindowDays)
@@ -36,8 +41,11 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
             join sport in Db.Sports on cls.SportId equals sport.Id
             where session.SessionDate >= fromDate && session.SessionDate <= toDate
                 && cls.Status == FlowStatuses.ClassPublished
+                && sport.Status == "Active"
+                && Db.Centers.Any(center => center.Id == cls.CenterId && center.Status == "Active")
             select new { session, cls, sport };
 
+        if (query.CenterId is { } centerId) sessions = sessions.Where(x => x.cls.CenterId == centerId);
         if (query.SportId is { } sportId) sessions = sessions.Where(x => x.cls.SportId == sportId);
         if (query.CoachId is { } coachId)
             sessions = sessions.Where(x => Db.ClassCoaches.Any(cc => cc.ClassId == x.cls.Id && cc.CoachId == coachId));
@@ -53,7 +61,7 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                 ClassName = x.cls.Name,
                 x.cls.SportId,
                 SportName = x.sport.Name,
-                x.session.RoomId,
+                RoomId = x.session.RoomId ?? x.cls.RoomId,
                 x.session.SessionDate,
                 x.session.StartTime,
                 x.session.EndTime,
@@ -61,9 +69,19 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                 ClassStatus = x.cls.Status,
                 x.cls.Capacity,
                 x.cls.AllowWaitlist,
-                RoomCapacity = x.session.RoomId == null
+                RoomCapacity = (x.session.RoomId ?? x.cls.RoomId) == null
                     ? (int?)null
-                    : Db.Rooms.Where(r => r.Id == x.session.RoomId).Select(r => (int?)r.Capacity).FirstOrDefault(),
+                    : Db.Rooms.Where(r => r.Id == (x.session.RoomId ?? x.cls.RoomId))
+                        .Select(r => (int?)r.Capacity).FirstOrDefault(),
+                RoomActive = (x.session.RoomId ?? x.cls.RoomId) == null
+                    || Db.Rooms.Any(r => r.Id == (x.session.RoomId ?? x.cls.RoomId)
+                        && r.CenterId == x.cls.CenterId && r.Status == "Active"),
+                ActivePrimaryCoach = Db.ClassCoaches.Any(assignment => assignment.ClassId == x.cls.Id
+                    && assignment.IsPrimary
+                    && Db.CoachProfiles.Any(coach => coach.Id == assignment.CoachId
+                        && coach.CenterId == x.cls.CenterId && coach.Status == "Active"
+                        && Db.Users.Any(user => user.Id == coach.UserId && user.Status == "Active"
+                            && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)))),
                 Booked = Db.SessionBookings.Count(b => b.SessionId == x.session.Id && b.Status == FlowStatuses.BookingBooked)
             })
             .ToListAsync(cancellationToken);
@@ -72,7 +90,10 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
         var coaches = await (
             from cc in Db.ClassCoaches
             join coach in Db.CoachProfiles on cc.CoachId equals coach.Id
-            where classIds.Contains(cc.ClassId)
+            join user in Db.Users on coach.UserId equals user.Id
+            where classIds.Contains(cc.ClassId) && cc.IsPrimary
+                && coach.Status == "Active" && user.Status == "Active"
+                && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
             orderby cc.IsPrimary descending
             select new { cc.ClassId, coach.Id, coach.FullName }).ToListAsync(cancellationToken);
         var coachByClass = coaches.GroupBy(c => c.ClassId).ToDictionary(g => g.Key, g => g.First());
@@ -87,7 +108,8 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                 p.Id, p.ClassId, p.ClassName, p.SportId, p.SportName, p.RoomId,
                 coach?.Id, coach?.FullName, p.SessionDate, p.StartTime, p.EndTime,
                 p.SessionStatus, p.ClassStatus, capacity, p.Booked, available,
-                IsBookable: open && p.SessionDate.ToDateTime(p.StartTime) > ScheduleTime.VietnamNow
+                IsBookable: open && p.RoomActive && p.ActivePrimaryCoach
+                    && p.SessionDate.ToDateTime(p.StartTime) > ScheduleTime.VietnamNow
                     && (available > 0 || p.AllowWaitlist),
                 AllowWaitlist: p.AllowWaitlist);
         }).ToList();
@@ -99,11 +121,19 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
         long currentUserId, DateOnly? from, DateOnly? to, CancellationToken cancellationToken = default)
     {
         // UH02: coach identity comes only from the authenticated user.
-        var coach = await Db.CoachProfiles.Where(c => c.UserId == currentUserId)
-            .Select(c => new { c.Id }).SingleOrDefaultAsync(cancellationToken)
+        var coach = await (
+                from profile in Db.CoachProfiles
+                join user in Db.Users on profile.UserId equals user.Id
+                where profile.UserId == currentUserId && profile.Status == "Active"
+                    && user.Status == "Active"
+                    && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
+                select new { profile.Id, profile.CenterId })
+            .SingleOrDefaultAsync(cancellationToken)
             ?? throw FlowException.Forbidden("Tài khoản hiện tại không phải huấn luyện viên.");
 
         var start = from ?? ScheduleTime.VietnamToday;
+        if (!to.HasValue && start == DateOnly.MaxValue)
+            throw FlowException.BadRequest("Không thể tạo khoảng ngày mặc định từ ngày lớn nhất.");
         var end = to ?? start.AddDays(DefaultWindowDays);
         if (end < start) throw FlowException.BadRequest("Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.");
         if (end.DayNumber - start.DayNumber > MaxWindowDays)
@@ -115,6 +145,10 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
             join cls in Db.Classes on session.ClassId equals cls.Id
             join sport in Db.Sports on cls.SportId equals sport.Id
             where session.SessionDate >= start && session.SessionDate <= end
+                && session.SessionStatus == FlowStatuses.SessionScheduled
+                && cls.Status != FlowStatuses.ClassCancelled && cls.Status != FlowStatuses.ClassCompleted
+                && cls.CenterId == coach.CenterId && sport.Status == "Active"
+                && Db.Centers.Any(center => center.Id == cls.CenterId && center.Status == "Active")
                 && Db.ClassCoaches.Any(cc => cc.ClassId == cls.Id && cc.CoachId == coach.Id)
             orderby session.SessionDate, session.StartTime
             select new
@@ -123,7 +157,7 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                 ClassId = cls.Id,
                 ClassName = cls.Name,
                 SportName = sport.Name,
-                session.RoomId,
+                RoomId = session.RoomId ?? cls.RoomId,
                 session.SessionDate,
                 session.StartTime,
                 session.EndTime,

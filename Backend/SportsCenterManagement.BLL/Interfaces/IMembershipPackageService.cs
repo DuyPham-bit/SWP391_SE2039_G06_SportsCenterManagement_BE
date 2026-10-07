@@ -13,17 +13,20 @@ public interface IMembershipPackageService
         CancellationToken cancellationToken = default);
 
     Task<MembershipPackageResponse> CreatePackageAsync(
+        long actorUserId,
         long centerId,
         SaveMembershipPackageRequest request,
         CancellationToken cancellationToken = default);
 
     Task<MembershipPackageResponse> UpdatePackageAsync(
+        long actorUserId,
         long centerId,
         long packageId,
         SaveMembershipPackageRequest request,
         CancellationToken cancellationToken = default);
 
     Task<MembershipPackageResponse> SetPackageStatusAsync(
+        long actorUserId,
         long centerId,
         long packageId,
         string status,

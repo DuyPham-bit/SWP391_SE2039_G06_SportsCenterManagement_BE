@@ -18,6 +18,18 @@ public static class PasswordHashing
 
     public static bool Verify(string password, string encodedHash)
     {
+        if (encodedHash.StartsWith("$2", StringComparison.Ordinal))
+        {
+            try
+            {
+                return BCrypt.Net.BCrypt.Verify(password, encodedHash);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         var parts = encodedHash.Split('$');
         if (parts.Length != 4 || parts[0] != "pbkdf2-sha256"
             || !int.TryParse(parts[1], out var iterations)

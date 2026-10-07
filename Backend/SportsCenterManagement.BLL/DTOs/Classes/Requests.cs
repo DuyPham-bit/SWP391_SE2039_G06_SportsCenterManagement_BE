@@ -57,5 +57,6 @@ namespace SportsCenterManagement.BLL.DTOs.Classes
         DateOnly? From,
         DateOnly? To,
         int Page = 1,
-        int PageSize = 20);
+        int PageSize = 20,
+        long? CenterId = null);
 }

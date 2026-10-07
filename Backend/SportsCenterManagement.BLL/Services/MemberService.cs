@@ -64,7 +64,7 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             throw new ValidationException("Giới tính không hợp lệ.");
         }
 
-        var phone = Normalize(request.Phone);
+        var phone = PhoneNumberNormalization.Normalize(request.Phone);
         if (phone is not null && !Regex.IsMatch(phone, @"^\+?[0-9]{8,15}$"))
         {
             throw new ValidationException("Số điện thoại cần có từ 8 đến 15 chữ số.");
@@ -106,7 +106,8 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
 
         var oldEmail = user.Email;
         var oldPhone = user.Phone;
-        var updatedPhone = request.Phone is null ? oldPhone : phone;
+        var oldNormalizedPhone = PhoneNumberNormalization.Normalize(oldPhone);
+        var phoneChanged = request.Phone is not null && oldNormalizedPhone != phone;
         profile.FullName = request.FullName.Trim();
         if (request.DateOfBirth.HasValue)
             profile.DateOfBirth = request.DateOfBirth;
@@ -127,8 +128,8 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         unitOfWork.Repository<MemberProfile>().Update(profile);
         unitOfWork.Repository<User>().Update(user);
         AuditLogWriter.Add(unitOfWork, actorUserId, profile.CenterId, action, "MemberProfile", profile.Id,
-            new { EmailChanged = email is not null && email != oldEmail, PhoneChanged = oldPhone is not null },
-            new { EmailChanged = email is not null && email != oldEmail, PhoneChanged = oldPhone != updatedPhone });
+            new { EmailPresent = oldEmail is not null, PhonePresent = oldPhone is not null },
+            new { EmailChanged = email is not null && email != oldEmail, PhoneChanged = phoneChanged });
         await unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return Map(profile, user);
@@ -275,7 +276,7 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             .SingleOrDefaultAsync(cancellationToken)
             ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ thành viên.");
         var user = await unitOfWork.Repository<User>().GetByIdAsync(userId, cancellationToken);
-        if (user?.Status != "Active")
+        if (user?.Status != "Active" || user.LockedUntil > DateTime.UtcNow)
         {
             throw new UnauthorizedAccessException("Tài khoản không hoạt động.");
         }
@@ -316,7 +317,8 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         var centerIsActive = await unitOfWork.Repository<Center>()
             .AnyAsync(center => center.Id == centerId && center.Status == "Active", cancellationToken);
         var role = await unitOfWork.Repository<Role>().GetByIdAsync(user.RoleId, cancellationToken);
-        if (user.Status != "Active" || !centerIsActive || role?.Name is not ("Manager" or "Receptionist"))
+        if (user.Status != "Active" || user.LockedUntil > DateTime.UtcNow || !centerIsActive
+            || role?.Name is not ("Manager" or "Receptionist"))
         {
             throw new UnauthorizedAccessException("Chỉ Manager hoặc Receptionist được thao tác tại quầy.");
         }
@@ -342,7 +344,8 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             .AnyAsync(profile => profile.UserId == actorUserId
                                  && profile.CenterId == centerId
                                  && profile.Status == "Active", cancellationToken);
-        if (user.Status != "Active" || !centerIsActive || role?.Name != "Manager" || !assigned)
+        if (user.Status != "Active" || user.LockedUntil > DateTime.UtcNow
+            || !centerIsActive || role?.Name != "Manager" || !assigned)
         {
             throw new UnauthorizedAccessException("Chỉ Manager được quản lý thành viên của trung tâm được gán.");
         }

@@ -5,18 +5,18 @@ namespace SportsCenterManagement.BLL.Interfaces;
 /// <summary>UC-12 Manage Classes &amp; Rooms (class CRUD + weekly schedules).</summary>
 public interface IClassManagementService
 {
-    Task<ClassDetailResponse> CreateClassAsync(CreateClassRequest request, CancellationToken cancellationToken = default);
-    Task<ClassDetailResponse> PublishClassAsync(long classId, CancellationToken cancellationToken = default);
+    Task<ClassDetailResponse> CreateClassAsync(long actorUserId, CreateClassRequest request, CancellationToken cancellationToken = default);
+    Task<ClassDetailResponse> PublishClassAsync(long actorUserId, long classId, CancellationToken cancellationToken = default);
     Task<ClassDetailResponse> GetClassAsync(long classId, CancellationToken cancellationToken = default);
-    Task<ClassDetailResponse> UpdateClassAsync(long classId, UpdateClassRequest request, CancellationToken cancellationToken = default);
+    Task<ClassDetailResponse> UpdateClassAsync(long actorUserId, long classId, UpdateClassRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>"Delete" = soft cancel. Never hard-deletes a class with enrollments/bookings.</summary>
-    Task<CancelClassResult> CancelClassAsync(long classId, CancellationToken cancellationToken = default);
+    Task<CancelClassResult> CancelClassAsync(long actorUserId, long classId, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ClassScheduleResponse>> GetSchedulesAsync(long classId, CancellationToken cancellationToken = default);
-    Task<ClassScheduleResponse> CreateScheduleAsync(long classId, CreateClassScheduleRequest request, CancellationToken cancellationToken = default);
-    Task<ClassScheduleResponse> UpdateScheduleAsync(long classId, long scheduleId, UpdateClassScheduleRequest request, CancellationToken cancellationToken = default);
-    Task<ClassScheduleResponse> CancelScheduleAsync(long classId, long scheduleId, CancellationToken cancellationToken = default);
+    Task<ClassScheduleResponse> CreateScheduleAsync(long actorUserId, long classId, CreateClassScheduleRequest request, CancellationToken cancellationToken = default);
+    Task<ClassScheduleResponse> UpdateScheduleAsync(long actorUserId, long classId, long scheduleId, UpdateClassScheduleRequest request, CancellationToken cancellationToken = default);
+    Task<ClassScheduleResponse> CancelScheduleAsync(long actorUserId, long classId, long scheduleId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>UC-42 View Class Schedules (member) and UC-30 View Teaching Schedule (coach).</summary>

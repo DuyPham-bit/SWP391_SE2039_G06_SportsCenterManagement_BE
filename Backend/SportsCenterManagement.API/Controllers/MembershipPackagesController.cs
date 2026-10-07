@@ -54,7 +54,7 @@ public sealed class MembershipPackagesController(
         await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
         try
         {
-            var package = await packageService.CreatePackageAsync(centerId, request, cancellationToken);
+            var package = await packageService.CreatePackageAsync(CenterScope.GetUserId(User), centerId, request, cancellationToken);
             return CreatedAtAction(nameof(GetAll), new { centerId }, package);
         }
         catch (KeyNotFoundException ex)
@@ -89,7 +89,8 @@ public sealed class MembershipPackagesController(
         await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
         try
         {
-            return Ok(await packageService.UpdatePackageAsync(centerId, packageId, request, cancellationToken));
+            return Ok(await packageService.UpdatePackageAsync(
+                CenterScope.GetUserId(User), centerId, packageId, request, cancellationToken));
         }
         catch (KeyNotFoundException ex)
         {
@@ -123,7 +124,8 @@ public sealed class MembershipPackagesController(
         await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
         try
         {
-            return Ok(await packageService.SetPackageStatusAsync(centerId, packageId, request.Status, cancellationToken));
+            return Ok(await packageService.SetPackageStatusAsync(
+                CenterScope.GetUserId(User), centerId, packageId, request.Status, cancellationToken));
         }
         catch (KeyNotFoundException ex)
         {

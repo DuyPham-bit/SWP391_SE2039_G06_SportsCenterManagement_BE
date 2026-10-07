@@ -40,7 +40,7 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         var member = await _unitOfWork.Repository<MemberProfile>().GetByIdAsync(memberId, cancellationToken)
             ?? throw new KeyNotFoundException("Member was not found.");
         var user = await _unitOfWork.Repository<User>().GetByIdAsync(member.UserId, cancellationToken);
-        if (user?.Status != "Active")
+        if (user?.Status != "Active" || user.LockedUntil > DateTime.UtcNow)
         {
             throw new UnauthorizedAccessException("Member account is not active.");
         }
@@ -176,6 +176,36 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
             throw new InvalidOperationException("Class is not open for enrollment.");
         }
 
+        if (!await _unitOfWork.Repository<Center>().AnyAsync(
+                center => center.Id == classEntity.CenterId && center.Status == "Active", cancellationToken))
+        {
+            throw new InvalidOperationException("Class center is not active.");
+        }
+        if (!await _unitOfWork.Repository<Sport>().AnyAsync(
+                sport => sport.Id == classEntity.SportId && sport.Status == "Active"
+                    && (!sport.CenterId.HasValue || sport.CenterId.Value == classEntity.CenterId), cancellationToken))
+        {
+            throw new InvalidOperationException("Class sport is not active at this center.");
+        }
+        if (classEntity.RoomId.HasValue && !await _unitOfWork.Repository<Room>().AnyAsync(
+                room => room.Id == classEntity.RoomId.Value && room.CenterId == classEntity.CenterId
+                    && room.Status == "Active", cancellationToken))
+        {
+            throw new InvalidOperationException("Class room is no longer active at this center.");
+        }
+        var activePrimaryCoach = await (
+            from assignment in _unitOfWork.Context.ClassCoaches
+            join coach in _unitOfWork.Context.CoachProfiles on assignment.CoachId equals coach.Id
+            join user in _unitOfWork.Context.Users on coach.UserId equals user.Id
+            where assignment.ClassId == classId && assignment.IsPrimary
+                && coach.CenterId == classEntity.CenterId && coach.Status == "Active" && user.Status == "Active"
+                && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
+            select assignment.CoachId).AnyAsync(cancellationToken);
+        if (!activePrimaryCoach)
+        {
+            throw new InvalidOperationException("Class does not have an active primary coach.");
+        }
+
         if (classEntity.Capacity <= 0)
         {
             throw new InvalidOperationException("Class capacity is not configured.");
@@ -217,18 +247,32 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
             throw new UnauthorizedAccessException("Member and membership package belong to different centers.");
         }
 
-        if (membershipPackage.MaxClasses is int maxClasses)
+        var enrolledEntitlements = await (
+            from enrollment in _unitOfWork.Context.ClassEnrollments
+            join enrolledClass in _unitOfWork.Context.Classes on enrollment.ClassId equals enrolledClass.Id
+            where enrollment.MemberId == memberId && enrollment.SubscriptionId == subscription.Id
+                && enrollment.Status == "Confirmed"
+            select new { enrollment.ClassId, enrolledClass.SportId }).ToListAsync(cancellationToken);
+        var bookedEntitlements = await (
+            from booking in _unitOfWork.Context.SessionBookings
+            join session in _unitOfWork.Context.ClassSessions on booking.SessionId equals session.Id
+            join bookedClass in _unitOfWork.Context.Classes on session.ClassId equals bookedClass.Id
+            where booking.MemberId == memberId && booking.SubscriptionId == subscription.Id
+                && (booking.Status == "Booked" || booking.Status == "CANCELLED_LATE_CHARGED")
+            select new { ClassId = session.ClassId, bookedClass.SportId }).ToListAsync(cancellationToken);
+        var usedEntitlements = enrolledEntitlements.Concat(bookedEntitlements)
+            .DistinctBy(item => item.ClassId).ToArray();
+        var classAlreadyUsed = usedEntitlements.Any(item => item.ClassId == classId);
+        var sportAlreadyUsed = usedEntitlements.Any(item => item.SportId == classEntity.SportId);
+        if (!classAlreadyUsed && membershipPackage.MaxClasses is int maxClasses
+            && usedEntitlements.Length >= maxClasses)
         {
-            var activeClassCount = await _unitOfWork.Repository<ClassEnrollment>().CountAsync(
-                enrollment => enrollment.SubscriptionId == subscription.Id && enrollment.Status == "Confirmed",
-                cancellationToken);
-            var isAlreadyEnrolled = await _unitOfWork.Repository<ClassEnrollment>().AnyAsync(
-                enrollment => enrollment.ClassId == classId && enrollment.MemberId == memberId && enrollment.Status == "Confirmed",
-                cancellationToken);
-            if (!isAlreadyEnrolled && activeClassCount >= maxClasses)
-            {
-                throw new InvalidOperationException("Membership class allowance has been reached.");
-            }
+            throw new InvalidOperationException("Membership class allowance has been reached.");
+        }
+        if (!sportAlreadyUsed && usedEntitlements.Select(item => item.SportId).Distinct().Count()
+            >= membershipPackage.AllowedSports)
+        {
+            throw new InvalidOperationException("Membership sport allowance has been reached.");
         }
 
         var existing = await _unitOfWork.Repository<ClassEnrollment>().Find(
@@ -236,6 +280,11 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
             .SingleOrDefaultAsync(cancellationToken);
         if (existing is not null && existing.Status == "Confirmed")
         {
+            if (existing.SubscriptionId == subscription.Id)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return existing;
+            }
             throw new InvalidOperationException("Member is already enrolled in this class.");
         }
 
@@ -340,6 +389,15 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         if (invoice.Status is not ("Issued" or "PartiallyPaid"))
         {
             throw new InvalidOperationException("Invoice cannot accept another payment.");
+        }
+        if (!await (
+                from profile in _unitOfWork.Context.MemberProfiles
+                join user in _unitOfWork.Context.Users on profile.UserId equals user.Id
+                where profile.Id == invoice.MemberId && user.Status == "Active"
+                    && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
+                select profile.Id).AnyAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("Member account is not active or is temporarily locked.");
         }
 
         var paidAmount = await _unitOfWork.Repository<Payment>()

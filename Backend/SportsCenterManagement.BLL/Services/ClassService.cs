@@ -156,7 +156,7 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
                 assignment.IsPrimary = false;
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = ScheduleTime.VietnamToday;
         if (existingClassCoach is null)
         {
             existingClassCoach = new ClassCoach
@@ -280,7 +280,7 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
         IReadOnlyCollection<(ClassSchedule Schedule, string ClassName)> existingSchedules,
         string coachName)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = ScheduleTime.VietnamToday;
 
         foreach (var dayOfWeek in targetSchedules.Select(schedule => schedule.DayOfWeek).Distinct())
         {

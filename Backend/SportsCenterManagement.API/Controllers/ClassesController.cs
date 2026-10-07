@@ -19,8 +19,8 @@ public sealed class ClassesController(IClassService classService, SportsCenterDb
     {
         if (db is not null)
         {
-            if (!await db.Centers.AnyAsync(center => center.Id == centerId, cancellationToken))
-                throw FlowException.NotFound("Cơ sở không tồn tại.");
+            if (!await db.Centers.AnyAsync(center => center.Id == centerId && center.Status == "Active", cancellationToken))
+                throw FlowException.NotFound("Cơ sở không tồn tại hoặc đã ngừng hoạt động.");
             if (User.Identity?.IsAuthenticated == true && (User.IsInRole("MANAGER") || User.IsInRole("RECEPTIONIST")))
                 await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
         }

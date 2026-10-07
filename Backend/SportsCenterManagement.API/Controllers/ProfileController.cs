@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.API.DTOs.Auth;
+using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
 
@@ -52,9 +53,7 @@ public sealed class ProfileController(SportsCenterDbContext dbContext) : Control
         var fullName = request.FullName.Trim();
         var phone = request.Phone is null
             ? user.Phone
-            : string.IsNullOrWhiteSpace(request.Phone)
-                ? null
-                : request.Phone.Trim().Replace(" ", string.Empty, StringComparison.Ordinal);
+            : PhoneNumberNormalization.Normalize(request.Phone);
 
         if (fullName.Length == 0)
         {
@@ -66,27 +65,63 @@ public sealed class ProfileController(SportsCenterDbContext dbContext) : Control
             return BadRequest(new { message = "Số điện thoại cần có từ 8 đến 15 chữ số; có thể bắt đầu bằng dấu +." });
         }
 
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+        if (phone is not null && await dbContext.Users.AnyAsync(
+                other => other.Id != user.Id && other.Phone == phone, cancellationToken))
+        {
+            return Conflict(new { message = "Số điện thoại đã được sử dụng." });
+        }
+
+        var previousPhone = PhoneNumberNormalization.Normalize(user.Phone);
+        var previousPhonePresent = user.Phone is not null;
+        var previousFullName = memberProfile?.FullName ?? coachProfile?.FullName ?? staffProfile?.FullName;
+        var fullNameChanged = previousFullName != fullName;
+        var now = DateTime.UtcNow;
+        var centerId = staffProfile?.CenterId ?? coachProfile?.CenterId ?? memberProfile?.CenterId;
+
         user.Phone = phone;
         if (memberProfile is not null)
         {
             memberProfile.FullName = fullName;
-            memberProfile.UpdatedAt = DateTime.UtcNow;
+            memberProfile.UpdatedAt = now;
         }
 
         if (coachProfile is not null)
         {
             coachProfile.FullName = fullName;
-            coachProfile.UpdatedAt = DateTime.UtcNow;
+            coachProfile.UpdatedAt = now;
         }
 
         if (staffProfile is not null)
         {
             staffProfile.FullName = fullName;
-            staffProfile.UpdatedAt = DateTime.UtcNow;
+            staffProfile.UpdatedAt = now;
         }
 
-        user.UpdatedAt = DateTime.UtcNow;
+        user.UpdatedAt = now;
+        dbContext.AuditLogs.Add(new AuditLog
+        {
+            UserId = user.Id,
+            CenterId = centerId,
+            Action = "user.profile.updated",
+            EntityType = "User",
+            EntityId = user.Id,
+            OldValues = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                PhonePresent = previousPhonePresent,
+                FullNamePresent = previousFullName is not null
+            }),
+            NewValues = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                FullNameChanged = fullNameChanged,
+                PhoneChanged = previousPhone != PhoneNumberNormalization.Normalize(phone),
+                PhonePresent = phone is not null
+            }),
+            CreatedAt = now
+        });
         await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return Ok(await BuildResponseAsync(user, cancellationToken));
     }
 

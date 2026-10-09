@@ -15,6 +15,7 @@ using SportsCenterManagement.DAL.Authorization;
 namespace SportsCenterManagement.API.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/payments")]
 public sealed class PaymentsController : ControllerBase
 {
@@ -313,7 +314,7 @@ public sealed class PaymentsController : ControllerBase
         var value = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
         if (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0)
         {
-            throw new InvalidOperationException("JWT is missing a valid user id claim.");
+            throw new BusinessException(System.Net.HttpStatusCode.Unauthorized, "JWT is missing a valid user id claim.");
         }
         return id;
     }

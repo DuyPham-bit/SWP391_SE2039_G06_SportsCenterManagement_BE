@@ -2,11 +2,9 @@ using System.ComponentModel.DataAnnotations;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using SportsCenterManagement.API.Authentication;
 using SportsCenterManagement.API.DTOs.Auth;
 using SportsCenterManagement.BLL.Common.Helpers;
@@ -21,7 +19,7 @@ namespace SportsCenterManagement.API.Controllers;
 [Route("api/auth")]
 public sealed class AuthController(
     SportsCenterDbContext dbContext,
-    IConfiguration configuration,
+    BearerTokenIssuer tokenIssuer,
     IHostEnvironment environment,
     IAuthService authService) : ControllerBase
 {
@@ -247,37 +245,14 @@ public sealed class AuthController(
         SportsCenterManagement.BLL.DTOs.Auth.Responses.AuthenticatedUser user)
     {
         var role = user.Role.ToUpperInvariant();
-        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(configuration.GetValue("Jwt:ExpiresMinutes", 60));
-        var claims = new[]
-        {
-            new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
-            new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
-            new Claim(ClaimTypes.Role, role),
-            new Claim(JwtRegisteredClaimNames.Email, user.Email)
-        };
-
-        var allClaims = user.CenterId.HasValue
-            ? claims.Append(new Claim("centerId", user.CenterId.Value.ToString()))
-            : claims;
-
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(GetJwtKey()));
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var token = new JwtSecurityToken(
-            issuer: configuration["Jwt:Issuer"],
-            audience: configuration["Jwt:Audience"],
-            claims: allClaims,
-            expires: expiresAt.UtcDateTime,
-            signingCredentials: credentials);
+        var (token, expiresAt) = tokenIssuer.Issue(user);
 
         return new AuthResponse(
-            new JwtSecurityTokenHandler().WriteToken(token),
+            token,
             user.UserId,
             role,
-            expiresAt);
+            new DateTimeOffset(expiresAt));
     }
-
-    private string GetJwtKey() => configuration["Jwt:Key"]
-        ?? throw new InvalidOperationException("Jwt:Key is not configured.");
 
     private static bool VerifyPassword(string password, string storedHash) => PasswordHashing.Verify(password, storedHash);
 

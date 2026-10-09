@@ -1,50 +1,51 @@
+using System.Globalization;
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text.Json;
-using Microsoft.AspNetCore.DataProtection;
-using AuthRequests = SportsCenterManagement.BLL.DTOs.Auth.Requests;
-using AuthResponses = SportsCenterManagement.BLL.DTOs.Auth.Responses;
+using Microsoft.IdentityModel.Tokens;
+using AuthenticatedUser = SportsCenterManagement.BLL.DTOs.Auth.Responses.AuthenticatedUser;
 
 namespace SportsCenterManagement.API.Authentication;
 
-public sealed class BearerTokenIssuer
+public sealed class BearerTokenIssuer(IConfiguration configuration)
 {
-    private static readonly TimeSpan TokenLifetime = TimeSpan.FromHours(1);
-    private readonly IDataProtector _protector;
-
-    public BearerTokenIssuer(IDataProtectionProvider provider)
+    public (string Token, DateTime ExpiresAt) Issue(AuthenticatedUser user)
     {
-        _protector = provider.CreateProtector("SportsCenter.BearerToken.v1");
+        var issuedAt = DateTime.UtcNow;
+        var expiresAt = issuedAt.Add(JwtTokenSettings.AccessTokenLifetime(configuration));
+        var claims = CreateIdentityClaims(user).Where(claim => claim.Type != ClaimTypes.Role).ToList();
+        claims.Add(new Claim(ClaimTypes.Role, user.Role.ToUpperInvariant()));
+        claims.Add(new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N")));
+        claims.Add(new Claim(JwtRegisteredClaimNames.Iat,
+            EpochTime.GetIntDate(issuedAt).ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64));
+        var token = new JwtSecurityToken(
+            issuer: JwtTokenSettings.Issuer(configuration),
+            audience: JwtTokenSettings.Audience(configuration),
+            claims: claims,
+            notBefore: issuedAt,
+            expires: expiresAt,
+            signingCredentials: new SigningCredentials(JwtTokenSettings.SigningKey(configuration), SecurityAlgorithms.HmacSha256));
+        return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
     }
 
-    public (string Token, DateTime ExpiresAt) Issue(AuthResponses.AuthenticatedUser user)
+    internal static List<Claim> CreateIdentityClaims(AuthenticatedUser user)
     {
-        var expiresAt = DateTime.UtcNow.Add(TokenLifetime);
-        var payload = JsonSerializer.Serialize(new TokenPayload(user.UserId, user.Username, user.Role,
-            user.CenterId, expiresAt));
-        return (_protector.Protect(payload), expiresAt);
-    }
-
-    public ClaimsPrincipal Validate(string token)
-    {
-        var payload = JsonSerializer.Deserialize<TokenPayload>(_protector.Unprotect(token))
-            ?? throw new InvalidOperationException("Token không hợp lệ.");
-        if (payload.ExpiresAt <= DateTime.UtcNow)
-        {
-            throw new InvalidOperationException("Token đã hết hạn.");
-        }
-
+        var userId = user.UserId.ToString(CultureInfo.InvariantCulture);
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, payload.UserId.ToString()),
-            new(ClaimTypes.Name, payload.Username),
-            new(ClaimTypes.Role, payload.Role)
+            new(JwtRegisteredClaimNames.Sub, userId),
+            new(ClaimTypes.NameIdentifier, userId),
+            new(ClaimTypes.Name, user.Username),
+            new(JwtRegisteredClaimNames.Email, user.Email),
+            new(ClaimTypes.Role, user.Role)
         };
-        if (payload.CenterId.HasValue)
+        if (user.Role != user.Role.ToUpperInvariant())
         {
-            claims.Add(new Claim("centerId", payload.CenterId.Value.ToString()));
+            claims.Add(new Claim(ClaimTypes.Role, user.Role.ToUpperInvariant()));
         }
-        return new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer"));
+        if (user.CenterId.HasValue)
+        {
+            claims.Add(new Claim("centerId", user.CenterId.Value.ToString(CultureInfo.InvariantCulture)));
+        }
+        return claims;
     }
-
-    private sealed record TokenPayload(long UserId, string Username, string Role, long? CenterId, DateTime ExpiresAt);
 }

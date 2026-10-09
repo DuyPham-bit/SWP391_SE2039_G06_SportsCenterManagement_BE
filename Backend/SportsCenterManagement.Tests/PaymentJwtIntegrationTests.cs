@@ -11,7 +11,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
-using Moq;
 using SportsCenterManagement.BLL.DTOs.Payments;
 using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.Interfaces;
@@ -38,39 +37,12 @@ public sealed class PaymentJwtIntegrationTests : IDisposable
                 builder.UseSetting(key, "https://gateway.test/");
             builder.ConfigureServices(services =>
             {
-                var vnPay = new Mock<IVnPayService>(MockBehavior.Strict);
-                vnPay.Setup(gateway => gateway.CreatePaymentUrl(It.IsAny<string>(), It.IsAny<decimal>(),
-                        It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>()))
-                    .Returns("https://gateway.test/vnpay");
-                vnPay.Setup(gateway => gateway.ProcessCallback(It.IsAny<IDictionary<string, string>>()))
-                    .Returns(new VnPayCallbackResult { IsValidSignature = false });
                 services.RemoveAll<IVnPayService>();
-                services.AddSingleton(vnPay.Object);
-
-                var momo = new Mock<IMoMoService>(MockBehavior.Strict);
-                momo.Setup(gateway => gateway.CreatePaymentUrlAsync(It.IsAny<string>(), It.IsAny<decimal>(),
-                        It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                    .ReturnsAsync((string reference, decimal amount, string _, CancellationToken _) => new MomoCreatePaymentResponse
-                    {
-                        ResultCode = 0, OrderId = reference, RequestId = reference, Amount = (long)amount,
-                        PartnerCode = "test-only", PayUrl = "https://test-payment.momo.vn/payment"
-                    });
-                momo.Setup(gateway => gateway.ProcessCallback(It.IsAny<IDictionary<string, string>>()))
-                    .Returns(new MomoCallbackResult { IsValidSignature = false });
+                services.AddSingleton<IVnPayService, PaymentTestVnPay>();
                 services.RemoveAll<IMoMoService>();
-                services.AddSingleton(momo.Object);
-
-                var payOs = new Mock<IPayOsService>(MockBehavior.Strict);
-                payOs.Setup(gateway => gateway.CreatePaymentLinkAsync(It.IsAny<long>(), It.IsAny<decimal>(),
-                        It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                    .ReturnsAsync((long orderCode, decimal amount, string _, string _, CancellationToken _) => new PayOsCreatePaymentResponse
-                    {
-                        Code = "00", Data = new PayOsPaymentData
-                        { OrderCode = orderCode, Amount = (int)amount, CheckoutUrl = "https://gateway.test/payos" }
-                    });
-                payOs.Setup(gateway => gateway.VerifyWebhookSignature(It.IsAny<PayOsWebhookRequest>())).Returns(false);
+                services.AddSingleton<IMoMoService, PaymentTestMomo>();
                 services.RemoveAll<IPayOsService>();
-                services.AddSingleton(payOs.Object);
+                services.AddSingleton<IPayOsService, PaymentTestPayOs>();
             });
         });
         client = application.CreateClient();

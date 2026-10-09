@@ -430,5 +430,4 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
-# Exclude Tests project
-**/SportsCenterManagement.Tests/
+# Test sources are tracked; bin, obj and test results remain ignored above.

@@ -79,6 +79,7 @@ builder.Services.AddScoped<IRolePermissionService, RolePermissionService>();
 
 // Flow 3 Services
 builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<IRevenueReportService, RevenueReportService>();
 builder.Services.AddHttpClient<IVnPayService, VnPayService>();
 builder.Services.AddHttpClient<IMoMoService, MoMoService>();
 builder.Services.AddHttpClient<IPayOsService, PayOsService>();
@@ -96,8 +97,11 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<SportsCenterDbContext>();
     var baselineLegacySchema = app.Configuration.GetValue<bool>("Database:BaselineLegacySchema");
-    await DbInitializer.SeedAsync(dbContext, baselineLegacySchema, app.Environment.IsDevelopment());
-    await SystemAdminBootstrapper.SeedAsync(dbContext, app.Configuration);
+    if (dbContext.Database.IsSqlServer())
+    {
+        await DbInitializer.SeedAsync(dbContext, baselineLegacySchema, app.Environment.IsDevelopment());
+        await SystemAdminBootstrapper.SeedAsync(dbContext, app.Configuration);
+    }
 }
 
 if (app.Environment.IsDevelopment())
@@ -205,3 +209,5 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
+
+public partial class Program;

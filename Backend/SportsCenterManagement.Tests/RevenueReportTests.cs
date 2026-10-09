@@ -25,6 +25,18 @@ public sealed class RevenueReportTests : IClassFixture<BranchApiFactory>
     }
 
     [Fact]
+    public async Task SwaggerGeneratesBothSummaryAndDetailedReportSchemas()
+    {
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/swagger/v1/swagger.json");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var content = await response.Content.ReadAsStringAsync();
+        Assert.Contains("\"RevenueReportResponse\"", content);
+        Assert.Contains("\"DetailedRevenueReportResponse\"", content);
+        Assert.Contains("/api/reports/revenue/details", content);
+    }
+
+    [Fact]
     public async Task StaffHeaderCannotReplaceJwt()
     {
         using var client = factory.CreateClient();
@@ -50,7 +62,7 @@ public sealed class RevenueReportTests : IClassFixture<BranchApiFactory>
     {
         using var client = factory.CreateClient();
         await BranchApiFactory.LoginAsync(client, "manager@test.local");
-        var report = await client.GetFromJsonAsync<RevenueReportResponse>(ReportPath + "&includeTransactions=true");
+        var report = await client.GetFromJsonAsync<DetailedRevenueReportResponse>(ReportPath + "&includeTransactions=true");
         Assert.NotNull(report);
         Assert.Equal(120m, report.GrossRevenue);
         Assert.Equal(30m, report.RefundAmount);
@@ -81,7 +93,7 @@ public sealed class RevenueReportTests : IClassFixture<BranchApiFactory>
     {
         using var client = factory.CreateClient();
         await BranchApiFactory.LoginAsync(client, "manager@test.local");
-        var report = await client.GetFromJsonAsync<RevenueReportResponse>(
+        var report = await client.GetFromJsonAsync<DetailedRevenueReportResponse>(
             "/api/reports/revenue/details?centerId=1&from=2026-10-01&to=2026-10-31&groupBy=month");
         Assert.NotNull(report);
         Assert.Equal(170m, report.GrossRevenue);
@@ -108,7 +120,7 @@ public sealed class RevenueReportTests : IClassFixture<BranchApiFactory>
     {
         using var client = factory.CreateClient();
         await BranchApiFactory.LoginAsync(client, "admin@test.local");
-        var report = await client.GetFromJsonAsync<RevenueReportResponse>(ReportPath.Replace("centerId=1", "centerId=2"));
+        var report = await client.GetFromJsonAsync<DetailedRevenueReportResponse>(ReportPath.Replace("centerId=1", "centerId=2"));
         Assert.NotNull(report);
         Assert.Equal(500m, report.GrossRevenue);
         Assert.Equal(100m, report.RefundAmount);

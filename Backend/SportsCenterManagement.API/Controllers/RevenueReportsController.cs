@@ -13,11 +13,11 @@ namespace SportsCenterManagement.API.Controllers;
 public sealed class RevenueReportsController(IRevenueReportService reportService) : ControllerBase
 {
     [HttpGet("details")]
-    [ProducesResponseType(typeof(RevenueReportResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(DetailedRevenueReportResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    public async Task<ActionResult<RevenueReportResponse>> GetRevenue(
+    public async Task<ActionResult<DetailedRevenueReportResponse>> GetRevenue(
         [FromQuery] long centerId, [FromQuery] DateOnly? from, [FromQuery] DateOnly? to,
         [FromQuery] string? groupBy, [FromQuery] bool includeTransactions, CancellationToken cancellationToken)
     {

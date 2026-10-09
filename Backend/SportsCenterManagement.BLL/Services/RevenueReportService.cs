@@ -10,7 +10,7 @@ public sealed class RevenueReportService(IUnitOfWork unitOfWork, IReportService 
     private static readonly string[] ManagerRoles = ["Admin", "Manager", "CenterManager"];
     private const int MaxReturnedTransactions = 200;
 
-    public async Task<RevenueReportResponse> GetRevenueReportAsync(long requesterUserId, long centerId,
+    public async Task<DetailedRevenueReportResponse> GetRevenueReportAsync(long requesterUserId, long centerId,
         DateOnly from, DateOnly to, string? groupBy, bool includeTransactions, CancellationToken cancellationToken = default)
     {
         await StaffAuthorization.RequireAsync(unitOfWork, requesterUserId, centerId, ManagerRoles, cancellationToken);
@@ -80,7 +80,7 @@ public sealed class RevenueReportService(IUnitOfWork unitOfWork, IReportService 
                 refunds.Where(row => Period(row.PaidAtUtc) == period.PeriodStart).Select(row => row.PaymentId).Distinct().Count());
         }).ToList();
 
-        return new RevenueReportResponse
+        return new DetailedRevenueReportResponse
         {
             CenterId = centerId, From = from, To = to, GroupBy = normalizedGroupBy,
             TimeZone = summary.TimeZone, GeneratedAtUtc = DateTime.UtcNow,

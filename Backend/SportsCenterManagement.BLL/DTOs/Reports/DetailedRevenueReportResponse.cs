@@ -1,6 +1,6 @@
 namespace SportsCenterManagement.BLL.DTOs.Reports;
 
-public sealed class RevenueReportResponse
+public sealed class DetailedRevenueReportResponse
 {
     public long CenterId { get; init; }
 

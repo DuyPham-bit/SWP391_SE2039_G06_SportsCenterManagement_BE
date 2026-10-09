@@ -211,7 +211,8 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
                 profile.Address, profile.CreatedAt, user.Status);
         var totalCount = await matches.CountAsync(cancellationToken);
         var items = await matches.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
-        return new MembersResponses.PagedResponse<MembersResponses.MemberProfileResponse>(items, page, pageSize, totalCount);
+        var enriched = await EnrichMemberSubscriptionsAsync(items, cancellationToken);
+        return new MembersResponses.PagedResponse<MembersResponses.MemberProfileResponse>(enriched, page, pageSize, totalCount);
     }
 
     public async Task<MembersResponses.MemberProfileResponse> CreateAtCenterAsync(
@@ -353,7 +354,7 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
 
     private async Task<MembersResponses.MemberProfileResponse?> ReadProfile(long userId, CancellationToken cancellationToken)
     {
-        return await (
+        var item = await (
             from profile in unitOfWork.Context.MemberProfiles.AsNoTracking()
             join user in unitOfWork.Context.Users.AsNoTracking() on profile.UserId equals user.Id
             where user.Id == userId && user.Status == "Active"
@@ -361,6 +362,90 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
                 user.Email, user.Phone, profile.FullName, profile.DateOfBirth, profile.Gender,
                 profile.Address, profile.CreatedAt, user.Status))
             .SingleOrDefaultAsync(cancellationToken);
+
+        if (item == null) return null;
+        var enriched = await EnrichMemberSubscriptionsAsync(new[] { item }, cancellationToken);
+        return enriched.FirstOrDefault();
+    }
+
+    private async Task<List<MembersResponses.MemberProfileResponse>> EnrichMemberSubscriptionsAsync(
+        IReadOnlyList<MembersResponses.MemberProfileResponse> items,
+        CancellationToken cancellationToken)
+    {
+        if (items.Count == 0) return items.ToList();
+
+        var memberIds = items.Select(m => m.MemberId).Distinct().ToList();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        var subs = await (
+            from sub in unitOfWork.Context.MemberSubscriptions.AsNoTracking()
+            join pkg in unitOfWork.Context.MembershipPackages.AsNoTracking() on sub.PackageId equals pkg.Id
+            where memberIds.Contains(sub.MemberId)
+            orderby sub.CreatedAt descending
+            select new
+            {
+                sub.MemberId,
+                sub.Id,
+                sub.PackageId,
+                PackageName = pkg.Name,
+                sub.StartDate,
+                sub.EndDate,
+                sub.Status,
+                sub.CreatedAt
+            }
+        ).ToListAsync(cancellationToken);
+
+        return items.Select(m =>
+        {
+            var mSubs = subs.Where(s => s.MemberId == m.MemberId).ToList();
+
+            var activeSub = mSubs
+                .Where(s => string.Equals(s.Status, "Active", StringComparison.OrdinalIgnoreCase) && (s.EndDate == null || s.EndDate >= today))
+                .OrderByDescending(s => s.EndDate)
+                .FirstOrDefault();
+
+            var currentSub = activeSub
+                ?? mSubs.FirstOrDefault(s => string.Equals(s.Status, "PendingPayment", StringComparison.OrdinalIgnoreCase))
+                ?? mSubs.FirstOrDefault(s => string.Equals(s.Status, "Active", StringComparison.OrdinalIgnoreCase))
+                ?? mSubs.FirstOrDefault();
+
+            string pkgName = currentSub?.PackageName ?? "Chưa đăng ký gói";
+            DateOnly? pkgExpiry = currentSub?.EndDate;
+            string pkgStatus = "INACTIVE";
+
+            if (currentSub != null)
+            {
+                if (string.Equals(currentSub.Status, "Active", StringComparison.OrdinalIgnoreCase))
+                {
+                    pkgStatus = (currentSub.EndDate != null && currentSub.EndDate < today) ? "EXPIRED" : "ACTIVE";
+                }
+                else if (string.Equals(currentSub.Status, "PendingPayment", StringComparison.OrdinalIgnoreCase))
+                {
+                    pkgStatus = "PENDING";
+                }
+                else if (string.Equals(currentSub.Status, "Expired", StringComparison.OrdinalIgnoreCase))
+                {
+                    pkgStatus = "EXPIRED";
+                }
+                else if (string.Equals(currentSub.Status, "Cancelled", StringComparison.OrdinalIgnoreCase))
+                {
+                    pkgStatus = "CANCELLED";
+                }
+                else
+                {
+                    pkgStatus = currentSub.Status.ToUpperInvariant();
+                }
+            }
+
+            return m with
+            {
+                PackageName = pkgName,
+                PackageExpiry = pkgExpiry,
+                PackageStatus = pkgStatus,
+                PackageId = currentSub?.PackageId,
+                SubscriptionId = currentSub?.Id
+            };
+        }).ToList();
     }
 
     private static MembersResponses.MemberProfileResponse Map(MemberProfile profile, User user)

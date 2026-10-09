@@ -144,12 +144,14 @@ public static class DbInitializer
 
         if (!seedDemoData)
         {
+            await EnsureAuthAndReceptionPermissionsAsync(context);
             return;
         }
 
         var adminRole = await context.Roles.FirstAsync(r => r.Name == "Admin");
         var managerRole = await context.Roles.FirstAsync(r => r.Name == "Manager");
         var receptionistRole = await context.Roles.FirstAsync(r => r.Name == "Receptionist");
+        var coachRole = await context.Roles.FirstOrDefaultAsync(r => r.Name == "Coach");
         var memberRole = await context.Roles.FirstAsync(r => r.Name == "Member");
         var demoCenter = center ?? throw new InvalidOperationException("Development demo center was not initialized.");
 
@@ -235,6 +237,38 @@ public static class DbInitializer
                 StaffCode = $"STF-RECEPTION-{receptionUserId}",
                 FullName = "Nhân viên Lễ tân",
                 Position = "Receptionist",
+                Status = "Active",
+                CreatedAt = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync();
+        }
+
+        // 5b. Tạo tài khoản Huấn luyện viên (Coach) mặc định nếu chưa có
+        if (coachRole != null && !await context.Users.AnyAsync(u => u.Username == "coach01"))
+        {
+            var coachUser = new User
+            {
+                RoleId = coachRole.Id,
+                Username = "coach01",
+                Email = "coach01@sportscenter.vn",
+                PasswordHash = HashPassword("Coach@123456"),
+                Phone = "0900000004",
+                Status = "Active",
+                CreatedAt = DateTime.UtcNow
+            };
+            await context.Users.AddAsync(coachUser);
+            await context.SaveChangesAsync();
+
+            await context.CoachProfiles.AddAsync(new CoachProfile
+            {
+                UserId = coachUser.Id,
+                CenterId = demoCenter.Id,
+                CoachCode = $"CCH-{coachUser.Id:D5}",
+                FullName = "Huấn luyện viên mẫu",
+                Specialization = "Gym & Fitness, Bơi lội",
+                Certification = "NASM-CPT, Huấn luyện viên cấp 1",
+                ExperienceYears = 5,
+                Bio = "HLV giàu kinh nghiệm hỗ trợ cá nhân hóa bài tập",
                 Status = "Active",
                 CreatedAt = DateTime.UtcNow
             });
@@ -455,6 +489,33 @@ public static class DbInitializer
             await context.SaveChangesAsync();
         }
 
+        var seededAdmin = await context.Users.FirstOrDefaultAsync(u => u.Username == "admin");
+        if (seededAdmin != null && seededAdmin.PasswordHash.Contains(':'))
+        {
+            seededAdmin.PasswordHash = HashPassword("Admin@123456");
+            seededAdmin.FailedLoginAttempts = 0;
+            seededAdmin.LockedUntil = null;
+            await context.SaveChangesAsync();
+        }
+
+        var seededManager = await context.Users.FirstOrDefaultAsync(u => u.Username == "manager01");
+        if (seededManager != null && seededManager.PasswordHash.Contains(':'))
+        {
+            seededManager.PasswordHash = HashPassword("Manager@123456");
+            seededManager.FailedLoginAttempts = 0;
+            seededManager.LockedUntil = null;
+            await context.SaveChangesAsync();
+        }
+
+        var seededReception = await context.Users.FirstOrDefaultAsync(u => u.Username == "reception01");
+        if (seededReception != null && seededReception.PasswordHash.Contains(':'))
+        {
+            seededReception.PasswordHash = HashPassword("Reception@123456");
+            seededReception.FailedLoginAttempts = 0;
+            seededReception.LockedUntil = null;
+            await context.SaveChangesAsync();
+        }
+
         var systemAdminRole = await context.Roles.FirstOrDefaultAsync(role => role.Name == RoleNames.SystemAdmin);
         var permManage = await context.Permissions.FirstOrDefaultAsync(
             permission => permission.Code == PermissionCodes.RolePermissionManage);
@@ -485,6 +546,79 @@ public static class DbInitializer
                 await context.SaveChangesAsync();
             }
         }
+
+        await EnsureAuthAndReceptionPermissionsAsync(context);
+    }
+
+    private static async Task EnsureAuthAndReceptionPermissionsAsync(SportsCenterDbContext context)
+    {
+        const string seedMarker = "seed.rbac.auth-and-reception-search.v2";
+        if (await context.SystemSettings.AnyAsync(setting => setting.SettingKey == seedMarker))
+        {
+            return;
+        }
+
+        var grantSpecs = new (string RoleName, string PermissionCode, string Name, string Description)[]
+        {
+            (RoleNames.Receptionist, PermissionCodes.MemberCenterRead,
+                "View center members", "Search and view members assigned to a center."),
+            (RoleNames.Member, PermissionCodes.MemberSelfRead,
+                "View own profile", "View the authenticated member's own profile."),
+            (RoleNames.Member, PermissionCodes.SubscriptionRead,
+                "View subscriptions", "View subscriptions owned by the authenticated member.")
+        };
+
+        var roleNames = grantSpecs.Select(spec => spec.RoleName).Distinct().ToArray();
+        var roles = await context.Roles
+            .Where(role => roleNames.Contains(role.Name))
+            .ToDictionaryAsync(role => role.Name);
+        var missingRoles = roleNames.Where(roleName => !roles.ContainsKey(roleName)).ToArray();
+        if (missingRoles.Length > 0)
+        {
+            throw new InvalidOperationException($"Role chưa được khởi tạo: {string.Join(", ", missingRoles)}.");
+        }
+
+        var permissionCodes = grantSpecs.Select(spec => spec.PermissionCode).Distinct().ToArray();
+        var permissions = await context.Permissions
+            .Where(permission => permissionCodes.Contains(permission.Code))
+            .ToDictionaryAsync(permission => permission.Code);
+        foreach (var spec in grantSpecs)
+        {
+            if (!permissions.ContainsKey(spec.PermissionCode))
+            {
+                var permission = new Permission
+                {
+                    Code = spec.PermissionCode,
+                    Name = spec.Name,
+                    Description = spec.Description,
+                    Module = "MEMBERS"
+                };
+                context.Permissions.Add(permission);
+                permissions.Add(spec.PermissionCode, permission);
+            }
+        }
+        await context.SaveChangesAsync();
+
+        foreach (var spec in grantSpecs)
+        {
+            var roleId = roles[spec.RoleName].Id;
+            var permissionId = permissions[spec.PermissionCode].Id;
+            if (await context.RolePermissions.AnyAsync(link =>
+                    link.RoleId == roleId && link.PermissionId == permissionId))
+            {
+                continue;
+            }
+
+            context.RolePermissions.Add(new RolePermission { RoleId = roleId, PermissionId = permissionId });
+        }
+
+        context.SystemSettings.Add(new SystemSetting
+        {
+            SettingKey = seedMarker,
+            SettingValue = "applied",
+            Description = "One-time backfill for member sign-in profile access and receptionist member search."
+        });
+        await context.SaveChangesAsync();
     }
 
     private static async Task BaselineLegacySchemaAsync(SportsCenterDbContext context)
@@ -493,21 +627,20 @@ public static class DbInitializer
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT CASE
-                WHEN OBJECT_ID(N'[dbo].[centers]', N'U') IS NULL THEN 0
-                WHEN OBJECT_ID(N'[dbo].[__EFMigrationsHistory]', N'U') IS NULL THEN 1
-                WHEN NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory]) THEN 2
-                ELSE 0
-            END
+            SELECT CASE WHEN OBJECT_ID(N'[dbo].[centers]', N'U') IS NULL THEN 0 ELSE 1 END
             """;
 
-        var state = Convert.ToInt32(await command.ExecuteScalarAsync());
-        if (state == 0)
+        var hasLegacySchema = Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
+        if (!hasLegacySchema)
         {
             return;
         }
 
-        if (state == 1)
+        command.CommandText = """
+            SELECT CASE WHEN OBJECT_ID(N'[dbo].[__EFMigrationsHistory]', N'U') IS NULL THEN 0 ELSE 1 END
+            """;
+        var hasMigrationHistory = Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
+        if (!hasMigrationHistory)
         {
             await context.Database.ExecuteSqlRawAsync("""
             CREATE TABLE [dbo].[__EFMigrationsHistory] (
@@ -518,6 +651,7 @@ public static class DbInitializer
             """);
         }
 
+        // A legacy database can have a partially populated history table; restore both baseline markers before applying later migrations.
         await context.Database.ExecuteSqlRawAsync("""
             IF NOT EXISTS (
                 SELECT 1 FROM [dbo].[__EFMigrationsHistory]
@@ -543,10 +677,10 @@ public static class DbInitializer
         var hash = Rfc2898DeriveBytes.Pbkdf2(
             Encoding.UTF8.GetBytes(password),
             salt,
-            100_000,
+            210_000,
             HashAlgorithmName.SHA256,
             32
         );
-        return $"{Convert.ToBase64String(salt)}:100000:{Convert.ToBase64String(hash)}";
+        return $"pbkdf2-sha256$210000${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
     }
 }

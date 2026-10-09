@@ -19,7 +19,6 @@ namespace SportsCenterManagement.API.Controllers;
 public sealed class MembersController(IMemberService memberService, ICoreFlowService coreFlowService) : ControllerBase
 {
     [HttpGet("members/me")]
-    [RequirePermission(PermissionCodes.MemberSelfRead)]
     public async Task<IActionResult> GetMe(CancellationToken cancellationToken)
     {
         return await Run(async () => Ok(await memberService.GetMeAsync(GetUserId(), cancellationToken)));

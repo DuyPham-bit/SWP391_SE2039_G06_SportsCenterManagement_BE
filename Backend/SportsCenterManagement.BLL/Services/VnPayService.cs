@@ -48,13 +48,24 @@ public class VnPayService : IVnPayService
             ? "127.0.0.1"
             : ipAddress;
 
-        var now = DateTime.UtcNow;
+        TimeZoneInfo vietnamTimeZone;
+        try
+        {
+            vietnamTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            vietnamTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+        }
+        var now = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, vietnamTimeZone);
+        var createDate = now.ToString("yyyyMMddHHmmss");
+        var expireDate = now.AddMinutes(15).ToString("yyyyMMddHHmmss");
 
         vnpay.AddRequestData("vnp_Version", _configuration["VnPay:Version"] ?? "2.1.0");
         vnpay.AddRequestData("vnp_Command", _configuration["VnPay:Command"] ?? "pay");
         vnpay.AddRequestData("vnp_TmnCode", tmnCode);
         vnpay.AddRequestData("vnp_Amount", amountInVnpayFormat);
-        vnpay.AddRequestData("vnp_CreateDate", now.ToString("yyyyMMddHHmmss"));
+        vnpay.AddRequestData("vnp_CreateDate", createDate);
         vnpay.AddRequestData("vnp_CurrCode", _configuration["VnPay:CurrCode"] ?? "VND");
         vnpay.AddRequestData("vnp_IpAddr", clientIp);
         vnpay.AddRequestData("vnp_Locale", _configuration["VnPay:Locale"] ?? "vn");
@@ -62,6 +73,7 @@ public class VnPayService : IVnPayService
         vnpay.AddRequestData("vnp_OrderType", "other");
         vnpay.AddRequestData("vnp_ReturnUrl", returnUrl);
         vnpay.AddRequestData("vnp_TxnRef", invoiceNumber);
+        vnpay.AddRequestData("vnp_ExpireDate", expireDate);
 
         if (!string.IsNullOrEmpty(bankCode))
         {

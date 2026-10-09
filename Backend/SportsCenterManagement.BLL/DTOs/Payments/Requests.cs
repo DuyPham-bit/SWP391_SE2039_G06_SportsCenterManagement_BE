@@ -24,6 +24,8 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
 
         [MaxLength(500)]
         public string? Note { get; set; }
+
+        public bool CancelPendingIfAny { get; set; }
     }
 
     public class CreatePaymentRequest
@@ -36,6 +38,18 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
 
         [MaxLength(50)]
         public string? BankCode { get; set; }
+
+        public bool CancelPendingIfAny { get; set; }
+    }
+
+    public class CancelPendingRequest
+    {
+        [MaxLength(50)]
+        public string? InvoiceNumber { get; set; }
+
+        public long? PackageId { get; set; }
+
+        public long? MemberId { get; set; }
     }
 
     public sealed class CreateRefundRequest

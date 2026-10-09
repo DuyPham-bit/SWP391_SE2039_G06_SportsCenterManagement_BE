@@ -48,6 +48,9 @@ public sealed class PaymentsController : ControllerBase
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation(
+            "Payment debug: VNPay action entered. TraceId={TraceId}",
+            HttpContext.TraceIdentifier);
         try
         {
             if (string.IsNullOrWhiteSpace(idempotencyKey))
@@ -59,10 +62,16 @@ public sealed class PaymentsController : ControllerBase
                 await _memberService.EnsureCanBuyPackageAsync(userId, request.PackageId, cancellationToken);
             }
 
+            _logger.LogInformation(
+                "Payment debug: VNPay checks passed; calling payment service. TraceId={TraceId}",
+                HttpContext.TraceIdentifier);
             var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
             var paymentUrl = await _paymentService.CreatePaymentUrlAsync(
                 memberId, request, ipAddress, idempotencyKey.Trim(), cancellationToken);
 
+            _logger.LogInformation(
+                "Payment debug: VNPay link created. TraceId={TraceId}",
+                HttpContext.TraceIdentifier);
             return Ok(new { success = true, paymentUrl });
         }
         catch (InvalidOperationException ex)
@@ -116,6 +125,9 @@ public sealed class PaymentsController : ControllerBase
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation(
+            "Payment debug: MoMo action entered. TraceId={TraceId}",
+            HttpContext.TraceIdentifier);
         if (string.IsNullOrWhiteSpace(idempotencyKey))
             return BadRequest(new { success = false, message = "Header Idempotency-Key là bắt buộc." });
         var userId = GetRequiredUserId();
@@ -124,8 +136,14 @@ public sealed class PaymentsController : ControllerBase
         {
             await _memberService.EnsureCanBuyPackageAsync(userId, request.PackageId, cancellationToken);
         }
+        _logger.LogInformation(
+            "Payment debug: MoMo checks passed; calling payment service. TraceId={TraceId}",
+            HttpContext.TraceIdentifier);
         var paymentUrl = await _paymentService.CreateMomoPaymentUrlAsync(
             memberId, request, idempotencyKey.Trim(), cancellationToken);
+        _logger.LogInformation(
+            "Payment debug: MoMo link created. TraceId={TraceId}",
+            HttpContext.TraceIdentifier);
         return Ok(new { success = true, paymentUrl });
     }
 
@@ -136,6 +154,9 @@ public sealed class PaymentsController : ControllerBase
         [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation(
+            "Payment debug: PayOS action entered. TraceId={TraceId}",
+            HttpContext.TraceIdentifier);
         if (string.IsNullOrWhiteSpace(idempotencyKey))
         {
             return BadRequest(new { success = false, message = "Header Idempotency-Key là bắt buộc." });
@@ -148,8 +169,14 @@ public sealed class PaymentsController : ControllerBase
             await _memberService.EnsureCanBuyPackageAsync(userId, request.PackageId, cancellationToken);
         }
 
+        _logger.LogInformation(
+            "Payment debug: PayOS checks passed; calling payment service. TraceId={TraceId}",
+            HttpContext.TraceIdentifier);
         var paymentUrl = await _paymentService.CreatePayOsPaymentUrlAsync(
             memberId, request, idempotencyKey.Trim(), cancellationToken);
+        _logger.LogInformation(
+            "Payment debug: PayOS link created. TraceId={TraceId}",
+            HttpContext.TraceIdentifier);
         return Ok(new { success = true, paymentUrl });
     }
 
@@ -201,7 +228,7 @@ public sealed class PaymentsController : ControllerBase
         return Ok(new { code = 0, message = "Success", data = result });
     }
 
-    [Authorize(Roles = "Receptionist,Manager,Admin")]
+    [Authorize(Roles = "RECEPTIONIST,MANAGER,ADMIN")]
     [HttpPost("counter-checkout")]
     public async Task<ActionResult<CounterPaymentResponse>> CounterCheckout(
         [FromBody] CounterPaymentRequest request,
@@ -214,7 +241,7 @@ public sealed class PaymentsController : ControllerBase
         return Ok(result);
     }
 
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "MANAGER,ADMIN")]
     [HttpPost("counter-void/{invoiceNumber}")]
     public async Task<ActionResult<PaymentResultResponse>> CounterVoid(
         [FromRoute] string invoiceNumber,
@@ -226,7 +253,7 @@ public sealed class PaymentsController : ControllerBase
         return Ok(result);
     }
 
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "MANAGER,ADMIN")]
     [HttpPost("{gatewayReference}/reconcile")]
     public async Task<ActionResult<PaymentResultResponse>> ReconcilePendingPayment(
         [FromRoute] string gatewayReference,
@@ -238,7 +265,7 @@ public sealed class PaymentsController : ControllerBase
         return Ok(result);
     }
 
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "MANAGER,ADMIN")]
     [HttpPost("{paymentId:long}/refunds")]
     public async Task<ActionResult<PaymentRefundResponse>> Refund(
         [FromRoute] long paymentId,
@@ -252,7 +279,7 @@ public sealed class PaymentsController : ControllerBase
         return Ok(result);
     }
 
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "MANAGER,ADMIN")]
     [HttpPost("refunds/{refundId:long}/reconcile")]
     public async Task<ActionResult<PaymentRefundResponse>> ReconcileRefund(
         [FromRoute] long refundId,
@@ -334,4 +361,71 @@ public sealed class PaymentsController : ControllerBase
 
     private static IDictionary<string, string> ToStringDictionary(IEnumerable<KeyValuePair<string, Microsoft.Extensions.Primitives.StringValues>> values) =>
         values.ToDictionary(pair => pair.Key, pair => pair.Value.ToString(), StringComparer.Ordinal);
+
+    /// <summary>
+    /// Lấy danh sách các hóa đơn chờ thanh toán của member hiện tại.
+    /// GET /api/payments/my-pending-invoices
+    /// </summary>
+    [Authorize]
+    [HttpGet("my-pending-invoices")]
+    public async Task<ActionResult<List<PendingInvoiceDto>>> GetMyPendingInvoices(CancellationToken cancellationToken)
+    {
+        var userId = GetRequiredUserId();
+        var list = await _paymentService.GetMyPendingInvoicesAsync(userId, cancellationToken);
+        return Ok(list);
+    }
+
+    /// <summary>
+    /// Member tự hủy hóa đơn chờ thanh toán (lỡ bấm mua, chưa thanh toán).
+    /// DELETE /api/payments/pending-invoice/{invoiceNumber}
+    /// </summary>
+    [Authorize]
+    [HttpDelete("pending-invoice/{invoiceNumber}")]
+    public async Task<IActionResult> CancelPendingInvoice(
+        [FromRoute] string invoiceNumber,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetRequiredUserId();
+        var result = await _paymentService.CancelPendingInvoiceAsync(userId, invoiceNumber, cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Member tự hủy hóa đơn chờ thanh toán theo gói tập.
+    /// DELETE /api/payments/pending-package/{packageId:long}
+    /// </summary>
+    [Authorize]
+    [HttpDelete("pending-package/{packageId:long}")]
+    public async Task<IActionResult> CancelPendingPackage(
+        [FromRoute] long packageId,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetRequiredUserId();
+        var result = await _paymentService.CancelPendingPackageAsync(userId, packageId, cancellationToken: cancellationToken);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Hủy đơn chờ thanh toán qua POST (hỗ trợ cả invoiceNumber và packageId).
+    /// POST /api/payments/cancel-pending
+    /// </summary>
+    [Authorize]
+    [HttpPost("cancel-pending")]
+    public async Task<IActionResult> CancelPending(
+        [FromBody] CancelPendingRequest request,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetRequiredUserId();
+        if (!string.IsNullOrWhiteSpace(request.InvoiceNumber))
+        {
+            var result = await _paymentService.CancelPendingInvoiceAsync(userId, request.InvoiceNumber.Trim(), cancellationToken);
+            return Ok(result);
+        }
+        if (request.PackageId.HasValue && request.PackageId.Value > 0)
+        {
+            var result = await _paymentService.CancelPendingPackageAsync(userId, request.PackageId.Value, request.MemberId, cancellationToken);
+            return Ok(result);
+        }
+        return BadRequest(new { success = false, message = "Vui lòng cung cấp invoiceNumber hoặc packageId." });
+    }
 }

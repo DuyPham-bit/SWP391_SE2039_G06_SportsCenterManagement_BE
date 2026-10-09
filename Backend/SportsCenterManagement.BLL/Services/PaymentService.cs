@@ -419,8 +419,21 @@ public sealed class PaymentService(
         var pendingInvoiceNumber = await FindOpenPendingInvoiceNumberAsync(member.Id, package.Id, cancellationToken);
         if (pendingInvoiceNumber is not null)
         {
-            throw BusinessException.Conflict(
-                $"Hội viên đã có hóa đơn chờ thanh toán cho gói này ({pendingInvoiceNumber}); hãy tiếp tục thanh toán hóa đơn đó.");
+            if (request.CancelPendingIfAny)
+            {
+                var existingPendingInv = await _unitOfWork.Context.Invoices
+                    .SingleOrDefaultAsync(i => i.InvoiceNumber == pendingInvoiceNumber, cancellationToken);
+                if (existingPendingInv is not null)
+                {
+                    await CancelPendingInvoiceCoreAsync(staffUserId, existingPendingInv, DateTime.UtcNow, cancellationToken);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                }
+            }
+            else
+            {
+                throw BusinessException.Conflict(
+                    $"Hội viên đã có hóa đơn chờ thanh toán cho gói này ({pendingInvoiceNumber}); hãy tiếp tục thanh toán hóa đơn đó hoặc hủy đơn chờ để thanh toán mới.");
+            }
         }
 
         var received = request.AmountReceived;
@@ -504,6 +517,7 @@ public sealed class PaymentService(
             AmountReceived = received,
             PaymentStatus = "Succeeded",
             CreatedAt = now,
+            AttemptedAt = now,
             PaidAt = now,
             IdempotencyKey = scopedKey,
             Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim()
@@ -687,6 +701,7 @@ public sealed class PaymentService(
             AmountReceived = request.Amount,
             PaymentStatus = "Succeeded",
             CreatedAt = now,
+            AttemptedAt = now,
             PaidAt = now,
             IdempotencyKey = scopedKey,
             Note = request.Note?.Trim()
@@ -1198,8 +1213,21 @@ public sealed class PaymentService(
             var pendingInvoiceNumber = await FindOpenPendingInvoiceNumberAsync(member.Id, package.Id, cancellationToken);
             if (pendingInvoiceNumber is not null)
             {
-                throw BusinessException.Conflict(
-                    $"Hội viên đã có hóa đơn chờ thanh toán cho gói này ({pendingInvoiceNumber}); hãy tiếp tục thanh toán hóa đơn đó.");
+                if (request.CancelPendingIfAny)
+                {
+                    var existingPendingInv = await _unitOfWork.Context.Invoices
+                        .SingleOrDefaultAsync(i => i.InvoiceNumber == pendingInvoiceNumber, cancellationToken);
+                    if (existingPendingInv is not null)
+                    {
+                        await CancelPendingInvoiceCoreAsync(member.UserId, existingPendingInv, now, cancellationToken);
+                        await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    }
+                }
+                else
+                {
+                    throw BusinessException.Conflict(
+                        $"Hội viên đã có hóa đơn chờ thanh toán cho gói này ({pendingInvoiceNumber}); hãy tiếp tục thanh toán hóa đơn đó.");
+                }
             }
             if (!member.CenterId.HasValue)
             {
@@ -1297,13 +1325,17 @@ public sealed class PaymentService(
         {
             throw BusinessException.Conflict("PayOS không hỗ trợ số tiền vượt giới hạn số nguyên 32-bit.");
         }
-        if (await _unitOfWork.Context.Payments.AnyAsync(
-                candidate => candidate.InvoiceId == invoice.Id && candidate.PaymentStatus == "Pending",
-                cancellationToken))
+        // Nếu hóa đơn có payment Pending trước đó (ví dụ mở cổng thanh toán nhưng chưa thanh toán/thử lại), void để khởi tạo lần mới
+        var previousPendingPayments = await _unitOfWork.Context.Payments
+            .Where(candidate => candidate.InvoiceId == invoice.Id && candidate.PaymentStatus == "Pending")
+            .ToListAsync(cancellationToken);
+        foreach (var p in previousPendingPayments)
         {
-            throw BusinessException.Conflict("Hóa đơn đã có payment Pending. Chờ callback hoặc quản lý đối soát trước khi thử lại.");
+            p.PaymentStatus = "Voided";
+            p.Note = "Giao dịch cũ được void để tạo liên kết thanh toán mới.";
         }
 
+        var paymentAttemptTime = DateTime.UtcNow;
         var payment = new Payment
         {
             InvoiceId = invoice.Id,
@@ -1311,7 +1343,8 @@ public sealed class PaymentService(
             PaymentMethod = provider,
             Amount = remaining,
             PaymentStatus = "Pending",
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = paymentAttemptTime,
+            AttemptedAt = paymentAttemptTime,
             IdempotencyKey = scopedKey,
             GatewayReference = $"PAY-{Guid.NewGuid():N}"
         };
@@ -1717,16 +1750,45 @@ public sealed class PaymentService(
         _unitOfWork.Context.InvoiceItems.AnyAsync(
             item => item.InvoiceId == invoiceId && item.PackageId == packageId, cancellationToken);
 
-    private Task<string?> FindOpenPendingInvoiceNumberAsync(
-        long memberId, long packageId, CancellationToken cancellationToken) =>
-        (from item in _unitOfWork.Context.InvoiceItems
-         join invoice in _unitOfWork.Context.Invoices on item.InvoiceId equals invoice.Id
-         join subscription in _unitOfWork.Context.MemberSubscriptions on item.SubscriptionId equals subscription.Id
-         where invoice.MemberId == memberId && item.PackageId == packageId
-             && subscription.Status == "PendingPayment"
-             && (invoice.Status == "Issued" || invoice.Status == "PartiallyPaid")
-         orderby invoice.IssuedAt descending
-         select invoice.InvoiceNumber).FirstOrDefaultAsync(cancellationToken);
+    private async Task<string?> FindOpenPendingInvoiceNumberAsync(
+        long memberId, long packageId, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var expiryThreshold = now.AddMinutes(-15);
+
+        // Tự động dọn dẹp các hóa đơn chờ thanh toán đã quá hạn (> 15 phút)
+        var expiredInvoices = await (
+            from item in _unitOfWork.Context.InvoiceItems
+            join invoice in _unitOfWork.Context.Invoices on item.InvoiceId equals invoice.Id
+            join subscription in _unitOfWork.Context.MemberSubscriptions on item.SubscriptionId equals subscription.Id
+            where invoice.MemberId == memberId && item.PackageId == packageId
+                && subscription.Status == "PendingPayment"
+                && (invoice.Status == "Issued" || invoice.Status == "PartiallyPaid")
+                && invoice.IssuedAt < expiryThreshold
+            select invoice
+        ).Distinct().ToListAsync(cancellationToken);
+
+        if (expiredInvoices.Count > 0)
+        {
+            foreach (var expiredInv in expiredInvoices)
+            {
+                await CancelPendingInvoiceCoreAsync(null, expiredInv, now, cancellationToken);
+            }
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        return await (
+            from item in _unitOfWork.Context.InvoiceItems
+            join invoice in _unitOfWork.Context.Invoices on item.InvoiceId equals invoice.Id
+            join subscription in _unitOfWork.Context.MemberSubscriptions on item.SubscriptionId equals subscription.Id
+            where invoice.MemberId == memberId && item.PackageId == packageId
+                && subscription.Status == "PendingPayment"
+                && (invoice.Status == "Issued" || invoice.Status == "PartiallyPaid")
+                && invoice.IssuedAt >= expiryThreshold
+            orderby invoice.IssuedAt descending
+            select invoice.InvoiceNumber
+        ).FirstOrDefaultAsync(cancellationToken);
+    }
 
     private static AuditLog CreateAudit(long? actorId, string action, string entityType, long entityId, object newValues, DateTime createdAt) =>
         new()
@@ -1916,7 +1978,7 @@ public sealed class PaymentService(
         {
             throw new BusinessException(
                 HttpStatusCode.ServiceUnavailable,
-                $"{provider} chưa được cấu hình đầy đủ. Hãy cấu hình bằng User Secrets hoặc biến môi trường.");
+                $"{provider} thiếu cấu hình bắt buộc: {string.Join(", ", missingKeys)}. Hãy cấu hình bằng User Secrets hoặc biến môi trường.");
         }
     }
 
@@ -1968,4 +2030,215 @@ public sealed class PaymentService(
     private DateOnly ToBusinessDate(DateTime utcDateTime) =>
         DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
             DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc), GetReportTimeZone()));
+
+    private async Task CancelPendingInvoiceCoreAsync(
+        long? actorUserId,
+        Invoice invoice,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        invoice.Status = "Voided";
+
+        // Void tất cả payment Pending của hóa đơn này
+        var pendingPayments = await _unitOfWork.Context.Payments
+            .Where(p => p.InvoiceId == invoice.Id && p.PaymentStatus == "Pending")
+            .ToListAsync(cancellationToken);
+        foreach (var payment in pendingPayments)
+        {
+            payment.PaymentStatus = "Voided";
+            payment.Note = "Hủy hóa đơn chờ thanh toán.";
+        }
+
+        // Hủy subscription PendingPayment liên kết
+        var invoiceItems = await _unitOfWork.Context.InvoiceItems
+            .Where(item => item.InvoiceId == invoice.Id && item.SubscriptionId != null)
+            .ToListAsync(cancellationToken);
+        foreach (var item in invoiceItems)
+        {
+            var subscription = await _unitOfWork.Context.MemberSubscriptions
+                .SingleOrDefaultAsync(s => s.Id == item.SubscriptionId, cancellationToken);
+            if (subscription is not null && subscription.Status == "PendingPayment")
+            {
+                subscription.Status = "Cancelled";
+                subscription.UpdatedAt = now;
+            }
+        }
+
+        _unitOfWork.Context.AuditLogs.Add(CreateAudit(
+            actorUserId, "Invoice.CancelledByMember", "Invoice", invoice.Id,
+            new { invoice.InvoiceNumber, reason = "Hủy hóa đơn chờ thanh toán." }, now));
+    }
+
+    /// <summary>
+    /// Hủy hóa đơn PendingPayment do member chủ động yêu cầu.
+    /// Điều kiện: hóa đơn thuộc member đó, chưa có payment Succeeded, trạng thái Issued/PartiallyPaid.
+    /// </summary>
+    public async Task<PaymentResultResponse> CancelPendingInvoiceAsync(
+        long memberUserId,
+        string invoiceNumber,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await _unitOfWork.Context.Database
+            .BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+
+        var invoice = await _unitOfWork.Context.Invoices
+            .SingleOrDefaultAsync(i => i.InvoiceNumber == invoiceNumber, cancellationToken)
+            ?? throw BusinessException.NotFound("Không tìm thấy hóa đơn.");
+
+        // Xác nhận hóa đơn thuộc đúng member đang đăng nhập hoặc nhân viên
+        var memberProfile = await _unitOfWork.Context.MemberProfiles
+            .SingleOrDefaultAsync(m => m.UserId == memberUserId, cancellationToken);
+
+        if (memberProfile != null && invoice.MemberId != memberProfile.Id)
+        {
+            var isStaff = await _unitOfWork.Context.StaffProfiles.AnyAsync(s => s.UserId == memberUserId, cancellationToken);
+            if (!isStaff)
+                throw BusinessException.Forbidden("Bạn không có quyền hủy hóa đơn này.");
+        }
+
+        // Không hủy nếu đã có payment thành công
+        if (await _unitOfWork.Context.Payments.AnyAsync(
+                p => p.InvoiceId == invoice.Id && p.PaymentStatus == "Succeeded", cancellationToken))
+        {
+            throw BusinessException.Conflict("Hóa đơn đã có thanh toán thành công. Liên hệ nhân viên để được hỗ trợ.");
+        }
+
+        if (invoice.Status is "Voided" or "Refunded" or "Paid")
+            throw BusinessException.Conflict($"Hóa đơn trạng thái '{invoice.Status}' không thể hủy.");
+
+        if (invoice.Status is not ("Issued" or "PartiallyPaid"))
+            throw BusinessException.Conflict($"Chỉ có thể hủy hóa đơn ở trạng thái Issued hoặc PartiallyPaid.");
+
+        var now = DateTime.UtcNow;
+        await CancelPendingInvoiceCoreAsync(memberUserId, invoice, now, cancellationToken);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return new PaymentResultResponse
+        {
+            Success = true,
+            Message = "Đã hủy hóa đơn chờ thanh toán thành công.",
+            InvoiceNumber = invoice.InvoiceNumber
+        };
+    }
+
+    /// <summary>
+    /// Hủy hóa đơn chờ thanh toán của gói tập do member hoặc nhân sự chủ động yêu cầu.
+    /// </summary>
+    public async Task<PaymentResultResponse> CancelPendingPackageAsync(
+        long memberUserId,
+        long packageId,
+        long? targetMemberId = null,
+        CancellationToken cancellationToken = default)
+    {
+        long resolvedMemberId;
+        if (targetMemberId.HasValue && targetMemberId.Value > 0)
+        {
+            resolvedMemberId = targetMemberId.Value;
+        }
+        else
+        {
+            var memberProfile = await _unitOfWork.Context.MemberProfiles
+                .SingleOrDefaultAsync(m => m.UserId == memberUserId, cancellationToken);
+            if (memberProfile is null)
+            {
+                var isStaff = await _unitOfWork.Context.StaffProfiles.AnyAsync(s => s.UserId == memberUserId, cancellationToken);
+                if (!isStaff)
+                {
+                    throw BusinessException.NotFound("Không tìm thấy hồ sơ thành viên.");
+                }
+
+                var anyPending = await (
+                    from item in _unitOfWork.Context.InvoiceItems
+                    join invoice in _unitOfWork.Context.Invoices on item.InvoiceId equals invoice.Id
+                    join subscription in _unitOfWork.Context.MemberSubscriptions on item.SubscriptionId equals subscription.Id
+                    where item.PackageId == packageId && subscription.Status == "PendingPayment"
+                        && (invoice.Status == "Issued" || invoice.Status == "PartiallyPaid")
+                    orderby invoice.IssuedAt descending
+                    select invoice.MemberId
+                ).FirstOrDefaultAsync(cancellationToken);
+
+                if (anyPending == 0)
+                {
+                    return new PaymentResultResponse
+                    {
+                        Success = true,
+                        Message = "Không có hóa đơn chờ nào cho gói này."
+                    };
+                }
+                resolvedMemberId = anyPending;
+            }
+            else
+            {
+                resolvedMemberId = memberProfile.Id;
+            }
+        }
+
+        var pendingInvoiceNumber = await FindOpenPendingInvoiceNumberAsync(resolvedMemberId, packageId, cancellationToken);
+        if (pendingInvoiceNumber is null)
+        {
+            return new PaymentResultResponse
+            {
+                Success = true,
+                Message = "Không có hóa đơn chờ nào cho gói này."
+            };
+        }
+
+        return await CancelPendingInvoiceAsync(memberUserId, pendingInvoiceNumber, cancellationToken);
+    }
+
+    /// <summary>
+    /// Lấy danh sách hóa đơn đang chờ thanh toán của member.
+    /// </summary>
+    public async Task<List<PendingInvoiceDto>> GetMyPendingInvoicesAsync(
+        long memberUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var memberProfile = await _unitOfWork.Context.MemberProfiles
+            .SingleOrDefaultAsync(m => m.UserId == memberUserId, cancellationToken);
+        if (memberProfile is null) return new();
+
+        var query = from item in _unitOfWork.Context.InvoiceItems.AsNoTracking()
+                    join invoice in _unitOfWork.Context.Invoices.AsNoTracking() on item.InvoiceId equals invoice.Id
+                    join subscription in _unitOfWork.Context.MemberSubscriptions.AsNoTracking() on item.SubscriptionId equals subscription.Id
+                    join package in _unitOfWork.Context.MembershipPackages.AsNoTracking() on item.PackageId equals package.Id
+                    where invoice.MemberId == memberProfile.Id
+                        && subscription.Status == "PendingPayment"
+                        && (invoice.Status == "Issued" || invoice.Status == "PartiallyPaid")
+                    orderby invoice.IssuedAt descending
+                    select new
+                    {
+                        invoice.Id,
+                        invoice.InvoiceNumber,
+                        PackageId = package.Id,
+                        PackageName = package.Name,
+                        Amount = invoice.TotalAmount,
+                        DurationDays = package.DurationDays,
+                        invoice.IssuedAt
+                    };
+
+        var items = await query.ToListAsync(cancellationToken);
+        if (items.Count == 0) return new();
+
+        var invoiceIds = items.Select(x => x.Id).ToList();
+        var latestPayments = await _unitOfWork.Context.Payments.AsNoTracking()
+            .Where(p => invoiceIds.Contains(p.InvoiceId))
+            .OrderByDescending(p => p.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        return items.Select(x =>
+        {
+            var p = latestPayments.FirstOrDefault(pay => pay.InvoiceId == x.Id);
+            return new PendingInvoiceDto(
+                x.InvoiceNumber,
+                x.PackageId,
+                x.PackageName,
+                x.Amount,
+                x.DurationDays,
+                x.IssuedAt,
+                p?.PaymentMethod
+            );
+        }).ToList();
+    }
 }

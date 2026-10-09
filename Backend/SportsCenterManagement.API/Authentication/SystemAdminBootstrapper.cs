@@ -76,14 +76,14 @@ public static class SystemAdminBootstrapper
 
     private static void ValidatePassword(string password)
     {
-        if (password.Length < 12
+        if (password.Length < 6
             || !Regex.IsMatch(password, "[A-Z]")
             || !Regex.IsMatch(password, "[a-z]")
             || !Regex.IsMatch(password, "[0-9]")
             || !Regex.IsMatch(password, "[^a-zA-Z0-9]"))
         {
             throw new InvalidOperationException(
-                "The bootstrap SystemAdmin password must be at least 12 characters and contain upper/lowercase letters, a number, and a symbol.");
+                "The bootstrap SystemAdmin password must be at least 6 characters and contain upper/lowercase letters, a number, and a symbol.");
         }
     }
 }

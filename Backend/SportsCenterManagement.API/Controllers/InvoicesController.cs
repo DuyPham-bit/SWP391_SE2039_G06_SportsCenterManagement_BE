@@ -29,7 +29,7 @@ public sealed class InvoicesController(IPaymentService paymentService) : Control
         return details is null ? NotFound() : Ok(details);
     }
 
-    [Authorize(Roles = "Receptionist,Manager,Admin")]
+    [Authorize(Roles = "RECEPTIONIST,MANAGER,ADMIN")]
     [HttpPost("{invoiceNumber}/payments")]
     [ProducesResponseType(typeof(InvoiceDetailsResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<InvoiceDetailsResponse>> RecordPayment(

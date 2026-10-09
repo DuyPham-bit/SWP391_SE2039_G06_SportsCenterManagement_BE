@@ -6,8 +6,8 @@ public static class PasswordPolicy
 {
     public static string? GetValidationError(string password, string? email = null, string? phone = null)
     {
-        if (string.IsNullOrWhiteSpace(password) || password.Length < 12 || password.Length > 128)
-            return "Mật khẩu phải có từ 12 đến 128 ký tự.";
+        if (string.IsNullOrWhiteSpace(password) || password.Length < 6 || password.Length > 128)
+            return "Mật khẩu phải có từ 6 đến 128 ký tự.";
         if (password.Any(char.IsWhiteSpace))
             return "Mật khẩu không được chứa khoảng trắng.";
         if (!password.Any(char.IsUpper) || !password.Any(char.IsLower)

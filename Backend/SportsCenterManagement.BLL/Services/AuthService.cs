@@ -193,13 +193,13 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
     }
 
     /// <summary>
-    /// Validates password complexity: minimum 12 characters, including uppercase, lowercase, numbers, and special characters.
+    /// Validates password complexity: minimum 6 characters, including uppercase, lowercase, numbers, and special characters.
     /// </summary>
     /// <param name="password">Plain text password to be validated.</param>
     private static void ValidatePassword(string password)
     {
-        // 1. Kiểm tra chuỗi rỗng hoặc độ dài tối thiểu 12 ký tự / Check null or minimum length of 12 characters
-        if (string.IsNullOrWhiteSpace(password) || password.Length < 12
+        // 1. Kiểm tra chuỗi rỗng hoặc độ dài tối thiểu 6 ký tự / Check null or minimum length of 6 characters
+        if (string.IsNullOrWhiteSpace(password) || password.Length < 6
             // 2. Phải chứa ít nhất 1 chữ hoa / Must contain at least one uppercase letter (A-Z)
             || !Regex.IsMatch(password, "[A-Z]")
             // 3. Phải chứa ít nhất 1 chữ thường / Must contain at least one lowercase letter (a-z)
@@ -210,7 +210,7 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
             || !Regex.IsMatch(password, "[^a-zA-Z0-9]"))
         {
             // Ném ngoại lệ nếu không thỏa mãn bất kỳ điều kiện bảo mật nào / Throw validation exception if any rule fails
-            throw new ValidationException("Password must be at least 12 characters long and contain uppercase letters, lowercase letters, numbers, and special characters.");
+            throw new ValidationException("Password must be at least 6 characters long and contain uppercase letters, lowercase letters, numbers, and special characters.");
         }
     }
 

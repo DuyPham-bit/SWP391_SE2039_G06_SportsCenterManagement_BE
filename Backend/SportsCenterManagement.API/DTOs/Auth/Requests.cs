@@ -19,7 +19,7 @@ namespace SportsCenterManagement.API.DTOs.Auth
         [Required, StringLength(150)]
         public required string CurrentPassword { get; init; }
 
-        [Required, MinLength(12), MaxLength(128)]
+        [Required, MinLength(6), MaxLength(128)]
         public required string NewPassword { get; init; }
     }
 
@@ -49,7 +49,7 @@ namespace SportsCenterManagement.API.DTOs.Auth
         [Required, RegularExpression("^\\d{6}$")]
         public required string Otp { get; init; }
 
-        [Required, MinLength(12), MaxLength(128)]
+        [Required, MinLength(6), MaxLength(128)]
         public required string NewPassword { get; init; }
     }
 }

@@ -14,7 +14,12 @@ public static class Responses
         string? Gender,
         string? Address,
         DateTime CreatedAt,
-        string AccountStatus = "Active");
+        string AccountStatus = "Active",
+        string? PackageName = null,
+        DateOnly? PackageExpiry = null,
+        string? PackageStatus = null,
+        long? PackageId = null,
+        long? SubscriptionId = null);
 
     public sealed record MemberSubscriptionResponse(
         long SubscriptionId,

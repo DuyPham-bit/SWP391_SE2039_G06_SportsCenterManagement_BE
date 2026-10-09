@@ -72,13 +72,13 @@ API được xây bằng ASP.NET Core MVC Controllers và trả JSON; không dù
 | GET | `/api/admin/roles` | System Admin xem ma trận quyền |
 | PUT | `/api/admin/roles/{roleId}/permissions` | System Admin thay ma trận quyền của role; quyền này luôn chỉ thuộc SystemAdmin |
 
-MVP tắt email verification; mật khẩu cần ít nhất 12 ký tự gồm chữ hoa, chữ thường, số và ký tự đặc biệt. Token bearer dùng ASP.NET Core Data Protection, hết hạn sau 1 giờ; API kiểm tra lại trạng thái và role trên mỗi request. Subscription chỉ bắt đầu khi invoice được thanh toán đủ.
+MVP tắt email verification; mật khẩu cần ít nhất 6 ký tự gồm chữ hoa, chữ thường, số và ký tự đặc biệt. Token bearer dùng ASP.NET Core Data Protection, hết hạn sau 1 giờ; API kiểm tra lại trạng thái và role trên mỗi request. Subscription chỉ bắt đầu khi invoice được thanh toán đủ.
 
 Manager/Receptionist cần có `StaffProfile` trạng thái `Active` tại center được giao. Manager tạo Coach/Receptionist trong center mình quản lý; System Admin có thể quản trị nhân sự theo quyền được cấp. Mọi endpoint nhạy cảm kiểm tra permission và center ở backend.
 
 ### Bootstrap System Admin đầu tiên
 
-Role `SystemAdmin` được seed nhưng không có tài khoản/mật khẩu mặc định. Với database chưa có System Admin, cần cấu hình đủ ba biến môi trường trước khi chạy API; nếu thiếu, API dừng khởi động để tránh vận hành hệ thống không có quản trị viên. Mật khẩu phải dài ít nhất 12 ký tự và có chữ hoa, chữ thường, số, ký tự đặc biệt. Khi đã có System Admin, bootstrapper không tự đổi thông tin tài khoản.
+Role `SystemAdmin` được seed nhưng không có tài khoản/mật khẩu mặc định. Với database chưa có System Admin, cần cấu hình đủ ba biến môi trường trước khi chạy API; nếu thiếu, API dừng khởi động để tránh vận hành hệ thống không có quản trị viên. Mật khẩu phải dài ít nhất 6 ký tự và có chữ hoa, chữ thường, số, ký tự đặc biệt. Khi đã có System Admin, bootstrapper không tự đổi thông tin tài khoản.
 
 ```powershell
 $env:Bootstrap__SystemAdmin__Username = "<username>"
@@ -146,6 +146,28 @@ $env:Cors__AllowedOrigins__0 = "http://localhost:5173"
 ```
 
 Gateway secret được đọc từ biến môi trường/User Secrets: `VnPay__HashSecret`, `Momo__AccessKey`, `Momo__SecretKey`, `PayOS__ClientId`, `PayOS__ApiKey`, `PayOS__ChecksumKey`. Không cấu hình provider thì các API khác vẫn chạy; endpoint tạo link của provider đó trả `503` trước khi tạo payment attempt.
+
+Để chạy PayOS local, lấy ba giá trị kết nối từ tài khoản PayOS rồi chạy tại thư mục `Backend/Backend/SportsCenterManagement.API`:
+
+```powershell
+dotnet user-secrets set "PayOS:ClientId" "GIÁ_TRỊ_CLIENT_ID"
+dotnet user-secrets set "PayOS:ApiKey" "GIÁ_TRỊ_API_KEY"
+dotnet user-secrets set "PayOS:ChecksumKey" "GIÁ_TRỊ_CHECKSUM_KEY"
+```
+
+Khởi động lại API sau khi cấu hình. Không gửi hoặc commit các giá trị này. Trên môi trường Production, đặt `PayOS:ReturnUrl` và `PayOS:CancelUrl` thành địa chỉ HTTPS công khai của Frontend.
+
+MoMo và VNPay cũng cần thông tin merchant riêng. Cấu hình các giá trị từ tài khoản thử nghiệm/merchant tương ứng bằng User Secrets tại cùng thư mục:
+
+```powershell
+dotnet user-secrets set "Momo:PartnerCode" "GIÁ_TRỊ_PARTNER_CODE"
+dotnet user-secrets set "Momo:AccessKey" "GIÁ_TRỊ_ACCESS_KEY"
+dotnet user-secrets set "Momo:SecretKey" "GIÁ_TRỊ_SECRET_KEY"
+dotnet user-secrets set "VnPay:TmnCode" "GIÁ_TRỊ_TMN_CODE"
+dotnet user-secrets set "VnPay:HashSecret" "GIÁ_TRỊ_HASH_SECRET"
+```
+
+User Secrets chỉ được nạp khi Backend chạy ở môi trường Development trên đúng máy đó. Khi triển khai, đặt cùng giá trị bằng biến môi trường trên máy chủ Backend; không lưu secret vào Frontend hoặc chia sẻ qua chat.
 
 ## Database và migrations
 

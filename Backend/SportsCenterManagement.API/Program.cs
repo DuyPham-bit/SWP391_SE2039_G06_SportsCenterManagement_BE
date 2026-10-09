@@ -40,23 +40,6 @@ builder.Services.AddAuthorization();
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("Frontend", policy =>
-    {
-        if (allowedOrigins != null && allowedOrigins.Length > 0)
-        {
-            policy.WithOrigins(allowedOrigins);
-        }
-        else
-        {
-            policy.WithOrigins("http://127.0.0.1:3003", "http://localhost:3003", "http://localhost:5173");
-        }
-        policy.AllowAnyHeader().AllowAnyMethod();
-    });
-});
-
 builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
@@ -83,6 +66,7 @@ builder.Services.AddHttpClient<IVnPayService, VnPayService>();
 builder.Services.AddHttpClient<IMoMoService, MoMoService>();
 builder.Services.AddHttpClient<IPayOsService, PayOsService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<ICheckinService, CheckinService>();
 
 // Layer 1: Presentation (API Controllers & Swagger UI)
 builder.Services.AddControllers();
@@ -199,9 +183,53 @@ app.Use(async (context, next) =>
     }
 });
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.UseRouting();
-app.UseCors("Frontend");
+app.Use(async (context, next) =>
+{
+    var isPaymentCreateRequest = context.Request.Method == HttpMethods.Post &&
+        context.Request.Path.Value is "/api/payments/create-vnpay-url"
+            or "/api/payments/create-momo-url"
+            or "/api/payments/create-payos-url";
+
+    if (isPaymentCreateRequest)
+    {
+        app.Logger.LogInformation(
+            "Payment debug: request reached backend. Path={Path} TraceId={TraceId}",
+            context.Request.Path,
+            context.TraceIdentifier);
+    }
+
+    try
+    {
+        await next();
+    }
+    finally
+    {
+        if (isPaymentCreateRequest)
+        {
+            app.Logger.LogInformation(
+                "Payment debug: backend response sent. Path={Path} StatusCode={StatusCode} TraceId={TraceId}",
+                context.Request.Path,
+                context.Response.StatusCode,
+                context.TraceIdentifier);
+        }
+    }
+});
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapGet("/payment-result", async context =>
+{
+    var frontendIndex = Path.Combine(app.Environment.ContentRootPath, "wwwroot", "index.html");
+    if (!File.Exists(frontendIndex))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    context.Response.ContentType = "text/html; charset=utf-8";
+    await context.Response.SendFileAsync(frontendIndex);
+});
 app.Run();

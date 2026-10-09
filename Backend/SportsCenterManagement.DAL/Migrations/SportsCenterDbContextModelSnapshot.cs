@@ -1539,6 +1539,10 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("decimal(12,2)")
                         .HasColumnName("amount_received");
 
+                    b.Property<DateTime>("AttemptedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("attempted_at");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("created_at");

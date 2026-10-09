@@ -94,4 +94,29 @@ public interface IPaymentService
         DateOnly to,
         string groupBy,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Hủy hóa đơn đang chờ thanh toán (chưa thu tiền) do member chủ động yêu cầu.
+    /// Chỉ hủy được hóa đơn của chính member đó và chưa có payment Succeeded.
+    /// </summary>
+    Task<PaymentResultResponse> CancelPendingInvoiceAsync(
+        long memberUserId,
+        string invoiceNumber,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Hủy hóa đơn chờ thanh toán của gói tập do member chủ động yêu cầu.
+    /// </summary>
+    Task<PaymentResultResponse> CancelPendingPackageAsync(
+        long memberUserId,
+        long packageId,
+        long? targetMemberId = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lấy danh sách hóa đơn đang chờ thanh toán của member.
+    /// </summary>
+    Task<List<PendingInvoiceDto>> GetMyPendingInvoicesAsync(
+        long memberUserId,
+        CancellationToken cancellationToken = default);
 }

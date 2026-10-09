@@ -10,10 +10,16 @@ namespace SportsCenterManagement.DAL.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "IX_membership_packages_center_id",
-                schema: "dbo",
-                table: "membership_packages");
+            // A legacy schema may not include the index that the current model replaces.
+            migrationBuilder.Sql("""
+                IF EXISTS (
+                    SELECT 1 FROM sys.indexes
+                    WHERE object_id = OBJECT_ID(N'dbo.membership_packages')
+                      AND name = N'IX_membership_packages_center_id')
+                BEGIN
+                    DROP INDEX [IX_membership_packages_center_id] ON [dbo].[membership_packages];
+                END
+                """);
 
             migrationBuilder.AddColumn<long>(
                 name: "center_id",

@@ -8,7 +8,7 @@ namespace SportsCenterManagement.API.Controllers;
 
 [ApiController]
 [Route("api/reports")]
-[Authorize(Roles = "Manager,Admin")]
+[Authorize(Roles = "MANAGER,ADMIN")]
 public sealed class ReportsController(IReportService reportService) : ControllerBase
 {
     [HttpGet("revenue")]

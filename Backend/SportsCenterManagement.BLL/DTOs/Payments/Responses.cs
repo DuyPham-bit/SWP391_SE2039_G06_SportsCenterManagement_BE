@@ -489,4 +489,14 @@ public class PackageReceiptDto
     public string Name { get; set; } = string.Empty;
     public int DurationDays { get; set; }
 }
+
+public record PendingInvoiceDto(
+    string InvoiceNumber,
+    long PackageId,
+    string PackageName,
+    decimal Amount,
+    int DurationDays,
+    DateTime IssuedAt,
+    string? PaymentMethod
+);
 }

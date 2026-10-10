@@ -22,6 +22,7 @@ internal static class ScheduleTime
 
 internal static class FlowStatuses
 {
+    public const string ClassDraft = "Draft";
     public const string ClassPublished = "Published";
     public const string ClassCancelled = "Cancelled";
     public const string ClassCompleted = "Completed";

@@ -174,6 +174,15 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
             existingClassCoach.AssignedDate = today;
         }
 
+        if (request.IsPrimary)
+        {
+            var upcomingSessions = await db.ClassSessions
+                .Where(session => session.ClassId == classId
+                    && session.SessionStatus == "Scheduled" && session.SessionDate >= today)
+                .ToListAsync(cancellationToken);
+            foreach (var session in upcomingSessions) session.CoachId = coachProfile.Id;
+        }
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 

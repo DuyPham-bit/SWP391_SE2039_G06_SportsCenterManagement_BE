@@ -26,30 +26,58 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
     public async Task<BookSessionResult> BookSessionAsync(long currentUserId, long sessionId, CancellationToken cancellationToken = default)
     {
         var member = await GetMemberAsync(currentUserId, cancellationToken);
+        return await BookForMemberCoreAsync(currentUserId, member, sessionId, cancellationToken);
+    }
+
+    public async Task<BookSessionResult> BookSessionForMemberAsync(
+        long actorUserId, long memberId, long sessionId, CancellationToken cancellationToken = default)
+    {
+        var member = await Db.MemberProfiles.SingleOrDefaultAsync(item => item.Id == memberId, cancellationToken)
+            ?? throw FlowException.NotFound("Hồ sơ hội viên không tồn tại.");
+        return await BookForMemberCoreAsync(actorUserId, member, sessionId, cancellationToken);
+    }
+
+    private async Task<BookSessionResult> BookForMemberCoreAsync(
+        long actorUserId, MemberProfile member, long sessionId, CancellationToken cancellationToken)
+    {
+        await EnsureActiveMemberAsync(member, cancellationToken);
 
         await using var transaction = await Db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
+        await LockSessionAsync(sessionId, cancellationToken);
 
         var session = await Db.ClassSessions.SingleOrDefaultAsync(s => s.Id == sessionId, cancellationToken)
             ?? throw FlowException.NotFound("Buổi học không tồn tại."); // UH06
         var cls = await Db.Classes.SingleAsync(c => c.Id == session.ClassId, cancellationToken);
         var now = ScheduleTime.VietnamNow;
 
-        await EnsureEligibleAsync(member, session, cls, now, cancellationToken);
+        if (actorUserId != (await Db.MemberProfiles.Where(item => item.Id == member.Id)
+                .Select(item => item.UserId).SingleAsync(cancellationToken)))
+        {
+            var staffForCenter = await Db.StaffProfiles.AnyAsync(profile =>
+                profile.UserId == actorUserId && profile.CenterId == cls.CenterId && profile.Status == "Active",
+                cancellationToken);
+            if (!staffForCenter)
+                throw FlowException.Forbidden("Nhân viên chỉ có thể ghi danh hội viên tại cơ sở được phân công.");
+        }
+
+        var subscription = await EnsureEligibleAsync(member, session, cls, now, cancellationToken);
 
         var capacity = await GetEffectiveCapacityAsync(session, cls, cancellationToken);
-        var booked = await Db.SessionBookings.CountAsync(
-            b => b.SessionId == sessionId && b.Status == FlowStatuses.BookingBooked, cancellationToken);
+        var booked = await GetCommittedSeatCountAsync(sessionId, cls.Id, cancellationToken);
 
         if (booked >= capacity)
         {
             // UH03 / UH07: full (possibly just now) -> waitlist instead of a hard failure.
             var entry = await Db.ClassWaitlists.FirstOrDefaultAsync(
-                w => w.ClassId == cls.Id && w.MemberId == member.Id && w.Status == FlowStatuses.WaitlistWaiting, cancellationToken);
+                w => w.SessionId == session.Id && w.MemberId == member.Id && w.Status == FlowStatuses.WaitlistWaiting, cancellationToken);
             if (entry is null)
             {
                 entry = new ClassWaitlist
                 {
                     ClassId = cls.Id,
+                    SessionId = session.Id,
+                    SubscriptionId = subscription.Id,
+                    JoinedBy = actorUserId,
                     MemberId = member.Id,
                     JoinedAt = DateTime.UtcNow,
                     Status = FlowStatuses.WaitlistWaiting
@@ -62,7 +90,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
                 "Lớp vừa đầy, bạn đã được chuyển vào danh sách chờ.");
         }
 
-        var booking = await CreateOrReactivateBookingAsync(member.Id, sessionId, cancellationToken);
+        var booking = await CreateOrReactivateBookingAsync(member.Id, sessionId, subscription.Id, actorUserId, cancellationToken);
         await SaveAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new BookSessionResult(true, false, ToResponse(booking, session, cls), null, "Đặt lịch thành công.");
@@ -84,6 +112,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
             throw FlowException.Conflict("Lượt đặt chỗ này đã được hủy trước đó.");
 
         var session = await Db.ClassSessions.SingleAsync(s => s.Id == booking.SessionId, cancellationToken);
+        await LockSessionAsync(session.Id, cancellationToken);
         var cls = await Db.Classes.SingleAsync(c => c.Id == session.ClassId, cancellationToken);
         var now = ScheduleTime.VietnamNow;
         var start = session.SessionDate.ToDateTime(session.StartTime);
@@ -126,22 +155,21 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
     // ------------------------------------------------------------------ rules
 
     /// <summary>Throws when the member may not take a seat in the session right now.</summary>
-    private async Task EnsureEligibleAsync(MemberProfile member, ClassSession session, ClassEntity cls, DateTime now, CancellationToken ct)
+    private async Task<MemberSubscription> EnsureEligibleAsync(
+        MemberProfile member, ClassSession session, ClassEntity cls, DateTime now, CancellationToken ct,
+        long? requiredSubscriptionId = null)
     {
         if (member.BookingSuspendedUntil is { } until && until > DateTime.UtcNow)
             throw FlowException.Forbidden($"Bạn đang bị tạm khóa đặt lịch đến {until:dd/MM/yyyy HH:mm}.");
 
         if (session.SessionStatus != FlowStatuses.SessionScheduled) // UH06
             throw FlowException.Conflict("Buổi học đã bị hủy hoặc không còn nhận đặt chỗ.");
-        if (FlowStatuses.IsClosed(cls.Status))
-            throw FlowException.Conflict("Lớp học đã bị hủy hoặc đã kết thúc.");
+        if (cls.Status != FlowStatuses.ClassPublished)
+            throw FlowException.Conflict("Lớp học chưa được publish hoặc đã đóng đăng ký.");
 
-        // BR-MEM-01
-        var hasPackage = await Db.MemberSubscriptions.AnyAsync(s =>
-            s.MemberId == member.Id && s.Status == "Active"
-            && s.StartDate <= session.SessionDate && s.EndDate >= session.SessionDate, ct);
-        if (!hasPackage)
-            throw FlowException.Forbidden("Bạn cần có gói tập còn hiệu lực để đặt lịch.");
+        if (await Db.ClassEnrollments.AnyAsync(enrollment => enrollment.ClassId == cls.Id
+                && enrollment.MemberId == member.Id && enrollment.Status == FlowStatuses.EnrollmentConfirmed, ct))
+            throw FlowException.Conflict("Hội viên đã ghi danh toàn khóa này; không thể đồng thời đặt từng buổi.");
 
         // BR-BOOK-01
         var start = session.SessionDate.ToDateTime(session.StartTime);
@@ -151,7 +179,8 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
 
         // UH05
         var alreadyBooked = await Db.SessionBookings.AnyAsync(
-            b => b.SessionId == session.Id && b.MemberId == member.Id && b.Status == FlowStatuses.BookingBooked, ct);
+            b => b.SessionId == session.Id && b.MemberId == member.Id
+                && (b.Status == FlowStatuses.BookingBooked || b.Status == FlowStatuses.BookingCancelledLate), ct);
         if (alreadyBooked)
             throw FlowException.Conflict("Bạn đã đặt buổi học này rồi.");
 
@@ -168,6 +197,47 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
         if (clash is not null)
             throw FlowException.Conflict(
                 $"Bạn đã có buổi '{clash.ClassName}' ({clash.StartTime:HH\\:mm}-{clash.EndTime:HH\\:mm}) trùng giờ trong ngày này.");
+
+        // BR-MEM-01: the subscription, active package, and class must all belong to the same center.
+        var subscriptions = await (
+            from subscription in Db.MemberSubscriptions
+            join package in Db.MembershipPackages on subscription.PackageId equals package.Id
+            where subscription.MemberId == member.Id && subscription.Status == "Active"
+                && subscription.StartDate <= session.SessionDate && subscription.EndDate >= session.SessionDate
+                && package.CenterId == cls.CenterId && package.Status == "Active"
+                && (requiredSubscriptionId == null || subscription.Id == requiredSubscriptionId.Value)
+            orderby subscription.EndDate descending, subscription.Id
+            select new { Subscription = subscription, Package = package })
+            .ToListAsync(ct);
+        foreach (var candidate in subscriptions)
+        {
+            var bookedClasses = await (
+                from booking in Db.SessionBookings
+                join bookedSession in Db.ClassSessions on booking.SessionId equals bookedSession.Id
+                where booking.SubscriptionId == candidate.Subscription.Id
+                    && (booking.Status == FlowStatuses.BookingBooked || booking.Status == FlowStatuses.BookingCancelledLate)
+                select bookedSession.ClassId).Distinct().ToListAsync(ct);
+            var enrolledClasses = await Db.ClassEnrollments
+                .Where(enrollment => enrollment.SubscriptionId == candidate.Subscription.Id
+                    && enrollment.Status == FlowStatuses.EnrollmentConfirmed)
+                .Select(enrollment => enrollment.ClassId).Distinct().ToListAsync(ct);
+            var classIds = bookedClasses.Union(enrolledClasses).ToHashSet();
+            if (candidate.Package.MaxClasses is { } maxClasses && !classIds.Contains(cls.Id) && classIds.Count >= maxClasses)
+                continue;
+
+            var sportIds = await (
+                from booking in Db.SessionBookings
+                join bookedSession in Db.ClassSessions on booking.SessionId equals bookedSession.Id
+                join bookedClass in Db.Classes on bookedSession.ClassId equals bookedClass.Id
+                where booking.SubscriptionId == candidate.Subscription.Id
+                    && (booking.Status == FlowStatuses.BookingBooked || booking.Status == FlowStatuses.BookingCancelledLate)
+                select bookedClass.SportId).Distinct().ToListAsync(ct);
+            if (!sportIds.Contains(cls.SportId) && sportIds.Count >= Math.Max(1, candidate.Package.AllowedSports))
+                continue;
+
+            return candidate.Subscription;
+        }
+        throw FlowException.Forbidden("Cần gói tập đang hiệu lực tại cùng cơ sở và còn quota lớp/bộ môn để đặt buổi này.");
     }
 
     private async Task<int> GetEffectiveCapacityAsync(ClassSession session, ClassEntity cls, CancellationToken ct)
@@ -179,13 +249,16 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
     }
 
     /// <summary>(session_id, member_id) is unique, so a previously cancelled row is re-used instead of duplicated.</summary>
-    private async Task<SessionBooking> CreateOrReactivateBookingAsync(long memberId, long sessionId, CancellationToken ct)
+    private async Task<SessionBooking> CreateOrReactivateBookingAsync(
+        long memberId, long sessionId, long? subscriptionId, long? bookedBy, CancellationToken ct)
     {
         var existing = await Db.SessionBookings.SingleOrDefaultAsync(b => b.SessionId == sessionId && b.MemberId == memberId, ct);
         if (existing is not null)
         {
             existing.Status = FlowStatuses.BookingBooked;
             existing.BookedAt = DateTime.UtcNow;
+            existing.SubscriptionId = subscriptionId;
+            existing.BookedBy = bookedBy;
             return existing;
         }
 
@@ -193,6 +266,8 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
         {
             SessionId = sessionId,
             MemberId = memberId,
+            SubscriptionId = subscriptionId,
+            BookedBy = bookedBy,
             BookedAt = DateTime.UtcNow,
             Status = FlowStatuses.BookingBooked
         };
@@ -207,12 +282,11 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
     private async Task<long?> PromoteNextWaitlistAsync(ClassSession session, ClassEntity cls, DateTime now, CancellationToken ct)
     {
         var capacity = await GetEffectiveCapacityAsync(session, cls, ct);
-        var booked = await Db.SessionBookings.CountAsync(
-            b => b.SessionId == session.Id && b.Status == FlowStatuses.BookingBooked, ct);
+        var booked = await GetCommittedSeatCountAsync(session.Id, cls.Id, ct);
         if (booked >= capacity) return null;
 
         var waiting = await Db.ClassWaitlists
-            .Where(w => w.ClassId == cls.Id && w.Status == FlowStatuses.WaitlistWaiting)
+            .Where(w => w.SessionId == session.Id && w.Status == FlowStatuses.WaitlistWaiting)
             .OrderBy(w => w.JoinedAt).ThenBy(w => w.Id)
             .ToListAsync(ct);
 
@@ -222,14 +296,15 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
             if (candidate is null) continue;
             try
             {
-                await EnsureEligibleAsync(candidate, session, cls, now, ct);
+                await EnsureActiveMemberAsync(candidate, ct);
+                var subscription = await EnsureEligibleAsync(candidate, session, cls, now, ct, entry.SubscriptionId);
+                await CreateOrReactivateBookingAsync(candidate.Id, session.Id, subscription.Id, entry.JoinedBy, ct);
             }
             catch (FlowException)
             {
                 continue;
             }
 
-            await CreateOrReactivateBookingAsync(candidate.Id, session.Id, ct);
             entry.Status = FlowStatuses.WaitlistPromoted;
             return candidate.Id;
         }
@@ -242,6 +317,34 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
     private async Task<MemberProfile> GetMemberAsync(long userId, CancellationToken ct) =>
         await Db.MemberProfiles.SingleOrDefaultAsync(m => m.UserId == userId, ct)
         ?? throw FlowException.Forbidden("Tài khoản hiện tại chưa có hồ sơ hội viên.");
+
+    private async Task EnsureActiveMemberAsync(MemberProfile member, CancellationToken ct)
+    {
+        var user = await Db.Users.SingleOrDefaultAsync(item => item.Id == member.UserId, ct);
+        if (user is null || user.Status != "Active" || (user.LockedUntil is { } lockedUntil && lockedUntil > DateTime.UtcNow))
+            throw FlowException.Forbidden("Tài khoản hội viên không hoạt động.");
+    }
+
+    private async Task<int> GetCommittedSeatCountAsync(long sessionId, long classId, CancellationToken ct)
+    {
+        var bookedMembers = await Db.SessionBookings
+            .Where(booking => booking.SessionId == sessionId && booking.Status == FlowStatuses.BookingBooked)
+            .Select(booking => booking.MemberId).ToListAsync(ct);
+        var enrolledMembers = await Db.ClassEnrollments
+            .Where(enrollment => enrollment.ClassId == classId && enrollment.Status == FlowStatuses.EnrollmentConfirmed)
+            .Select(enrollment => enrollment.MemberId).ToListAsync(ct);
+        return bookedMembers.Union(enrolledMembers).Count();
+    }
+
+    private async Task LockSessionAsync(long sessionId, CancellationToken ct)
+    {
+        if (!Db.Database.IsSqlServer()) return;
+        await Db.ClassSessions.FromSqlInterpolated(
+                $"SELECT * FROM [dbo].[class_sessions] WITH (UPDLOCK, HOLDLOCK) WHERE [Id] = {sessionId}")
+            .AsNoTracking()
+            .Select(session => session.Id)
+            .SingleOrDefaultAsync(ct);
+    }
 
     private async Task SaveAsync(CancellationToken ct)
     {

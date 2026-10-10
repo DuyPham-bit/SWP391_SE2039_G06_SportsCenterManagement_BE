@@ -157,7 +157,8 @@ public class UC13AndUC15Tests
 
         var unitOfWork = new UnitOfWork(db);
         var classService = new ClassService(unitOfWork);
-        var controller = new ClassesController(classService);
+        var controller = new ClassesController(classService, db);
+        ControllerContextWithUser(controller, 0);
 
         var assignRequest = new AssignCoachRequest { CoachId = coachProfile.Id, IsPrimary = true };
         var result = await controller.AssignCoach(classEntity.Id, assignRequest, CancellationToken.None);

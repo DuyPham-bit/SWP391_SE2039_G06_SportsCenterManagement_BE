@@ -97,96 +97,14 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
         return new PendingMembershipResult(subscription.Id, invoice.Id, invoiceNumber, package.Price);
     }
 
-    public async Task<ClassEnrollment> EnrollMemberAsync(
+    public Task<ClassEnrollment> EnrollMemberAsync(
         long classId,
         long memberId,
         long subscriptionId,
         long? registeredBy,
-        CancellationToken cancellationToken = default)
-    {
-        var classEntity = await _unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
-            ?? throw new InvalidOperationException("Class was not found.");
-        if (classEntity.Status != "Published")
-        {
-            throw new InvalidOperationException("Class is not open for enrollment.");
-        }
-
-        if (classEntity.Capacity <= 0)
-        {
-            throw new InvalidOperationException("Class capacity is not configured.");
-        }
-
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var subscription = await _unitOfWork.Repository<MemberSubscription>().Find(
-                item => item.Id == subscriptionId && item.MemberId == memberId && item.Status == "Active")
-            .SingleOrDefaultAsync(cancellationToken);
-        if (subscription is null || subscription.StartDate > today || subscription.EndDate < today)
-        {
-            throw new InvalidOperationException("An active membership is required to enroll.");
-        }
-
-        var membershipPackage = await _unitOfWork.Repository<MembershipPackage>().Find(
-            package => package.Id == subscription.PackageId)
-            .SingleAsync(cancellationToken);
-        if (membershipPackage.CenterId != classEntity.CenterId)
-        {
-            throw new InvalidOperationException("Membership and class belong to different centers.");
-        }
-
-        if (membershipPackage.MaxClasses is int maxClasses)
-        {
-            var activeClassCount = await _unitOfWork.Repository<ClassEnrollment>().CountAsync(
-                enrollment => enrollment.SubscriptionId == subscription.Id && enrollment.Status == "Confirmed",
-                cancellationToken);
-            var isAlreadyEnrolled = await _unitOfWork.Repository<ClassEnrollment>().AnyAsync(
-                enrollment => enrollment.ClassId == classId && enrollment.MemberId == memberId && enrollment.Status == "Confirmed",
-                cancellationToken);
-            if (!isAlreadyEnrolled && activeClassCount >= maxClasses)
-            {
-                throw new InvalidOperationException("Membership class allowance has been reached.");
-            }
-        }
-
-        await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
-        var existing = await _unitOfWork.Repository<ClassEnrollment>().Find(
-            enrollment => enrollment.ClassId == classId && enrollment.MemberId == memberId)
-            .SingleOrDefaultAsync(cancellationToken);
-        if (existing is not null && existing.Status == "Confirmed")
-        {
-            throw new InvalidOperationException("Member is already enrolled in this class.");
-        }
-
-        var confirmedCount = await _unitOfWork.Repository<ClassEnrollment>().CountAsync(
-            enrollment => enrollment.ClassId == classId && enrollment.Status == "Confirmed",
-            cancellationToken);
-        if (confirmedCount >= classEntity.Capacity)
-        {
-            throw new InvalidOperationException("Class is full.");
-        }
-
-        var now = DateTime.UtcNow;
-        if (existing is null)
-        {
-            existing = new ClassEnrollment
-            {
-                ClassId = classId,
-                MemberId = memberId,
-                RegisteredAt = now
-            };
-            await _unitOfWork.Repository<ClassEnrollment>().AddAsync(existing, cancellationToken);
-        }
-
-        existing.SubscriptionId = subscription.Id;
-        existing.RegisteredBy = registeredBy;
-        existing.RegisteredAt = now;
-        existing.CancelledAt = null;
-        existing.CancellationReason = null;
-        existing.Status = "Confirmed";
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return existing;
-    }
-
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<ClassEnrollment>(new InvalidOperationException(
+            "Class-wide enrollment is disabled. Register each member for a specific session."));
     public async Task<ClassEnrollment> CancelClassEnrollmentAsync(long classId, long memberId, string? reason, CancellationToken cancellationToken = default)
     {
         await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
@@ -202,13 +120,17 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork) : ICoreFlowService
             .Select(x => new { x.SessionDate, x.StartTime }).ToListAsync(cancellationToken);
         var nextSession = upcomingSessions.FirstOrDefault(x => x.SessionDate.ToDateTime(x.StartTime) > nowLocal);
         if (nextSession is null) throw new InvalidOperationException("Lớp không còn buổi học có thể hủy ghi danh.");
-        if (nowLocal >= nextSession.SessionDate.ToDateTime(nextSession.StartTime) - EnrollmentCancellationCutoff)
-            throw new InvalidOperationException("Chỉ được hủy ghi danh trước giờ học ít nhất 2 tiếng.");
-
-        enrollment.Status = "Cancelled";
+        var lateCancellation = nowLocal >= nextSession.SessionDate.ToDateTime(nextSession.StartTime) - EnrollmentCancellationCutoff;
+        enrollment.Status = lateCancellation ? "CancelledLateCharged" : "Cancelled";
         enrollment.CancelledAt = DateTime.UtcNow;
-        enrollment.CancellationReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim()[..Math.Min(reason.Trim().Length, 500)];
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        var cancellationReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+        if (lateCancellation)
+        {
+            cancellationReason = string.IsNullOrWhiteSpace(cancellationReason)
+                ? "Late cancellation; the next session remains charged."
+                : $"Late cancellation; the next session remains charged. {cancellationReason}";
+        }
+        enrollment.CancellationReason = cancellationReason is null ? null : cancellationReason[..Math.Min(cancellationReason.Length, 500)];        await _unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return enrollment;
     }

@@ -106,16 +106,19 @@ Tạo hoặc quản lý tài khoản và hồ sơ thành viên; chọn, mua ho�
 ### API contract đã triển khai (MVP)
 
 - `GET /api/centers/{centerId}/sports` và `/rooms`: lựa chọn bộ môn/phòng đang hoạt động.
-- Manager: `POST /api/classes`, `POST /api/classes/{id}/schedules`, `POST /api/classes/{id}/coaches`, `POST /api/classes/{id}/publish`.
-- Danh mục lớp Published: `GET /api/centers/{centerId}/classes`; thời khóa biểu theo ngày: `GET /api/centers/{centerId}/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD`; lịch buổi theo lớp: `GET /api/classes/{id}/sessions?from=&to=`.
-- Member: `POST /api/classes/{id}/enrollments` với `{ "subscriptionId": 123 }`, `GET /api/members/me/enrollments`, và `DELETE /api/classes/{id}/enrollments/{enrollmentId}` với body tùy chọn `{ "reason": "..." }`.
-- JWT quyết định Member hiện tại; client không được chọn `memberId`. Ghi danh yêu cầu subscription đang Active/còn hạn/đúng cơ sở, đủ quota, lớp Published và chỗ còn trống. Sức chứa được kiểm tra trong transaction Serializable.
-- Hủy ghi danh cho phép đến 2 giờ trước buổi Scheduled tiếp theo theo giờ Việt Nam (UTC+7), sau đó trả `409 Conflict`. Policy này được dùng vì đặc tả trước đó chưa quy định mốc cụ thể.
-- Lịch lặp tạo `ClassSession` cho từng ngày phù hợp; ngày trong tuần theo .NET (`0` = Chủ nhật). API lịch công khai lọc buổi qua `from`/`to`.
+- Manager/Admin: CRUD lớp và lịch, gán coach, hủy hoặc publish qua `/api/classes/{classId}`. Manager phải có StaffProfile Active tại center của lớp; Admin có quyền toàn cục.
+- Danh mục lớp Published: `GET /api/centers/{centerId}/classes`. Danh sách buổi: `GET /api/class-sessions?centerId=&sportId=&coachId=&from=&to=&page=&pageSize=`; bắt buộc chỉ rõ `centerId`.
+- Coach xem lịch của mình tại `GET /api/coaches/me/teaching-schedule?from=&to=` và roster tại `GET /api/coaches/me/class-sessions/{sessionId}/roster`; chỉ coach được gán vào buổi mới xem được roster.
+- Member tự đặt buổi qua `POST /api/class-sessions/{sessionId}/bookings`; Receptionist ghi danh hộ qua `POST /api/class-sessions/{sessionId}/members/{memberId}/bookings`. Member xem/hủy booking của mình qua `/api/members/me/session-bookings` và `/api/session-bookings/{bookingId}`.
+- Đặt theo từng buổi (`SessionBooking`) là luồng duy nhất cho đăng ký mới. `POST /api/classes/{classId}/enrollments` trả `409 Conflict` để tránh đếm sức chứa/quota hai lần; endpoint đọc/hủy enrollment cũ chỉ phục vụ dữ liệu lịch sử.
+- JWT quyết định Member hiện tại; client không được chọn `memberId`. Subscription phải Active, trong hạn, thuộc cùng center và còn quota `MaxClasses`/`AllowedSports`; lớp phải Published. Kiểm tra sức chứa và tạo waitlist theo từng session trong transaction SQL Server có khóa hàng.
+- Hủy trước hạn 2 giờ theo giờ Việt Nam (UTC+7) giải phóng chỗ và có thể promote người đầu tiên trong waitlist của đúng session. Hủy muộn giữ chỗ đã tính phí với trạng thái `CANCELLED_LATE_CHARGED`, không promote.
+- Lớp mới ở trạng thái Draft. Chỉ publish được khi đã có lịch với session tương lai và coach Active cùng center. Hủy lớp/buổi cập nhật booking, waitlist và thông báo người bị ảnh hưởng; sửa lịch bị từ chối nếu có booking tương lai.
+- Lịch lặp tạo `ClassSession` cho từng ngày phù hợp; ngày trong tuần theo .NET (`0` = Chủ nhật). Schedule query luôn lọc theo center và chỉ trả lớp Published.
 
 ### 5.1 Mục tiêu
 
-Manager tạo lớp, phòng, lịch và phân công coach; member ghi danh lớp hoặc đặt buổi; hệ thống bảo vệ sức chứa, quyền tham gia và tránh xung đột lịch.
+Manager tạo lớp, phòng, lịch và phân công coach; member đặt từng buổi; hệ thống bảo vệ sức chứa, quyền tham gia và tránh xung đột lịch.
 
 ### 5.2 Luồng setup của Manager
 
@@ -128,10 +131,10 @@ Manager tạo lớp, phòng, lịch và phân công coach; member ghi danh lớp
 
 ### 5.3 Luồng đăng ký lớp/buổi của Member hoặc Receptionist
 
-1. Member chọn lớp; hệ thống xác thực user đang Active và member profile hợp lệ.
+1. Member chọn một buổi; Receptionist có thể chọn member tại quầy. Hệ thống xác thực user đang Active và member profile hợp lệ.
 2. Hệ thống kiểm tra subscription có quyền tham gia, còn hiệu lực, đúng center/access type và còn quota nếu gói giới hạn số lớp.
 3. Hệ thống kiểm tra lớp/session Published, chưa đóng đăng ký, còn chỗ, không trùng giờ với booking khác và member chưa đăng ký.
-4. Nếu nghiệp vụ là đăng ký cả khóa, tạo ClassEnrollment. Nếu nghiệp vụ là đặt buổi riêng lẻ, tạo SessionBooking. Không tạo cả hai kiểu cho cùng thao tác nếu chưa định nghĩa quan hệ.
+4. Tạo duy nhất SessionBooking gắn với session và subscription. API ghi danh cả lớp bị tắt cho đăng ký mới để không có hai nguồn tính sức chứa/quota.
 5. Ghi nhận đăng ký, thời điểm và actor (`Member` hoặc `Receptionist`); trả xác nhận hoặc vị trí waitlist.
 6. Khi hủy theo chính sách, chuyển trạng thái và giải phóng chỗ; nếu có waitlist, mời người tiếp theo theo quy tắc đã chốt.
 
@@ -140,11 +143,12 @@ Manager tạo lớp, phòng, lịch và phân công coach; member ghi danh lớp
 | ID | Tình huống | Kết quả mong đợi |
 |---|---|---|
 | F2-H1 | Manager tạo lớp, lịch, phòng và gán coach không bị trùng. | Dữ liệu được lưu; sessions được sinh trong khoảng hiệu lực; lịch hiển thị chính xác. |
-| F2-H2 | Member có subscription đủ điều kiện đăng ký lớp còn chỗ. | Tạo enrollment/booking duy nhất; cập nhật số chỗ chính xác; gửi xác nhận. |
-| F2-H3 | Receptionist ghi danh member tại quầy. | Kiểm tra cùng rule như member tự đăng ký; lưu `registered_by`; member thấy lớp trong lịch cá nhân. |
-| F2-H4 | Lớp đầy nhưng bật waitlist. | Đăng ký được lưu trạng thái `Waitlisted`, không tính là chỗ đã xác nhận. |
-| F2-H5 | Coach xem lịch. | Chỉ thấy sessions thuộc lớp được phân công; member roster chỉ gồm người đã xác nhận. |
-| F2-H6 | Member hủy đúng thời hạn. | Booking/enrollment chuyển `Cancelled`; giữ lịch sử và giải phóng chỗ đúng một lần. |
+| F2-H2 | Member có subscription đủ điều kiện đặt buổi còn chỗ. | Tạo một SessionBooking; kiểm tra center/quota và giữ sức chứa chính xác. |
+| F2-H3 | Receptionist đặt buổi cho member tại quầy. | Chỉ ghi danh member ở center được phân công; lưu actor receptionist. |
+| F2-H4 | Buổi đã hết chỗ. | Tạo waitlist cho đúng session; không chiếm chỗ confirmed. |
+| F2-H5 | Coach xem lịch và roster. | Chỉ thấy session được gán; roster chỉ có booking đã xác nhận. |
+| F2-H6 | Member hủy trước hạn. | Booking chuyển `CANCELLED`; giải phóng đúng một chỗ và promote waitlist cùng session. |
+| F2-H7 | Member hủy muộn. | Booking chuyển `CANCELLED_LATE_CHARGED`; chỗ vẫn tính đã dùng và không promote. |
 
 ### 5.5 Unhappy cases / ngoại lệ
 

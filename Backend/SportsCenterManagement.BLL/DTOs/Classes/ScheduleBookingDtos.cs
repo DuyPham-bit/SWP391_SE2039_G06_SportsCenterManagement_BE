@@ -61,7 +61,8 @@ public sealed record SessionScheduleQuery(
     DateOnly? From,
     DateOnly? To,
     int Page = 1,
-    int PageSize = 20);
+    int PageSize = 20,
+    long? CenterId = null);
 
 public sealed record SessionScheduleItemResponse(
     long SessionId,
@@ -95,6 +96,12 @@ public sealed record TeachingScheduleItemResponse(
     string ClassStatus,
     int Capacity,
     int BookedCount);
+
+public sealed record SessionRosterMemberResponse(
+    long MemberId,
+    string MemberCode,
+    string FullName,
+    DateTime BookedAt);
 
 // ---------- UC-43 / UC-44: session bookings ----------
 

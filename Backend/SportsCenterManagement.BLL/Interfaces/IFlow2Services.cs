@@ -6,16 +6,17 @@ namespace SportsCenterManagement.BLL.Interfaces;
 public interface IClassManagementService
 {
     Task<ClassDetailResponse> CreateClassAsync(CreateClassRequest request, CancellationToken cancellationToken = default);
+    Task<ClassDetailResponse> PublishClassAsync(long classId, CancellationToken cancellationToken = default);
     Task<ClassDetailResponse> GetClassAsync(long classId, CancellationToken cancellationToken = default);
     Task<ClassDetailResponse> UpdateClassAsync(long classId, UpdateClassRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>"Delete" = soft cancel. Never hard-deletes a class with enrollments/bookings.</summary>
-    Task<CancelClassResult> CancelClassAsync(long classId, CancellationToken cancellationToken = default);
+    Task<CancelClassResult> CancelClassAsync(long classId, CancellationToken cancellationToken = default, long? actorUserId = null);
 
     Task<IReadOnlyList<ClassScheduleResponse>> GetSchedulesAsync(long classId, CancellationToken cancellationToken = default);
     Task<ClassScheduleResponse> CreateScheduleAsync(long classId, CreateClassScheduleRequest request, CancellationToken cancellationToken = default);
-    Task<ClassScheduleResponse> UpdateScheduleAsync(long classId, long scheduleId, UpdateClassScheduleRequest request, CancellationToken cancellationToken = default);
-    Task<ClassScheduleResponse> CancelScheduleAsync(long classId, long scheduleId, CancellationToken cancellationToken = default);
+    Task<ClassScheduleResponse> UpdateScheduleAsync(long classId, long scheduleId, UpdateClassScheduleRequest request, CancellationToken cancellationToken = default, long? actorUserId = null);
+    Task<ClassScheduleResponse> CancelScheduleAsync(long classId, long scheduleId, CancellationToken cancellationToken = default, long? actorUserId = null);
 }
 
 /// <summary>UC-42 View Class Schedules (member) and UC-30 View Teaching Schedule (coach).</summary>
@@ -26,12 +27,15 @@ public interface IClassScheduleQueryService
     /// <summary>The coach is always resolved from <paramref name="currentUserId"/>, never from client input.</summary>
     Task<IReadOnlyList<TeachingScheduleItemResponse>> GetTeachingScheduleAsync(
         long currentUserId, DateOnly? from, DateOnly? to, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SessionRosterMemberResponse>> GetSessionRosterAsync(
+        long currentUserId, long sessionId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>UC-43 Book Class and UC-44 Cancel Class Booking.</summary>
 public interface ISessionBookingService
 {
     Task<BookSessionResult> BookSessionAsync(long currentUserId, long sessionId, CancellationToken cancellationToken = default);
+    Task<BookSessionResult> BookSessionForMemberAsync(long actorUserId, long memberId, long sessionId, CancellationToken cancellationToken = default);
     Task<CancelBookingResult> CancelBookingAsync(long currentUserId, long bookingId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SessionBookingResponse>> ListMyBookingsAsync(long currentUserId, CancellationToken cancellationToken = default);
 }

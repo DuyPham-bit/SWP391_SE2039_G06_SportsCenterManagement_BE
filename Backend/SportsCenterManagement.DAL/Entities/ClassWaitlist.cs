@@ -11,6 +11,15 @@ public class ClassWaitlist : Common.BaseEntity
     [Column("class_id")]
     public long ClassId { get; set; }
 
+    [Column("session_id")]
+    public long? SessionId { get; set; }
+
+    [Column("subscription_id")]
+    public long? SubscriptionId { get; set; }
+
+    [Column("joined_by")]
+    public long? JoinedBy { get; set; }
+
     [Column("member_id")]
     public long MemberId { get; set; }
 

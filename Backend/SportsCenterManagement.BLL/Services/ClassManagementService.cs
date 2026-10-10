@@ -39,7 +39,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
             Level = request.Level?.Trim(),
             Capacity = request.Capacity,
             DurationMinutes = request.DurationMinutes,
-            Status = FlowStatuses.ClassPublished,
+            Status = FlowStatuses.ClassDraft,
             CreatedAt = DateTime.UtcNow
         };
         await unitOfWork.Repository<ClassEntity>().AddAsync(entity, cancellationToken);
@@ -51,6 +51,42 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
     {
         var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
             ?? throw FlowException.NotFound("Lớp học không tồn tại.");
+        return ToResponse(entity);
+    }
+
+    public async Task<ClassDetailResponse> PublishClassAsync(long classId, CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await Db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
+        var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
+            ?? throw FlowException.NotFound("Lớp học không tồn tại.");
+        if (FlowStatuses.IsClosed(entity.Status))
+            throw FlowException.Conflict("Không thể publish lớp đã đóng.");
+
+        var hasActiveSchedule = await Db.ClassSchedules.AnyAsync(
+            schedule => schedule.ClassId == classId && schedule.Status == FlowStatuses.ScheduleActive,
+            cancellationToken);
+        var candidateSessions = await Db.ClassSessions
+            .Where(session => session.ClassId == classId && session.SessionStatus == FlowStatuses.SessionScheduled
+                && session.SessionDate >= ScheduleTime.VietnamToday)
+            .Select(session => new { session.SessionDate, session.StartTime })
+            .ToListAsync(cancellationToken);
+        var nowLocal = ScheduleTime.VietnamNow;
+        var hasFutureSession = candidateSessions.Any(session => session.SessionDate.ToDateTime(session.StartTime) > nowLocal);
+        var hasActiveCoach = await (
+            from assignment in Db.ClassCoaches
+            join coach in Db.CoachProfiles on assignment.CoachId equals coach.Id
+            join user in Db.Users on coach.UserId equals user.Id
+            where assignment.ClassId == classId && coach.CenterId == entity.CenterId
+                && coach.Status == "Active" && user.Status == "Active"
+            select assignment.CoachId).AnyAsync(cancellationToken);
+
+        if (!hasActiveSchedule || !hasFutureSession || !hasActiveCoach)
+            throw FlowException.Conflict("Hoàn tất ít nhất một lịch có buổi học sắp tới và phân công HLV đang hoạt động trước khi publish.");
+
+        entity.Status = FlowStatuses.ClassPublished;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return ToResponse(entity);
     }
 
@@ -107,6 +143,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         entity.Level = request.Level?.Trim();
         entity.Capacity = request.Capacity;
         entity.DurationMinutes = request.DurationMinutes;
+        entity.Status = FlowStatuses.ClassDraft;
         entity.UpdatedAt = DateTime.UtcNow;
 
         if (roomChanged && inheriting.Count > 0)
@@ -124,7 +161,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         return ToResponse(entity);
     }
 
-    public async Task<CancelClassResult> CancelClassAsync(long classId, CancellationToken cancellationToken = default)
+    public async Task<CancelClassResult> CancelClassAsync(long classId, CancellationToken cancellationToken = default, long? actorUserId = null)
     {
         await using var transaction = await Db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
         var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
@@ -142,11 +179,8 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
             enrollment.CancelledAt = now;
             enrollment.CancellationReason = "Lớp học đã bị hủy.";
         }
-
-        var waiting = await Db.ClassWaitlists
-            .Where(w => w.ClassId == classId && w.Status == FlowStatuses.WaitlistWaiting)
-            .ToListAsync(cancellationToken);
-        foreach (var entry in waiting) entry.Status = FlowStatuses.WaitlistCancelled;
+        await NotifyMembersAsync(enrollments.Select(enrollment => enrollment.MemberId), actorUserId,
+            "Lớp học đã bị hủy", "Lớp học bạn đã ghi danh đã bị hủy.", cancellationToken);
 
         var schedules = await Db.ClassSchedules
             .Where(s => s.ClassId == classId && s.Status == FlowStatuses.ScheduleActive)
@@ -154,7 +188,15 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         foreach (var schedule in schedules) schedule.Status = FlowStatuses.ScheduleCancelled;
 
         var (sessions, bookings) = await CancelUpcomingSessionsAsync(
-            Db.ClassSessions.Where(s => s.ClassId == classId), cancellationToken);
+            Db.ClassSessions.Where(s => s.ClassId == classId), cancellationToken, actorUserId,
+            "Lớp học đã bị hủy", "Lớp học bạn đã đặt đã bị hủy. Vui lòng chọn lớp khác.");
+
+        var legacyWaitlist = await Db.ClassWaitlists
+            .Where(entry => entry.ClassId == classId && entry.SessionId == null && entry.Status == FlowStatuses.WaitlistWaiting)
+            .ToListAsync(cancellationToken);
+        foreach (var entry in legacyWaitlist) entry.Status = FlowStatuses.WaitlistCancelled;
+        await NotifyMembersAsync(legacyWaitlist.Select(entry => entry.MemberId), actorUserId,
+            "Lớp học đã bị hủy", "Lớp học trong danh sách chờ của bạn đã bị hủy.", cancellationToken);
 
         entity.Status = FlowStatuses.ClassCancelled;
         entity.UpdatedAt = now;
@@ -201,6 +243,11 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
             EndDate = request.EndDate,
             Status = FlowStatuses.ScheduleActive
         };
+        if (entity.Status == FlowStatuses.ClassPublished)
+        {
+            entity.Status = FlowStatuses.ClassDraft;
+            entity.UpdatedAt = DateTime.UtcNow;
+        }
         await unitOfWork.Repository<ClassSchedule>().AddAsync(schedule, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken); // need schedule.Id for sessions
 
@@ -210,7 +257,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         return ToResponse(schedule, generated);
     }
 
-    public async Task<ClassScheduleResponse> UpdateScheduleAsync(long classId, long scheduleId, UpdateClassScheduleRequest request, CancellationToken cancellationToken = default)
+    public async Task<ClassScheduleResponse> UpdateScheduleAsync(long classId, long scheduleId, UpdateClassScheduleRequest request, CancellationToken cancellationToken = default, long? actorUserId = null)
     {
         ValidateScheduleInput(request.DayOfWeek, request.StartTime, request.EndTime, request.StartDate, request.EndDate);
 
@@ -235,7 +282,9 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         if (activeBookings > 0)
             throw FlowException.Conflict($"Lịch này đang có {activeBookings} chỗ đặt cho các buổi sắp tới. Hãy hủy lịch thay vì sửa.");
 
-        foreach (var session in upcoming) session.SessionStatus = FlowStatuses.SessionCancelled;
+        await CancelUpcomingSessionsAsync(Db.ClassSessions.Where(session => upcomingIds.Contains(session.Id)),
+            cancellationToken, actorUserId,
+            "Lịch học đã thay đổi", "Lịch buổi học bạn đã chọn đã thay đổi. Vui lòng kiểm tra lịch mới.");
 
         schedule.RoomId = request.RoomId;
         schedule.DayOfWeek = request.DayOfWeek;
@@ -243,6 +292,8 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         schedule.EndTime = request.EndTime;
         schedule.StartDate = request.StartDate;
         schedule.EndDate = request.EndDate;
+        entity.Status = FlowStatuses.ClassDraft;
+        entity.UpdatedAt = DateTime.UtcNow;
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         var generated = await GenerateSessionsAsync(schedule, entity, cancellationToken);
@@ -251,12 +302,24 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         return ToResponse(schedule, generated);
     }
 
-    public async Task<ClassScheduleResponse> CancelScheduleAsync(long classId, long scheduleId, CancellationToken cancellationToken = default)
+    public async Task<ClassScheduleResponse> CancelScheduleAsync(long classId, long scheduleId, CancellationToken cancellationToken = default, long? actorUserId = null)
     {
         await using var transaction = await Db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
         var schedule = await LoadActiveScheduleAsync(classId, scheduleId, cancellationToken);
         schedule.Status = FlowStatuses.ScheduleCancelled;
-        await CancelUpcomingSessionsAsync(Db.ClassSessions.Where(s => s.ScheduleId == scheduleId), cancellationToken);
+        await CancelUpcomingSessionsAsync(Db.ClassSessions.Where(s => s.ScheduleId == scheduleId), cancellationToken,
+            actorUserId, "Lịch học đã bị hủy", "Buổi học bạn đã đặt đã bị hủy.");
+        if (!await Db.ClassSchedules.AnyAsync(
+                item => item.ClassId == classId && item.Id != scheduleId && item.Status == FlowStatuses.ScheduleActive,
+                cancellationToken))
+        {
+            var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken);
+            if (entity is not null && entity.Status == FlowStatuses.ClassPublished)
+            {
+                entity.Status = FlowStatuses.ClassDraft;
+                entity.UpdatedAt = DateTime.UtcNow;
+            }
+        }
         await unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return ToResponse(schedule, 0);
@@ -421,7 +484,9 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
     }
 
     /// <summary>Cancels not-yet-held sessions from the given set together with their active bookings.</summary>
-    private async Task<(int Sessions, int Bookings)> CancelUpcomingSessionsAsync(IQueryable<ClassSession> source, CancellationToken ct)
+    private async Task<(int Sessions, int Bookings)> CancelUpcomingSessionsAsync(
+        IQueryable<ClassSession> source, CancellationToken ct, long? actorUserId = null,
+        string title = "Lịch học đã thay đổi", string message = "Lịch buổi học bạn đã chọn đã thay đổi.")
     {
         var today = ScheduleTime.VietnamToday;
         var sessions = await source
@@ -431,10 +496,53 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         var bookings = await Db.SessionBookings
             .Where(b => ids.Contains(b.SessionId) && b.Status == FlowStatuses.BookingBooked)
             .ToListAsync(ct);
+        var waitlists = await Db.ClassWaitlists
+            .Where(entry => entry.SessionId != null && ids.Contains(entry.SessionId.Value)
+                && entry.Status == FlowStatuses.WaitlistWaiting)
+            .ToListAsync(ct);
 
         foreach (var session in sessions) session.SessionStatus = FlowStatuses.SessionCancelled;
         foreach (var booking in bookings) booking.Status = FlowStatuses.BookingCancelled;
+        foreach (var entry in waitlists) entry.Status = FlowStatuses.WaitlistCancelled;
+        await NotifyMembersAsync(bookings.Select(booking => booking.MemberId)
+            .Concat(waitlists.Select(entry => entry.MemberId)), actorUserId, title, message, ct);
         return (sessions.Count, bookings.Count);
+    }
+
+    private async Task NotifyMembersAsync(
+        IEnumerable<long> memberIds, long? actorUserId, string title, string message, CancellationToken ct)
+    {
+        var userIds = await Db.MemberProfiles.Where(member => memberIds.Contains(member.Id))
+            .Select(member => member.UserId).Distinct().ToListAsync(ct);
+        if (userIds.Count == 0) return;
+
+        var senderId = actorUserId is > 0 && await Db.Users.AnyAsync(user => user.Id == actorUserId.Value, ct)
+            ? actorUserId.Value
+            : await (
+                from user in Db.Users
+                join role in Db.Roles on user.RoleId equals role.Id
+                where role.Name == "Admin" && user.Status == "Active"
+                select user.Id).FirstOrDefaultAsync(ct);
+        if (senderId <= 0) return;
+
+        var notification = new Notification
+        {
+            SenderId = senderId,
+            Title = title,
+            Message = message,
+            NotificationType = "ScheduleChanged",
+            CreatedAt = DateTime.UtcNow
+        };
+        await Db.Notifications.AddAsync(notification, ct);
+        await Db.SaveChangesAsync(ct);
+        foreach (var userId in userIds)
+            await Db.UserNotifications.AddAsync(new UserNotification
+            {
+                NotificationId = notification.Id,
+                UserId = userId,
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow
+            }, ct);
     }
 
     private static ClassDetailResponse ToResponse(ClassEntity c) => new(

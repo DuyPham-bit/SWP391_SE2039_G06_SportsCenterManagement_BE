@@ -23,6 +23,8 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
         if (query.Page < 1) throw FlowException.BadRequest("Số trang phải lớn hơn hoặc bằng 1.");
         if (query.PageSize is < 1 or > MaxPageSize)
             throw FlowException.BadRequest($"Kích thước trang phải từ 1 đến {MaxPageSize}.");
+        if (query.CenterId is null or <= 0)
+            throw FlowException.BadRequest("centerId là bắt buộc.");
 
         var fromDate = query.From ?? ScheduleTime.VietnamToday;
         var toDate = query.To ?? fromDate.AddDays(DefaultWindowDays);
@@ -34,7 +36,8 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
             from session in Db.ClassSessions
             join cls in Db.Classes on session.ClassId equals cls.Id
             join sport in Db.Sports on cls.SportId equals sport.Id
-            where session.SessionDate >= fromDate && session.SessionDate <= toDate
+            where cls.CenterId == query.CenterId.Value && cls.Status == FlowStatuses.ClassPublished
+                && session.SessionDate >= fromDate && session.SessionDate <= toDate
             select new { session, cls, sport };
 
         if (query.SportId is { } sportId) sessions = sessions.Where(x => x.cls.SportId == sportId);
@@ -63,6 +66,8 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                     ? (int?)null
                     : Db.Rooms.Where(r => r.Id == x.session.RoomId).Select(r => (int?)r.Capacity).FirstOrDefault(),
                 Booked = Db.SessionBookings.Count(b => b.SessionId == x.session.Id && b.Status == FlowStatuses.BookingBooked)
+                    + Db.ClassEnrollments.Count(enrollment => enrollment.ClassId == x.cls.Id
+                        && enrollment.Status == FlowStatuses.EnrollmentConfirmed)
             })
             .ToListAsync(cancellationToken);
 
@@ -79,7 +84,7 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
         {
             var capacity = p.RoomCapacity is { } rc ? Math.Min(p.Capacity, rc) : p.Capacity;
             coachByClass.TryGetValue(p.ClassId, out var coach);
-            var open = p.SessionStatus == FlowStatuses.SessionScheduled && !FlowStatuses.IsClosed(p.ClassStatus);
+            var open = p.SessionStatus == FlowStatuses.SessionScheduled && p.ClassStatus == FlowStatuses.ClassPublished;
             return new SessionScheduleItemResponse(
                 p.Id, p.ClassId, p.ClassName, p.SportId, p.SportName, p.RoomId,
                 coach?.Id, coach?.FullName, p.SessionDate, p.StartTime, p.EndTime,
@@ -126,10 +131,35 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                 ClassStatus = cls.Status,
                 cls.Capacity,
                 Booked = Db.SessionBookings.Count(b => b.SessionId == session.Id && b.Status == FlowStatuses.BookingBooked)
+                    + Db.ClassEnrollments.Count(enrollment => enrollment.ClassId == cls.Id
+                        && enrollment.Status == FlowStatuses.EnrollmentConfirmed)
             }).ToListAsync(cancellationToken);
 
         return rows.Select(r => new TeachingScheduleItemResponse(
             r.Id, r.ClassId, r.ClassName, r.SportName, r.RoomId, r.SessionDate, r.StartTime, r.EndTime,
             r.SessionStatus, r.ClassStatus, r.Capacity, r.Booked)).ToList();
+    }
+
+    public async Task<IReadOnlyList<SessionRosterMemberResponse>> GetSessionRosterAsync(
+        long currentUserId, long sessionId, CancellationToken cancellationToken = default)
+    {
+        var coachId = await Db.CoachProfiles.Where(coach => coach.UserId == currentUserId)
+            .Select(coach => (long?)coach.Id).SingleOrDefaultAsync(cancellationToken)
+            ?? throw FlowException.Forbidden("Tài khoản hiện tại chưa có hồ sơ huấn luyện viên.");
+        var classId = await Db.ClassSessions.Where(session => session.Id == sessionId)
+            .Select(session => (long?)session.ClassId).SingleOrDefaultAsync(cancellationToken)
+            ?? throw FlowException.NotFound("Buổi học không tồn tại.");
+        var assigned = await Db.ClassCoaches.AnyAsync(
+            assignment => assignment.ClassId == classId && assignment.CoachId == coachId,
+            cancellationToken);
+        if (!assigned) throw FlowException.Forbidden("Bạn không được phân công vào lớp của buổi học này.");
+
+        return await (
+            from booking in Db.SessionBookings
+            join member in Db.MemberProfiles on booking.MemberId equals member.Id
+            where booking.SessionId == sessionId && booking.Status == FlowStatuses.BookingBooked
+            orderby booking.BookedAt, booking.Id
+            select new SessionRosterMemberResponse(member.Id, member.MemberCode, member.FullName, booking.BookedAt))
+            .ToListAsync(cancellationToken);
     }
 }

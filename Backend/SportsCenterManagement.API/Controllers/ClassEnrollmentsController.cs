@@ -30,25 +30,8 @@ public sealed class ClassEnrollmentsController(SportsCenterDbContext db, ICoreFl
     }
 
     [HttpPost("classes/{classId:long}/enrollments")]
-    public async Task<IActionResult> Enroll(long classId, [FromBody] ClassEnrollmentRequest request, CancellationToken cancellationToken)
-    {
-        var memberId = await GetMemberIdAsync(cancellationToken);
-        if (memberId is null) return NotFound(new { message = "Không tìm thấy hồ sơ Member." });
-        try
-        {
-            var enrollment = await coreFlowService.EnrollMemberAsync(classId, memberId.Value, request.SubscriptionId, GetCurrentUserId(), cancellationToken);
-            return StatusCode(StatusCodes.Status201Created, new { enrollment.Id, enrollment.ClassId, enrollment.MemberId, enrollment.SubscriptionId, enrollment.RegisteredAt, enrollment.Status });
-        }
-        catch (InvalidOperationException ex)
-        {
-            var conflict = ex.Message.Contains("full", StringComparison.OrdinalIgnoreCase)
-                || ex.Message.Contains("already enrolled", StringComparison.OrdinalIgnoreCase)
-                || ex.Message.Contains("allowance", StringComparison.OrdinalIgnoreCase);
-            var status = conflict ? StatusCodes.Status409Conflict : StatusCodes.Status400BadRequest;
-            return StatusCode(status, new { message = ex.Message });
-        }
-    }
-
+    public IActionResult Enroll(long classId, [FromBody] ClassEnrollmentRequest request) =>
+        Conflict(new { message = "Đăng ký theo khóa đã được đóng. Hãy chọn từng buổi để dùng thống nhất sức chứa và danh sách chờ." });
     [HttpDelete("classes/{classId:long}/enrollments/{enrollmentId:long}")]
     public async Task<IActionResult> Cancel(long classId, long enrollmentId, [FromBody] CancelClassEnrollmentRequest? request, CancellationToken cancellationToken)
     {

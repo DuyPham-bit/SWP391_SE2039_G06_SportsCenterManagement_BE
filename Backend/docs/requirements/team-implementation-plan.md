@@ -130,15 +130,18 @@ POST   /api/classes                                    # Manager; tạo lớp Dr
 POST   /api/classes/{classId}/schedules                # Manager; tạo lịch và các ClassSession
 POST   /api/classes/{classId}/coaches                  # Manager; endpoint hiện có, Coach chính được lưu vào các buổi tương lai
 POST   /api/classes/{classId}/publish                  # Manager; công bố lớp sau khi có lịch và Coach chính
-GET    /api/centers/{centerId}/classes                 # Danh sách lớp Published
-GET    /api/centers/{centerId}/schedule?from=&to=      # Thời khóa biểu theo khoảng ngày
-GET    /api/classes/{classId}/sessions?from=&to=       # Thời khóa biểu buổi cụ thể
-POST   /api/classes/{classId}/enrollments              # Member; body: { "subscriptionId": 123 }
-GET    /api/members/me/enrollments                     # Member; lịch sử ghi danh của chính mình
-DELETE /api/classes/{classId}/enrollments/{id}         # Member; body tùy chọn: { "reason": "..." }
+GET    /api/centers/{centerId}/classes                 # Member/Manager/Admin/Receptionist; danh sách lớp Published
+GET    /api/class-sessions?centerId=&sportId=&coachId=&from=&to=&page=&pageSize= # Buổi theo center
+GET    /api/coaches/me/teaching-schedule?from=&to=     # Coach; lịch dạy của chính mình
+GET    /api/coaches/me/class-sessions/{sessionId}/roster # Coach được gán; roster buổi
+POST   /api/class-sessions/{sessionId}/bookings        # Member đặt một buổi
+POST   /api/class-sessions/{sessionId}/members/{memberId}/bookings # Receptionist đặt hộ tại center được gán
+GET    /api/members/me/session-bookings                # Member; booking của chính mình
+DELETE /api/session-bookings/{bookingId}               # Member; hủy booking của chính mình
+POST   /api/classes/{classId}/enrollments              # Disabled; returns 409 to prevent class/session double counting
 ```
 
-Ghi danh lấy Member từ JWT, yêu cầu subscription `Active`, còn hạn, cùng cơ sở và còn quota; lớp phải Published và còn chỗ. Lớp đầy hoặc ghi danh trùng trả `409`. Hủy được phép đến 2 giờ trước buổi Scheduled kế tiếp theo giờ Việt Nam (UTC+7); sau hạn trả `409`. Lớp tạo mới ở trạng thái Draft. Manager cần thêm ít nhất một lịch và phân công Coach chính rồi mới công bố. Ngày trong tuần dùng quy ước .NET: Chủ nhật `0`, Thứ hai `1`, …, Thứ bảy `6`.
+Đăng ký mới chỉ dùng `SessionBooking`: Member lấy từ JWT; Receptionist chỉ đặt hộ tại center được phân công. Subscription phải `Active`, còn hạn, cùng center, đủ `MaxClasses`/`AllowedSports`; lớp phải Published. Buổi đầy tạo waitlist theo session. Hủy trước hạn 2 giờ theo UTC+7 giải phóng chỗ và promote người chờ ở đúng buổi; hủy muộn chuyển `CANCELLED_LATE_CHARGED`, giữ chỗ đã tính phí và không promote. Lớp mới ở trạng thái Draft; Manager/Admin cần tạo lịch có session tương lai và gán Coach Active cùng center rồi mới công bố. `centerId` bắt buộc cho danh sách buổi; thao tác Manager được kiểm tra center theo StaffProfile (Admin toàn cục). Ngày trong tuần dùng quy ước .NET: Chủ nhật `0`, Thứ hai `1`, …, Thứ bảy `6`.
 
 Payload tạo lớp:
 
@@ -168,11 +171,11 @@ Payload tạo lịch:
 }
 ```
 
-Tạo lớp trả `201` cùng `classId` và trạng thái Draft; tạo lịch trả `201` cùng `scheduleId`; ghi danh trả `201`; hủy thành công trả `200`. Manager endpoints yêu cầu JWT role `MANAGER`; các endpoint ghi danh yêu cầu role `MEMBER`. Payload sai hoặc nghiệp vụ không hợp lệ trả `400`, yêu cầu chưa xác thực trả `401`, sai role trả `403`, lớp đầy/ghi danh trùng/hủy quá hạn trả `409`.
+Tạo lớp/lịch trả `201`; đặt thành công trả `201`; vào waitlist trả `202`; hủy booking trả `200`. Endpoint thao tác lớp yêu cầu `MANAGER` hoặc `ADMIN`; danh mục/buổi yêu cầu JWT, member đặt cho mình và Receptionist đặt hộ. Endpoint ghi danh cả lớp trả `409` vì luồng này đã đóng cho đăng ký mới. Payload sai trả `400`, chưa xác thực `401`, sai role `403`, lớp draft/booking trùng `409`.
 
 ### Quyết định MVP
 
-MVP coi `ClassEnrollment` là ghi danh cả lớp/khóa; `ClassSession` là từng buổi sinh từ lịch. Dùng sức chứa lớp làm capacity. Không đồng thời tính `SessionBooking` vào capacity cho đến khi nhóm xác nhận cho phép đặt từng buổi. Waitlist chỉ triển khai nếu kịp; nếu có, trạng thái Waitlisted không tính vào confirmed capacity.
+Đăng ký theo từng buổi (`SessionBooking`) là nguồn sự thật duy nhất cho đăng ký mới. `POST /classes/{classId}/enrollments` bị vô hiệu hóa; danh sách/hủy `ClassEnrollment` chỉ còn để xử lý dữ liệu lịch sử. Mỗi waitlist gắn với `SessionId`, có unique filtered index cho member đang chờ cùng buổi. Chỗ cuối được khóa bằng row lock trong transaction SQL Server; test SQL Server chạy hai request tranh chỗ và hai request cùng member vào waitlist.
 
 ### Happy case
 
@@ -180,8 +183,8 @@ MVP coi `ClassEnrollment` là ghi danh cả lớp/khóa; `ClassSession` là từ
 2. Tạo lịch có khoảng ngày hiệu lực, giờ kết thúc sau giờ bắt đầu; phân công coach.
 3. Service phát hiện không có xung đột và sinh sessions cụ thể; Manager publish lớp.
 4. Member có subscription Active, đúng center, còn hạn và đủ quyền chọn lớp.
-5. Service kiểm tra enrollment chưa tồn tại, còn chỗ, ghi `ClassEnrollment.Confirmed` và actor.
-6. Coach được phân công xem lịch/roster; receptionist có thể hỗ trợ đăng ký với actor được audit.
+5. Service kiểm tra booking chưa tồn tại, còn chỗ, ghi `SessionBooking` cùng subscription và actor; nếu hết chỗ, ghi waitlist gắn đúng session.
+6. Coach chỉ xem lịch của chính mình và roster của session được gán; Receptionist có thể hỗ trợ đặt buổi với actor được lưu.
 
 ### Unhappy case
 
@@ -190,15 +193,16 @@ MVP coi `ClassEnrollment` là ghi danh cả lớp/khóa; `ClassSession` là từ
 | Room/coach trùng lịch | Từ chối tạo/publish và trả thông tin session xung đột. |
 | Lớp không Published, hủy hoặc đăng ký đóng | Từ chối ghi danh. |
 | Subscription pending/expired/khác center/không đủ quota | Từ chối; không giữ chỗ. |
-| Class đầy | `409`; hoặc tạo Waitlisted nếu policy bật. |
-| Hai request tranh chỗ cuối | Transaction/serializable concurrency; chỉ một Confirmed. |
-| Đã ghi danh rồi gửi lại | Trả lỗi conflict hoặc bản ghi hiện tại; không tạo duplicate. |
-| Hủy enrollment đã hủy hoặc session đã diễn ra | Idempotent hoặc từ chối theo policy; giữ lịch sử. |
+| Session đầy | Tạo waitlist đúng session và trả `202`; waitlisted không tính vào capacity. |
+| Hai request tranh chỗ cuối | SQL Server row lock; tối đa một booking confirmed. |
+| Hai request đồng thời cùng member vào waitlist | Tái sử dụng cùng bản ghi chờ; unique index chặn duplicate. |
+| Hủy booking muộn | Lưu `CANCELLED_LATE_CHARGED`; không giải phóng chỗ hoặc promote. |
+| Hủy schedule/class | Cập nhật booking và waitlist tương lai, thông báo member bị ảnh hưởng. |
 | Coach xem lớp ngoài assignment | `403`; không trả roster/member data. |
 
 ### DB hiện có và việc cần rà soát
 
-Đã có `Sport`, `Room`, `ClassEntity`, `ClassCoach`, `ClassSchedule`, `ClassSession`, `ClassEnrollment`, `SessionBooking`, `ClassWaitlist`, `Attendance`. Migration hiện tại có unique enrollment `(ClassId, MemberId)`; vì vậy hủy rồi đăng ký lại phải tái dùng bản ghi (hoặc đổi thiết kế index nếu cần lưu nhiều attempt). Lịch phải lưu session cụ thể để thay đổi template không làm sai lịch sử.
+Đã có `Sport`, `Room`, `ClassEntity`, `ClassCoach`, `ClassSchedule`, `ClassSession`, `ClassEnrollment`, `SessionBooking`, `ClassWaitlist`, `Attendance`. Migration Flow 2 bổ sung `SessionId` và unique filtered index cho waitlist, cùng actor/subscription FK của booking. Lịch phải lưu session cụ thể để thay đổi template không làm sai lịch sử.
 
 ## 6. Flow 3 — Payment and Report (Thịnh)
 

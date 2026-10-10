@@ -99,6 +99,12 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
         modelBuilder.Entity<SessionBooking>()
             .HasIndex(entity => new { entity.SessionId, entity.MemberId })
             .IsUnique();
+        modelBuilder.Entity<ClassWaitlist>()
+            .HasIndex(entity => new { entity.SessionId, entity.MemberId })
+            .IsUnique()
+            .HasFilter("[session_id] IS NOT NULL AND [status] = N'Waiting'");
+        modelBuilder.Entity<SessionBooking>().HasIndex(entity => entity.SubscriptionId);
+        modelBuilder.Entity<ClassWaitlist>().HasIndex(entity => entity.SessionId);
         modelBuilder.Entity<ClassEnrollment>()
             .HasIndex(entity => new { entity.ClassId, entity.MemberId })
             .IsUnique();
@@ -238,6 +244,21 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .HasOne<MemberProfile>()
             .WithMany()
             .HasForeignKey(entity => entity.MemberId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<ClassWaitlist>()
+            .HasOne<ClassSession>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SessionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<ClassWaitlist>()
+            .HasOne<MemberSubscription>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SubscriptionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<ClassWaitlist>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(entity => entity.JoinedBy)
             .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<CenterCheckin>()
@@ -382,6 +403,16 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .HasOne<MemberProfile>()
             .WithMany()
             .HasForeignKey(entity => entity.MemberId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<SessionBooking>()
+            .HasOne<MemberSubscription>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SubscriptionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<SessionBooking>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(entity => entity.BookedBy)
             .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<SessionBooking>()

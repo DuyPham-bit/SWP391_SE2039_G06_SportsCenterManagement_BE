@@ -179,7 +179,8 @@ public sealed class PaymentService(
         {
             return FailedCallback("Chữ ký VNPay không hợp lệ.", providerAckCode: "97");
         }
-        if (!string.Equals(callback.CurrencyCode, "VND", StringComparison.Ordinal))
+        if (!string.IsNullOrWhiteSpace(callback.CurrencyCode) &&
+            !string.Equals(callback.CurrencyCode, "VND", StringComparison.OrdinalIgnoreCase))
         {
             if (callback.IsSuccess)
             {
@@ -190,9 +191,20 @@ public sealed class PaymentService(
             return FailedCallback("Currency callback VNPay không hợp lệ.", providerAckCode: "04");
         }
 
+        string note = callback.ResponseCode switch
+        {
+            "00" => "VNPay giao dịch thành công",
+            "24" => "Giao dịch đã bị hủy bởi người dùng (ResponseCode 24)",
+            "09" => "Giao dịch VNPay đang chờ xử lý (ResponseCode 09)",
+            "11" => "Giao dịch không thành công: Đã hết hạn chờ thanh toán (ResponseCode 11)",
+            "51" => "Tài khoản của quý khách không đủ số dư để thực hiện giao dịch (ResponseCode 51)",
+            "79" => "Khách hàng nhập sai mật khẩu quá số lần quy định (ResponseCode 79)",
+            _ => $"VNPay phản hồi mã {callback.ResponseCode}"
+        };
+
         return await CompleteGatewayPaymentAsync(
             "VNPAY", callback.InvoiceNumber, null, callback.IsSuccess, callback.IsPending,
-            callback.TransactionNo, callback.Amount, $"VNPay response {callback.ResponseCode}", cancellationToken);
+            callback.TransactionNo, callback.Amount, note, cancellationToken);
     }
 
     public Task<PaymentResultResponse> ProcessMomoCallbackAsync(
@@ -1500,7 +1512,7 @@ public sealed class PaymentService(
             {
                 Success = false,
                 Processed = true,
-                Message = "Cổng thanh toán báo thất bại; quyền lợi chưa được kích hoạt.",
+                Message = !string.IsNullOrWhiteSpace(note) ? note : "Cổng thanh toán báo thất bại; quyền lợi chưa được kích hoạt.",
                 InvoiceNumber = invoice.InvoiceNumber,
                 TransactionId = providerTransactionId,
                 Amount = amount

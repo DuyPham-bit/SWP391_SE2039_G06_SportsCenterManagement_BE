@@ -24,11 +24,11 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
             throw FlowException.BadRequest("Số trang phải từ 1 đến 1.000.000.");
         if (query.PageSize is < 1 or > MaxPageSize)
             throw FlowException.BadRequest($"Kích thước trang phải từ 1 đến {MaxPageSize}.");
-        if (query.SportId is <= 0 || query.CoachId is <= 0)
+        if (query.SportId is <= 0 || query.CoachId is <= 0 || query.CenterId is <= 0)
             throw FlowException.BadRequest("SportId và CoachId phải là số dương khi được cung cấp.");
 
         var fromDate = query.From ?? ScheduleTime.VietnamToday;
-        if (!query.To.HasValue && fromDate == DateOnly.MaxValue)
+        if (!query.To.HasValue && fromDate.DayNumber > DateOnly.MaxValue.DayNumber - DefaultWindowDays)
             throw FlowException.BadRequest("Không thể tạo khoảng ngày mặc định từ ngày lớn nhất.");
         var toDate = query.To ?? fromDate.AddDays(DefaultWindowDays);
         if (toDate < fromDate) throw FlowException.BadRequest("Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.");
@@ -98,6 +98,7 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
             select new { cc.ClassId, coach.Id, coach.FullName }).ToListAsync(cancellationToken);
         var coachByClass = coaches.GroupBy(c => c.ClassId).ToDictionary(g => g.Key, g => g.First());
 
+        var now = ScheduleTime.VietnamNow;
         var items = page.Select(p =>
         {
             var capacity = p.RoomCapacity is { } rc ? Math.Min(p.Capacity, rc) : p.Capacity;
@@ -109,7 +110,8 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                 coach?.Id, coach?.FullName, p.SessionDate, p.StartTime, p.EndTime,
                 p.SessionStatus, p.ClassStatus, capacity, p.Booked, available,
                 IsBookable: open && p.RoomActive && p.ActivePrimaryCoach
-                    && p.SessionDate.ToDateTime(p.StartTime) > ScheduleTime.VietnamNow
+                    && p.SessionDate.ToDateTime(p.StartTime) - now >= TimeSpan.FromMinutes(30)
+                    && p.SessionDate.ToDateTime(p.StartTime) - now <= TimeSpan.FromDays(7)
                     && (available > 0 || p.AllowWaitlist),
                 AllowWaitlist: p.AllowWaitlist);
         }).ToList();
@@ -132,7 +134,7 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
             ?? throw FlowException.Forbidden("Tài khoản hiện tại không phải huấn luyện viên.");
 
         var start = from ?? ScheduleTime.VietnamToday;
-        if (!to.HasValue && start == DateOnly.MaxValue)
+        if (!to.HasValue && start.DayNumber > DateOnly.MaxValue.DayNumber - DefaultWindowDays)
             throw FlowException.BadRequest("Không thể tạo khoảng ngày mặc định từ ngày lớn nhất.");
         var end = to ?? start.AddDays(DefaultWindowDays);
         if (end < start) throw FlowException.BadRequest("Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.");

@@ -32,6 +32,7 @@ public sealed class MembersController(IMemberService memberService, ICoreFlowSer
     }
 
     [HttpGet("centers/{centerId:long}/members")]
+    [CenterCapability("lookup_member")]
     [RequirePermission(PermissionCodes.MemberCenterRead)]
     public async Task<IActionResult> SearchAtCenter(
         long centerId,
@@ -45,6 +46,7 @@ public sealed class MembersController(IMemberService memberService, ICoreFlowSer
     }
 
     [HttpPost("centers/{centerId:long}/members")]
+    [CenterCapability("register_counter_package")]
     [RequirePermission(PermissionCodes.MemberCenterCreate)]
     public async Task<IActionResult> CreateAtCenter(long centerId, AuthRequests.RegisterRequest request, CancellationToken cancellationToken)
     {
@@ -95,6 +97,7 @@ public sealed class MembersController(IMemberService memberService, ICoreFlowSer
     }
 
     [HttpPost("members/{memberId:long}/subscriptions")]
+    [CenterCapability("register_counter_package")]
     [RequirePermission(PermissionCodes.SubscriptionCenterCreate)]
     public async Task<IActionResult> CreateForMember(
         long memberId,

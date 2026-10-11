@@ -32,7 +32,7 @@ public interface IClassScheduleQueryService
 /// <summary>UC-43 Book Class and UC-44 Cancel Class Booking.</summary>
 public interface ISessionBookingService
 {
-    Task<BookSessionResult> BookSessionAsync(long currentUserId, long sessionId, CancellationToken cancellationToken = default);
-    Task<CancelBookingResult> CancelBookingAsync(long currentUserId, long bookingId, CancellationToken cancellationToken = default);
+    Task<BookSessionResult> BookSessionAsync(long currentUserId, long sessionId, CancellationToken cancellationToken = default, long? actorUserId = null);
+    Task<CancelBookingResult> CancelBookingAsync(long currentUserId, long bookingId, CancellationToken cancellationToken = default, long? actorUserId = null);
     Task<IReadOnlyList<SessionBookingResponse>> ListMyBookingsAsync(long currentUserId, CancellationToken cancellationToken = default);
 }

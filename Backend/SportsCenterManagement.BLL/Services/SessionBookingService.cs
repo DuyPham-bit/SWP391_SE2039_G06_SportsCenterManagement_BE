@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.DTOs.Classes;
 using SportsCenterManagement.BLL.Exceptions;
 using SportsCenterManagement.BLL.Interfaces;
@@ -23,7 +24,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
 
     // ------------------------------------------------------------------ UC-43
 
-    public async Task<BookSessionResult> BookSessionAsync(long currentUserId, long sessionId, CancellationToken cancellationToken = default)
+    public async Task<BookSessionResult> BookSessionAsync(long currentUserId, long sessionId, CancellationToken cancellationToken = default, long? actorUserId = null)
     {
         var member = await GetMemberAsync(currentUserId, cancellationToken);
 
@@ -75,6 +76,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
                     Status = FlowStatuses.WaitlistWaiting
                 };
                 await Db.ClassWaitlists.AddAsync(entry, cancellationToken);
+                AuditLogWriter.Add(unitOfWork, actorUserId ?? currentUserId, cls.CenterId, "JOIN_SESSION_WAITLIST", "ClassSession", sessionId);
                 await SaveAsync(cancellationToken);
             }
             await transaction.CommitAsync(cancellationToken);
@@ -84,6 +86,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
 
         var booking = await CreateOrReactivateBookingAsync(member.Id, sessionId, subscription.Id, cancellationToken);
         await CancelWaitingEntriesAsync(sessionId, member.Id, cancellationToken);
+        AuditLogWriter.Add(unitOfWork, actorUserId ?? currentUserId, cls.CenterId, "BOOK_SESSION", "ClassSession", sessionId);
         await SaveAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new BookSessionResult(true, false, ToResponse(booking, session, cls), null, "Đặt lịch thành công.");
@@ -91,7 +94,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
 
     // ------------------------------------------------------------------ UC-44
 
-    public async Task<CancelBookingResult> CancelBookingAsync(long currentUserId, long bookingId, CancellationToken cancellationToken = default)
+    public async Task<CancelBookingResult> CancelBookingAsync(long currentUserId, long bookingId, CancellationToken cancellationToken = default, long? actorUserId = null)
     {
         var member = await GetMemberAsync(currentUserId, cancellationToken);
 
@@ -114,6 +117,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
 
         var late = start - now < CancelCutoff; // BR-BOOK-02
         booking.Status = late ? FlowStatuses.BookingCancelledLate : FlowStatuses.BookingCancelled;
+        AuditLogWriter.Add(unitOfWork, actorUserId ?? currentUserId, cls.CenterId, "CANCEL_SESSION_BOOKING", "SessionBooking", bookingId, newValues: new { IsLateCancellation = late });
 
         long? promotedMemberId = null;
         if (!late)

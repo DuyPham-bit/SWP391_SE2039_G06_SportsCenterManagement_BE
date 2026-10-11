@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.DAL.Repositories.Interfaces;
+using SportsCenterManagement.BLL.Services;
 
 namespace SportsCenterManagement.API.Authorization;
 
@@ -34,6 +35,9 @@ public sealed class PermissionAuthorizationHandler(IUnitOfWork unitOfWork)
 
         if (hasPermission)
         {
+            var centerId = await CenterRolePolicy.CenterForUser(unitOfWork.Context, userId, CancellationToken.None);
+            var policy = centerId.HasValue ? await CenterRolePolicy.Read(unitOfWork.Context, centerId.Value, user.RoleId, CancellationToken.None) : null;
+            if (policy is not null && !policy.PermissionCodes.Contains(requirement.PermissionCode)) return;
             context.Succeed(requirement);
         }
     }

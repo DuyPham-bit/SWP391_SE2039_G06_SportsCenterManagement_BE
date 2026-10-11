@@ -62,7 +62,7 @@ public sealed class AuthController(
         var loginIdentifier = request.Email.Trim();
         if (string.IsNullOrWhiteSpace(loginIdentifier))
         {
-            return Unauthorized(new { message = "Thông tin đăng nhập không hợp lệ." });
+            return Unauthorized(new { message = "Email hoặc mật khẩu không chính xác." });
         }
 
         SportsCenterManagement.BLL.DTOs.Auth.Responses.AuthenticatedUser authenticated;
@@ -75,7 +75,7 @@ public sealed class AuthController(
         catch (InvalidOperationException)
         {
             // Keep unknown, disabled and locked accounts indistinguishable to callers.
-            return Unauthorized(new { message = "Thông tin đăng nhập không hợp lệ." });
+            return Unauthorized(new { message = "Email hoặc mật khẩu không chính xác." });
         }
 
         return Ok(CreateAuthResponse(authenticated));

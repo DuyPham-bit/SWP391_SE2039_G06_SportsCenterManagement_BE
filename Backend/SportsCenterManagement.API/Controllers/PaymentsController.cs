@@ -230,6 +230,7 @@ public sealed class PaymentsController : ControllerBase
 
     [Authorize(Roles = "RECEPTIONIST,MANAGER,ADMIN")]
     [HttpPost("counter-checkout")]
+    [SportsCenterManagement.API.Authorization.CenterCapability("register_counter_package")]
     public async Task<ActionResult<CounterPaymentResponse>> CounterCheckout(
         [FromBody] CounterPaymentRequest request,
         [FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
@@ -243,6 +244,7 @@ public sealed class PaymentsController : ControllerBase
 
     [Authorize(Roles = "MANAGER,ADMIN")]
     [HttpPost("counter-void/{invoiceNumber}")]
+    [SportsCenterManagement.API.Authorization.CenterCapability("register_counter_package")]
     public async Task<ActionResult<PaymentResultResponse>> CounterVoid(
         [FromRoute] string invoiceNumber,
         [FromBody] VoidPaymentRequest request,

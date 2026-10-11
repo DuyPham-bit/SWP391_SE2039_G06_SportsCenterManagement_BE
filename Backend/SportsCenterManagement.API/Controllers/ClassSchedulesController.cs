@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using SportsCenterManagement.BLL.DTOs.Classes;
 using SportsCenterManagement.BLL.Exceptions;
 using SportsCenterManagement.BLL.Interfaces;
+using SportsCenterManagement.API.Authorization;
 
 namespace SportsCenterManagement.API.Controllers;
 
@@ -36,6 +37,7 @@ public sealed class ClassSchedulesController(IClassScheduleQueryService service)
     /// <summary>No coach id parameter on purpose: the coach is taken from the token.</summary>
     [Authorize(Roles = "COACH")]
     [HttpGet("coaches/me/teaching-schedule")]
+    [CenterCapability("view_teaching_schedule")]
     public async Task<IActionResult> GetTeachingSchedule(
         [FromQuery] DateOnly? from, [FromQuery] DateOnly? to, CancellationToken ct) =>
         Ok(await service.GetTeachingScheduleAsync(CurrentUserId, from, to, ct));

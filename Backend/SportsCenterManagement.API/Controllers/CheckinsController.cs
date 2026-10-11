@@ -9,6 +9,7 @@ namespace SportsCenterManagement.API.Controllers;
 
 [Authorize]
 [RequirePermission(PermissionCodes.MemberCenterRead)]
+[CenterCapability("checkin_member")]
 public sealed class CheckinsController(ICheckinService checkinService) : FlowControllerBase
 {
     [HttpPost("centers/{centerId:long}/checkins")]

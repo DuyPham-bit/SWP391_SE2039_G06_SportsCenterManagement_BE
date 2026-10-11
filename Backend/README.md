@@ -72,7 +72,9 @@ API được xây bằng ASP.NET Core MVC Controllers và trả JSON; không dù
 | GET | `/api/admin/roles` | System Admin xem ma trận quyền |
 | PUT | `/api/admin/roles/{roleId}/permissions` | System Admin thay ma trận quyền của role; quyền này luôn chỉ thuộc SystemAdmin |
 
-MVP tắt email verification; mật khẩu cần ít nhất 6 ký tự gồm chữ hoa, chữ thường, số và ký tự đặc biệt. Token bearer dùng ASP.NET Core Data Protection, hết hạn sau 1 giờ; API kiểm tra lại trạng thái và role trên mỗi request. Subscription chỉ bắt đầu khi invoice được thanh toán đủ.
+MVP tắt email verification; mật khẩu cần ít nhất 6 ký tự gồm chữ hoa, chữ thường, số và ký tự đặc biệt. API dùng JWT HS256 qua JwtBearer, kiểm tra chữ ký, issuer, audience và thời hạn (mặc định 60 phút, cấu hình `Jwt:ExpiresMinutes`); trạng thái tài khoản, role và center được đọc lại từ DB mỗi request. Token Data Protection cũ cần đăng nhập lại. Subscription chỉ bắt đầu khi invoice được thanh toán đủ.
+
+Giáo án, tiến độ, thông báo và các endpoint Google/AI được mô tả tại [api-jwt-integration.md](docs/requirements/api-jwt-integration.md). Thiết lập Google Client ID và Gemini Free Tier: [free-google-gemini-setup.md](docs/requirements/free-google-gemini-setup.md).
 
 Manager/Receptionist cần có `StaffProfile` trạng thái `Active` tại center được giao. Manager tạo Coach/Receptionist trong center mình quản lý; System Admin có thể quản trị nhân sự theo quyền được cấp. Mọi endpoint nhạy cảm kiểm tra permission và center ở backend.
 
@@ -142,7 +144,7 @@ $jwtBytes = New-Object byte[] 48
 $env:Jwt__Key = [Convert]::ToBase64String($jwtBytes)
 $env:Jwt__Issuer = "SportsCenterManagement"
 $env:Jwt__Audience = "SportsCenterManagement.FE"
-$env:Cors__AllowedOrigins__0 = "http://localhost:5173"
+$env:Cors__AllowedOrigins__0 = "http://localhost:3004"
 ```
 
 Gateway secret được đọc từ biến môi trường/User Secrets: `VnPay__HashSecret`, `Momo__AccessKey`, `Momo__SecretKey`, `PayOS__ClientId`, `PayOS__ApiKey`, `PayOS__ChecksumKey`. Không cấu hình provider thì các API khác vẫn chạy; endpoint tạo link của provider đó trả `503` trước khi tạo payment attempt.

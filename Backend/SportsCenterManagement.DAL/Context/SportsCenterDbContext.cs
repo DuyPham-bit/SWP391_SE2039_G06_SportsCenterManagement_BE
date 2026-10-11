@@ -56,6 +56,10 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
         base.OnModelCreating(modelBuilder);
 
         modelBuilder.HasDefaultSchema("dbo");
+        modelBuilder.Entity<User>().HasIndex(entity => entity.GoogleSubject).IsUnique()
+            .HasFilter("[google_subject] IS NOT NULL");
+        modelBuilder.Entity<TrainingResult>().HasOne<ClassEntity>().WithMany()
+            .HasForeignKey(entity => entity.ClassId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<RolePermission>().HasKey(entity => new { entity.RoleId, entity.PermissionId });
         modelBuilder.Entity<ClassCoach>().HasKey(entity => new { entity.ClassId, entity.CoachId });
 

@@ -1,8 +1,10 @@
-using System.Text;
-using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi;
+using System.Security.Claims;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using SportsCenterManagement.API.Authentication;
 using SportsCenterManagement.API.Authorization;
 using SportsCenterManagement.BLL.Common;
@@ -15,14 +17,7 @@ using SportsCenterManagement.DAL.Repositories.Interfaces;
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("SportsCenter")
     ?? throw new InvalidOperationException("Connection string 'SportsCenter' is not configured.");
-var jwtKey = builder.Configuration["Jwt:Key"]
-    ?? builder.Configuration["Jwt:SecretKey"]
-    ?? throw new InvalidOperationException("Jwt:Key is not configured.");
-
-if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
-{
-    throw new InvalidOperationException("Jwt:Key must be at least 256 bits.");
-}
+var jwtIssuer = new JwtTokenIssuer(builder.Configuration);
 
 // Cấu hình HttpClient để gọi API ngoài (MoMo Sandbox, PayOS...)
 builder.Services.AddHttpClient();
@@ -31,12 +26,27 @@ builder.Services.AddHttpClient();
 builder.Services.AddDbContext<SportsCenterDbContext>(options =>
     options.UseSqlServer(connectionString));
 
-builder.Services.AddDataProtection().SetApplicationName("SportsCenterManagement");
-builder.Services.AddSingleton<BearerTokenIssuer>();
-builder.Services.AddAuthentication("Bearer")
-    .AddScheme<AuthenticationSchemeOptions, ProtectedBearerHandler>("Bearer", _ => { });
+builder.Services.AddSingleton(jwtIssuer);
+builder.Services.AddScoped<JwtAccountValidator>();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+{
+    options.MapInboundClaims = false;
+    options.TokenValidationParameters = jwtIssuer.ValidationParameters();
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = context => context.HttpContext.RequestServices
+            .GetRequiredService<JwtAccountValidator>().ValidateAsync(context)
+    };
+});
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options => options.FallbackPolicy =
+    new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
+{
+    if (allowedOrigins.Length > 0)
+        policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().WithExposedHeaders("Retry-After");
+}));
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
@@ -67,11 +77,29 @@ builder.Services.AddHttpClient<IMoMoService, MoMoService>();
 builder.Services.AddHttpClient<IPayOsService, PayOsService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ICheckinService, CheckinService>();
+builder.Services.AddScoped<TrainingService>();
+builder.Services.AddSingleton<GoogleTokenValidator>();
+builder.Services.AddHttpClient<GeminiService>(client => client.Timeout = TimeSpan.FromSeconds(45));
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("ai", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+});
 
 // Layer 1: Presentation (API Controllers & Swagger UI)
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "JWT",
+        Description = "Nhập accessToken trả về từ POST /api/auth/login hoặc /api/auth/google."
+    });
+    options.OperationFilter<SportsCenterManagement.API.Authentication.JwtSecurityOperationFilter>();
+});
 
 var app = builder.Build();
 
@@ -186,6 +214,7 @@ app.Use(async (context, next) =>
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseRouting();
+app.UseCors();
 app.Use(async (context, next) =>
 {
     var isPaymentCreateRequest = context.Request.Method == HttpMethods.Post &&
@@ -219,6 +248,7 @@ app.Use(async (context, next) =>
 });
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.MapControllers();
 app.MapGet("/payment-result", async context =>
 {
@@ -231,5 +261,5 @@ app.MapGet("/payment-result", async context =>
 
     context.Response.ContentType = "text/html; charset=utf-8";
     await context.Response.SendFileAsync(frontendIndex);
-});
+}).AllowAnonymous();
 app.Run();

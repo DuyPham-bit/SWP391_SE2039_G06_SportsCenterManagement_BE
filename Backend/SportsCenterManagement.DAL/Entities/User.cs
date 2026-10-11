@@ -17,6 +17,10 @@ public class User : Common.BaseEntity
     public string Email { get; set; } = null!;
 
     [MaxLength(255)]
+    [Column("google_subject")]
+    public string? GoogleSubject { get; set; }
+
+    [MaxLength(255)]
     [Column("password_hash")]
     public string PasswordHash { get; set; } = null!;
 

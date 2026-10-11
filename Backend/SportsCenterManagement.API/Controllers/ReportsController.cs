@@ -11,6 +11,15 @@ namespace SportsCenterManagement.API.Controllers;
 [Authorize(Roles = "MANAGER,ADMIN")]
 public sealed class ReportsController(IReportService reportService) : ControllerBase
 {
+    [HttpGet("checkins")]
+    public async Task<IActionResult> GetCheckins([FromQuery] DateOnly from, [FromQuery] DateOnly to,
+        [FromQuery] long? centerId = null, CancellationToken ct = default)
+    {
+        if (!TryGetCenterScope(centerId, out var scopedCenterId)) return CenterScopeFailure();
+        return Ok(new { CenterId = scopedCenterId, From = from, To = to,
+            Count = await reportService.GetCheckinCountAsync(scopedCenterId, from, to, ct) });
+    }
+
     [HttpGet("revenue")]
     [ProducesResponseType(typeof(RevenueReportResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<RevenueReportResponse>> GetRevenue(

@@ -17,6 +17,16 @@ public sealed class ReportService(
     private readonly IPaymentService _paymentService = paymentService;
     private readonly IConfiguration _configuration = configuration;
 
+    public async Task<int> GetCheckinCountAsync(long centerId, DateOnly from, DateOnly to,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRequest(from, to, "day");
+        await EnsureCenterExistsAsync(centerId, cancellationToken);
+        var (startUtc, endUtc) = GetUtcRange(from, to, GetReportTimeZone());
+        return await _unitOfWork.Context.CenterCheckins.CountAsync(c => c.CenterId == centerId &&
+            c.CheckInTime >= startUtc && c.CheckInTime < endUtc, cancellationToken);
+    }
+
     public Task<RevenueReportResponse> GetRevenueReportAsync(
         long centerId,
         DateOnly from,

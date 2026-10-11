@@ -17,6 +17,15 @@ namespace SportsCenterManagement.BLL.DTOs.Staff
             [param: Range(0, 80)] int? ExperienceYears,
             [param: StringLength(1000)] string? Bio);
 
+        public sealed record AppointCenterStaffRequest(
+            [param: Range(1, long.MaxValue)] long MemberId,
+            [param: Required, RegularExpression("^(Coach|Receptionist)$")] string RoleName,
+            DateOnly? HireDate,
+            [param: StringLength(255)] string? Specialization,
+            [param: StringLength(500)] string? Certification,
+            [param: Range(0, 80)] int? ExperienceYears,
+            [param: StringLength(1000)] string? Bio);
+
         public sealed record UpdateCenterStaffRequest(
             [param: Required, StringLength(150, MinimumLength = 1)] string FullName,
             [param: EmailAddress, StringLength(150)] string? Email,
@@ -26,6 +35,7 @@ namespace SportsCenterManagement.BLL.DTOs.Staff
             [param: StringLength(255)] string? Specialization,
             [param: StringLength(500)] string? Certification,
             [param: Range(0, 80)] int? ExperienceYears,
-            [param: StringLength(1000)] string? Bio);
+            [param: StringLength(1000)] string? Bio,
+            [param: RegularExpression("^(Coach|Receptionist|Manager)$")] string? RoleName = null);
     }
 }

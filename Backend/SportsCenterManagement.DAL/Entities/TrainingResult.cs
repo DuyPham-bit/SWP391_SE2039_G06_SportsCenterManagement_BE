@@ -14,6 +14,25 @@ public class TrainingResult : Common.BaseEntity
     [Column("coach_id")]
     public long CoachId { get; set; }
 
+    [Column("class_id")]
+    public long? ClassId { get; set; }
+
+    [Precision(5, 2)]
+    [Column("body_fat_percentage")]
+    public decimal? BodyFatPercentage { get; set; }
+
+    [Precision(8, 2)]
+    [Column("muscle_mass")]
+    public decimal? MuscleMass { get; set; }
+
+    [MaxLength(1000)]
+    [Column("workout_result")]
+    public string? WorkoutResult { get; set; }
+
+    [MaxLength(1000)]
+    [Column("coach_feedback")]
+    public string? CoachFeedback { get; set; }
+
     [Column("session_id")]
     public long? SessionId { get; set; }
 

@@ -148,6 +148,48 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
         return Map(staff, user, role.Name, coach);
     }
 
+    public async Task<StaffResponses.CenterStaffResponse> AppointAtCenterAsync(
+        long actorUserId, long centerId, StaffRequests.AppointCenterStaffRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request.RoleName is not (RoleNames.Coach or RoleNames.Receptionist) ||
+            request.HireDate > DateOnly.FromDateTime(DateTime.UtcNow))
+            throw new ValidationException("Vai trò hoặc ngày nhận việc không hợp lệ.");
+        await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
+        await EnsureCanManageStaffAsync(actorUserId, centerId, cancellationToken);
+        var member = await unitOfWork.Context.MemberProfiles.SingleOrDefaultAsync(
+            m => m.Id == request.MemberId && m.CenterId == centerId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy hội viên trong trung tâm này.");
+        var user = await unitOfWork.Context.Users.SingleAsync(u => u.Id == member.UserId, cancellationToken);
+        var previousRole = await unitOfWork.Context.Roles.SingleAsync(r => r.Id == user.RoleId, cancellationToken);
+        if (previousRole.Name != RoleNames.Member || user.Status != "Active" || user.LockedUntil > DateTime.UtcNow ||
+            await unitOfWork.Context.StaffProfiles.AnyAsync(s => s.UserId == user.Id, cancellationToken) ||
+            await unitOfWork.Context.CoachProfiles.AnyAsync(c => c.UserId == user.Id, cancellationToken))
+            throw new InvalidOperationException("Chỉ bổ nhiệm hội viên đang hoạt động và chưa có hồ sơ nhân viên.");
+        var role = await unitOfWork.Context.Roles.SingleAsync(r => r.Name == request.RoleName, cancellationToken);
+        var now = DateTime.UtcNow;
+        // Preserve credentials, user/member IDs and prior transactions; only add the staff assignment.
+        user.RoleId = role.Id; user.UpdatedAt = now;
+        var staff = new StaffProfile { UserId = user.Id, CenterId = centerId, StaffCode = MakeCode("ST"),
+            FullName = member.FullName, Position = role.Name, HireDate = request.HireDate, Status = "Active", CreatedAt = now };
+        unitOfWork.Context.StaffProfiles.Add(staff);
+        CoachProfile? coach = null;
+        if (role.Name == RoleNames.Coach)
+        {
+            coach = new CoachProfile { UserId = user.Id, CenterId = centerId, CoachCode = MakeCode("CO"),
+                FullName = member.FullName, Specialization = Normalize(request.Specialization),
+                Certification = Normalize(request.Certification), ExperienceYears = request.ExperienceYears,
+                Bio = Normalize(request.Bio), HireDate = request.HireDate, Status = "Active", CreatedAt = now };
+            unitOfWork.Context.CoachProfiles.Add(coach);
+        }
+        AuditLogWriter.Add(unitOfWork, actorUserId, centerId, "staff.appointed", "User", user.Id,
+            new { Role = previousRole.Name }, new { Role = role.Name, staff.StaffCode });
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return Map(staff, user, role.Name, coach);
+    }
+
     public async Task<StaffResponses.CenterStaffResponse> UpdateAtCenterAsync(
         long actorUserId,
         long centerId,
@@ -216,10 +258,24 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
             }
         }
 
+        var oldRole = role.Name;
+        if (request.RoleName is not null && request.RoleName != role.Name)
+        {
+            if (role.Name is not (RoleNames.Coach or RoleNames.Receptionist) ||
+                request.RoleName is not (RoleNames.Coach or RoleNames.Receptionist))
+                throw new UnauthorizedAccessException("Chỉ được đổi giữa vai trò Coach và Receptionist.");
+            if (role.Name == RoleNames.Coach && await unitOfWork.Context.ClassCoaches.AnyAsync(a =>
+                    unitOfWork.Context.CoachProfiles.Any(c => c.Id == a.CoachId && c.UserId == user.Id) &&
+                    unitOfWork.Context.Classes.Any(c => c.Id == a.ClassId && c.Status != "Cancelled" && c.Status != "Archived"), cancellationToken))
+                throw new InvalidOperationException("Hãy gỡ phân công lớp trước khi đổi vai trò HLV.");
+            role = await unitOfWork.Context.Roles.SingleAsync(r => r.Name == request.RoleName, cancellationToken);
+            user.RoleId = role.Id;
+        }
         var oldStatus = user.Status;
         var now = DateTime.UtcNow;
         staff.FullName = request.FullName.Trim();
         staff.HireDate = request.HireDate;
+        staff.Position = role.Name;
         staff.Status = request.Status == "Active" ? "Active" : "Inactive";
         staff.UpdatedAt = now;
         user.Email = email;
@@ -236,6 +292,12 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
 
         var coach = await unitOfWork.Context.CoachProfiles.SingleOrDefaultAsync(
             item => item.UserId == user.Id, cancellationToken);
+        if (coach is null && role.Name == RoleNames.Coach)
+        {
+            coach = new CoachProfile { UserId = user.Id, CenterId = centerId, CoachCode = MakeCode("CO"),
+                FullName = staff.FullName, Status = staff.Status, CreatedAt = now };
+            unitOfWork.Context.CoachProfiles.Add(coach);
+        }
         if (coach is not null)
         {
             coach.FullName = staff.FullName;
@@ -244,13 +306,13 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
             coach.ExperienceYears = request.ExperienceYears;
             coach.Bio = Normalize(request.Bio);
             coach.HireDate = request.HireDate;
-            coach.Status = staff.Status;
+            coach.Status = role.Name == RoleNames.Coach ? staff.Status : "Inactive";
             coach.UpdatedAt = now;
-            unitOfWork.Context.CoachProfiles.Update(coach);
+            if (coach.Id != 0) unitOfWork.Context.CoachProfiles.Update(coach);
         }
 
         AuditLogWriter.Add(unitOfWork, actorUserId, centerId, "staff.updated", "User", user.Id,
-            new { Status = oldStatus }, new { Status = user.Status, Role = role.Name });
+            new { Status = oldStatus, Role = oldRole }, new { Status = user.Status, Role = role.Name });
         await unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return Map(staff, user, role.Name, coach);

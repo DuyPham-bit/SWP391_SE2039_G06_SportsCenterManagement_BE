@@ -2,11 +2,9 @@ using System.ComponentModel.DataAnnotations;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using SportsCenterManagement.API.Authentication;
 using SportsCenterManagement.API.DTOs.Auth;
 using SportsCenterManagement.BLL.Common.Helpers;
@@ -21,11 +19,12 @@ namespace SportsCenterManagement.API.Controllers;
 [Route("api/auth")]
 public sealed class AuthController(
     SportsCenterDbContext dbContext,
-    IConfiguration configuration,
+    JwtTokenIssuer tokenIssuer,
     IHostEnvironment environment,
     IAuthService authService) : ControllerBase
 {
     [HttpPost("register")]
+    [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -53,6 +52,7 @@ public sealed class AuthController(
     }
 
     [HttpPost("login")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<AuthResponse>> Login(
@@ -82,6 +82,7 @@ public sealed class AuthController(
     }
 
     [HttpPost("request-password-reset")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(PasswordResetRequestResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<PasswordResetRequestResponse>> RequestPasswordReset(
         [FromBody] RequestPasswordResetRequest request,
@@ -125,6 +126,7 @@ public sealed class AuthController(
     }
 
     [HttpPost("reset-password")]
+    [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> ResetPassword(
@@ -195,7 +197,7 @@ public sealed class AuthController(
 
         if (!VerifyPassword(request.CurrentPassword, user.PasswordHash))
         {
-            return Unauthorized(new { message = "Mật khẩu hiện tại không đúng." });
+            return BadRequest(new { message = "Mật khẩu hiện tại không đúng." });
         }
 
         var passwordError = ValidateNewPassword(request.NewPassword, user);
@@ -246,38 +248,9 @@ public sealed class AuthController(
     private AuthResponse CreateAuthResponse(
         SportsCenterManagement.BLL.DTOs.Auth.Responses.AuthenticatedUser user)
     {
-        var role = user.Role.ToUpperInvariant();
-        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(configuration.GetValue("Jwt:ExpiresMinutes", 60));
-        var claims = new[]
-        {
-            new Claim(ClaimTypes.NameIdentifier, user.UserId.ToString()),
-            new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
-            new Claim(ClaimTypes.Role, role),
-            new Claim(JwtRegisteredClaimNames.Email, user.Email)
-        };
-
-        var allClaims = user.CenterId.HasValue
-            ? claims.Append(new Claim("centerId", user.CenterId.Value.ToString()))
-            : claims;
-
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(GetJwtKey()));
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var token = new JwtSecurityToken(
-            issuer: configuration["Jwt:Issuer"],
-            audience: configuration["Jwt:Audience"],
-            claims: allClaims,
-            expires: expiresAt.UtcDateTime,
-            signingCredentials: credentials);
-
-        return new AuthResponse(
-            new JwtSecurityTokenHandler().WriteToken(token),
-            user.UserId,
-            role,
-            expiresAt);
+        var (token, expiresAt) = tokenIssuer.Issue(user);
+        return new AuthResponse(token, user.UserId, user.Role.ToUpperInvariant(), expiresAt);
     }
-
-    private string GetJwtKey() => configuration["Jwt:Key"]
-        ?? throw new InvalidOperationException("Jwt:Key is not configured.");
 
     private static bool VerifyPassword(string password, string storedHash) => PasswordHashing.Verify(password, storedHash);
 

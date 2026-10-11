@@ -19,6 +19,12 @@ public interface IStaffManagementService
         StaffRequests.CreateCenterStaffRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<StaffResponses.CenterStaffResponse> AppointAtCenterAsync(
+        long actorUserId,
+        long centerId,
+        StaffRequests.AppointCenterStaffRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<StaffResponses.CenterStaffResponse> UpdateAtCenterAsync(
         long actorUserId,
         long centerId,

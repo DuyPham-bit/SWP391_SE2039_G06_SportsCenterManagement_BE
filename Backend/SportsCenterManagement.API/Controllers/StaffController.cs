@@ -43,6 +43,12 @@ public sealed class StaffController(IStaffManagementService staffManagementServi
         });
     }
 
+    [HttpPost("appointments")]
+    [RequirePermission(PermissionCodes.StaffCenterCreate)]
+    public async Task<IActionResult> Appoint(long centerId, StaffRequests.AppointCenterStaffRequest request, CancellationToken ct) =>
+        await Run(async () => StatusCode(StatusCodes.Status201Created,
+            await staffManagementService.AppointAtCenterAsync(GetUserId(), centerId, request, ct)));
+
     [HttpPatch("{staffUserId:long}")]
     [RequirePermission(PermissionCodes.StaffCenterUpdate)]
     public async Task<IActionResult> Update(

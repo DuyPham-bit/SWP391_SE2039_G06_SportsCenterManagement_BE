@@ -2161,12 +2161,21 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("date")
                         .HasColumnName("end_date");
 
+                    b.Property<string>("ExercisesJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("exercises_json");
+
+                    b.Property<string>("FitnessCondition")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("fitness_condition");
+
                     b.Property<string>("Goal")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)")
                         .HasColumnName("goal");
 
-                    b.Property<long>("MemberId")
+                    b.Property<long?>("MemberId")
                         .HasColumnType("bigint")
                         .HasColumnName("member_id");
 
@@ -2274,10 +2283,24 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<decimal?>("BodyFatPercentage")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("body_fat_percentage");
+
                     b.Property<decimal?>("CaloriesBurned")
                         .HasPrecision(8, 2)
                         .HasColumnType("decimal(8,2)")
                         .HasColumnName("calories_burned");
+
+                    b.Property<long?>("ClassId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("class_id");
+
+                    b.Property<string>("CoachFeedback")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("coach_feedback");
 
                     b.Property<long>("CoachId")
                         .HasColumnType("bigint")
@@ -2298,6 +2321,11 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.Property<long>("MemberId")
                         .HasColumnType("bigint")
                         .HasColumnName("member_id");
+
+                    b.Property<decimal?>("MuscleMass")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("decimal(8,2)")
+                        .HasColumnName("muscle_mass");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
@@ -2338,7 +2366,14 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("decimal(8,2)")
                         .HasColumnName("weight");
 
+                    b.Property<string>("WorkoutResult")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("workout_result");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("ClassId");
 
                     b.HasIndex("CoachId");
 
@@ -2376,6 +2411,11 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.Property<int>("FailedLoginAttempts")
                         .HasColumnType("int")
                         .HasColumnName("failed_login_attempts");
+
+                    b.Property<string>("GoogleSubject")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("google_subject");
 
                     b.Property<DateTime?>("LastLoginAt")
                         .HasColumnType("datetime2")
@@ -2420,6 +2460,10 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("Email")
                         .IsUnique();
+
+                    b.HasIndex("GoogleSubject")
+                        .IsUnique()
+                        .HasFilter("[google_subject] IS NOT NULL");
 
                     b.HasIndex("Phone")
                         .IsUnique()
@@ -3058,8 +3102,7 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.HasOne("SportsCenterManagement.DAL.Entities.MemberProfile", null)
                         .WithMany()
                         .HasForeignKey("MemberId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.TrainingPlanExercise", b =>
@@ -3079,6 +3122,11 @@ namespace SportsCenterManagement.DAL.Migrations
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.TrainingResult", b =>
                 {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.ClassEntity", null)
+                        .WithMany()
+                        .HasForeignKey("ClassId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
                         .WithMany()
                         .HasForeignKey("CoachId")

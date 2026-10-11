@@ -4,6 +4,9 @@ namespace SportsCenterManagement.BLL.Interfaces;
 
 public interface IReportService
 {
+    Task<int> GetCheckinCountAsync(long centerId, DateOnly from, DateOnly to,
+        CancellationToken cancellationToken = default);
+
     Task<RevenueReportResponse> GetRevenueReportAsync(
         long centerId,
         DateOnly from,

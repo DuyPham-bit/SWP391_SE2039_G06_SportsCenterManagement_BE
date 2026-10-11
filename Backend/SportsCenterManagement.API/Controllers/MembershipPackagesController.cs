@@ -18,6 +18,7 @@ public sealed class MembershipPackagesController(
     SportsCenterDbContext db) : ControllerBase
 {
     [HttpGet]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(IReadOnlyList<MembershipPackageResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<MembershipPackageResponse>>> GetActive(
         long centerId,

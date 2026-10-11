@@ -702,7 +702,7 @@ public static class DbInitializer
         // 1. Seed 5 Members
         var memberDefs = new (string Username, string Email, string Phone, string MemberCode, string FullName, string Gender, DateOnly Dob, string Address, string Goal, string Level, int Height, int Weight)[]
         {
-            ("member01", "member01@sportscenter.vn", "0900000006", "MEM-00001", "Phạm Minh Tuấn", "Nam", new DateOnly(1996, 8, 15), "Quận 1, TP.HCM", "Tăng cơ, cải thiện sức bền", "Intermediate", 175, 71),
+            ("member_tuandm", "member01@sportscenter.vn", "0900000006", "MEM-00001", "Phạm Minh Tuấn", "Nam", new DateOnly(1996, 8, 15), "Quận 1, TP.HCM", "Tăng cơ, cải thiện sức bền", "Intermediate", 175, 71),
             ("member02", "member02@sportscenter.vn", "0900000007", "MEM-00002", "Hoàng Hải Yến", "Nữ", new DateOnly(1998, 3, 22), "Bình Thạnh, TP.HCM", "Giảm mỡ, săn chắc vóc dáng", "Beginner", 162, 52),
             ("member03", "member03@sportscenter.vn", "0900000008", "MEM-00003", "Đặng Quốc Bảo", "Nam", new DateOnly(1994, 11, 10), "Phú Nhuận, TP.HCM", "Tăng sức mạnh và độ linh hoạt", "Advanced", 178, 76),
             ("member04", "member04@sportscenter.vn", "0900000009", "MEM-00004", "Trần Thị Mai Anh", "Nữ", new DateOnly(2000, 5, 18), "Quận 3, TP.HCM", "Cải thiện nhịp tim và bơi lội", "Intermediate", 165, 54),

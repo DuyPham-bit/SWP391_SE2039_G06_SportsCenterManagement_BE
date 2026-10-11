@@ -39,6 +39,6 @@ public sealed class ClassSchedulesController(IClassScheduleQueryService service)
     [HttpGet("coaches/me/teaching-schedule")]
     [CenterCapability("view_teaching_schedule")]
     public async Task<IActionResult> GetTeachingSchedule(
-        [FromQuery] DateOnly? from, [FromQuery] DateOnly? to, CancellationToken ct) =>
-        Ok(await service.GetTeachingScheduleAsync(CurrentUserId, from, to, ct));
+        [FromQuery] DateOnly? from, [FromQuery] DateOnly? to, CancellationToken ct, [FromQuery] bool includeHistory = false) =>
+        Ok(await service.GetTeachingScheduleAsync(CurrentUserId, from, to, ct, includeHistory));
 }

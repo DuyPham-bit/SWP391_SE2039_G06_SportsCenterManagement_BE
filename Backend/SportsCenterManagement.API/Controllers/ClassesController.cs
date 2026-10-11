@@ -35,7 +35,7 @@ public sealed class ClassesController(IClassService classService, SportsCenterDb
         {
             await CenterScope.EnsureClassAccessAsync(db, User, classId, cancellationToken);
         }
-        try { return Ok(await classService.AssignCoachToClassAsync(classId, request, cancellationToken)); }
+        try { return Ok(await classService.AssignCoachToClassAsync(CurrentUserId, classId, request, cancellationToken)); }
         catch (FlowException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
@@ -63,7 +63,7 @@ public sealed class ClassesController(IClassService classService, SportsCenterDb
         }
         try
         {
-            await classService.UnassignCoachFromClassAsync(classId, coachId, cancellationToken);
+            await classService.UnassignCoachFromClassAsync(CurrentUserId, classId, coachId, cancellationToken);
             return NoContent();
         }
         catch (FlowException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }

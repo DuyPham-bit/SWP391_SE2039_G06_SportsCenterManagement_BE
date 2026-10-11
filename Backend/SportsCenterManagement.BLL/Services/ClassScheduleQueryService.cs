@@ -120,7 +120,7 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
     }
 
     public async Task<IReadOnlyList<TeachingScheduleItemResponse>> GetTeachingScheduleAsync(
-        long currentUserId, DateOnly? from, DateOnly? to, CancellationToken cancellationToken = default)
+        long currentUserId, DateOnly? from, DateOnly? to, CancellationToken cancellationToken = default, bool includeHistory = false)
     {
         // UH02: coach identity comes only from the authenticated user.
         var coach = await (
@@ -147,8 +147,8 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
             join cls in Db.Classes on session.ClassId equals cls.Id
             join sport in Db.Sports on cls.SportId equals sport.Id
             where session.SessionDate >= start && session.SessionDate <= end
-                && session.SessionStatus == FlowStatuses.SessionScheduled
-                && cls.Status != FlowStatuses.ClassCancelled && cls.Status != FlowStatuses.ClassCompleted
+                && (includeHistory || session.SessionStatus == FlowStatuses.SessionScheduled)
+                && (includeHistory || (cls.Status != FlowStatuses.ClassCancelled && cls.Status != FlowStatuses.ClassCompleted))
                 && cls.CenterId == coach.CenterId && sport.Status == "Active"
                 && Db.Centers.Any(center => center.Id == cls.CenterId && center.Status == "Active")
                 && Db.ClassCoaches.Any(cc => cc.ClassId == cls.Id && cc.CoachId == coach.Id)
@@ -160,6 +160,7 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                 ClassName = cls.Name,
                 SportName = sport.Name,
                 RoomId = session.RoomId ?? cls.RoomId,
+                RoomName = Db.Rooms.Where(r => r.Id == (session.RoomId ?? cls.RoomId)).Select(r => r.Name).FirstOrDefault(),
                 session.SessionDate,
                 session.StartTime,
                 session.EndTime,
@@ -171,6 +172,6 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
 
         return rows.Select(r => new TeachingScheduleItemResponse(
             r.Id, r.ClassId, r.ClassName, r.SportName, r.RoomId, r.SessionDate, r.StartTime, r.EndTime,
-            r.SessionStatus, r.ClassStatus, r.Capacity, r.Booked)).ToList();
+            r.SessionStatus, r.ClassStatus, r.Capacity, r.Booked, r.RoomName)).ToList();
     }
 }

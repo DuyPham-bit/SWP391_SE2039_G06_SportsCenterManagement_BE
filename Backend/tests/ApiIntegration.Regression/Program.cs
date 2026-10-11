@@ -75,7 +75,8 @@ var browserCandidateUser = Account("browsercandidate", "Member");
 db.Users.AddRange(coachUser, memberUser, otherMemberUser, otherCoachUser, managerUser, candidateUser, browserCandidateUser); await db.SaveChangesAsync();
 var coach = new CoachProfile { UserId = coachUser.Id, CenterId = center.Id, FullName = "Test Coach", CoachCode = "TESTCOACH", Status = "Active", CreatedAt = DateTime.UtcNow };
 var otherCoach = new CoachProfile { UserId = otherCoachUser.Id, CenterId = otherCenter.Id, FullName = "Other Coach", CoachCode = "OTHERCOACH", Status = "Active", CreatedAt = DateTime.UtcNow };
-var member = new MemberProfile { UserId = memberUser.Id, CenterId = center.Id, FullName = "Test Member", MemberCode = "TESTMEMBER", CreatedAt = DateTime.UtcNow };
+var member = new MemberProfile { UserId = memberUser.Id, CenterId = center.Id, FullName = "Test Member", MemberCode = "TESTMEMBER", CreatedAt = DateTime.UtcNow,
+    FitnessGoal = "Build endurance", FitnessLevel = "Beginner", MedicalNote = "Avoid high impact", HeightCm = 170, WeightKg = 70, DateOfBirth = new(2000, 1, 1) };
 var otherMember = new MemberProfile { UserId = otherMemberUser.Id, CenterId = otherCenter.Id, FullName = "Other Member", MemberCode = "OTHERMEMBER", CreatedAt = DateTime.UtcNow };
 var candidate = new MemberProfile { UserId = candidateUser.Id, CenterId = center.Id, FullName = "Candidate Member", MemberCode = "CANDIDATE", CreatedAt = DateTime.UtcNow };
 var browserCandidate = new MemberProfile { UserId = browserCandidateUser.Id, CenterId = center.Id,
@@ -99,6 +100,43 @@ db.Classes.AddRange(cls, unassigned); await db.SaveChangesAsync();
 db.ClassCoaches.Add(new ClassCoach { ClassId = cls.Id, CoachId = coach.Id, IsPrimary = true });
 db.ClassEnrollments.Add(new ClassEnrollment { ClassId = cls.Id, MemberId = member.Id, Status = "Confirmed", RegisteredAt = DateTime.UtcNow });
 await db.SaveChangesAsync();
+
+var memberToday = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+var studio = new Room { CenterId = center.Id, Name = "Member Studio", Capacity = 20, Status = "Active", CreatedAt = DateTime.UtcNow };
+var newStudio = new Room { CenterId = center.Id, Name = "Updated Studio", Capacity = 20, Status = "Active", CreatedAt = DateTime.UtcNow };
+db.Rooms.AddRange(studio, newStudio); await db.SaveChangesAsync();
+cls.RoomId = studio.Id; coach.Specialization = sport.Name;
+var memberSchedule = new ClassSchedule { ClassId = cls.Id, DayOfWeek = (int)memberToday.AddDays(1).DayOfWeek,
+    StartDate = memberToday.AddDays(1), EndDate = memberToday.AddDays(1), StartTime = new(10, 0), EndTime = new(11, 0), Status = "Active" };
+var cancelledSchedule = new ClassSchedule { ClassId = cls.Id, DayOfWeek = (int)memberToday.AddDays(1).DayOfWeek,
+    StartDate = memberToday.AddDays(1), EndDate = memberToday.AddDays(1), StartTime = new(14, 0), EndTime = new(15, 0), Status = "Active" };
+db.ClassSchedules.AddRange(memberSchedule, cancelledSchedule); await db.SaveChangesAsync();
+ClassSession MemberSession(DateOnly date, int hour, long? scheduleId = null) => new() { ClassId = cls.Id, CoachId = coach.Id,
+    RoomId = studio.Id, SessionDate = date, StartTime = new(hour, 0), EndTime = new(hour + 1, 0), ScheduleId = scheduleId,
+    SessionStatus = "Scheduled", CreatedAt = DateTime.UtcNow };
+var attendedSession = MemberSession(memberToday.AddDays(-1), 9);
+attendedSession.SessionStatus = "Completed";
+var upcomingSession = MemberSession(memberToday.AddDays(1), 10, memberSchedule.Id);
+var cancelledSession = MemberSession(memberToday.AddDays(1), 14, cancelledSchedule.Id);
+db.ClassSessions.AddRange(attendedSession, upcomingSession, cancelledSession); await db.SaveChangesAsync();
+foreach (var session in new[] { attendedSession, upcomingSession, cancelledSession })
+    db.SessionBookings.Add(new SessionBooking { SessionId = session.Id, MemberId = member.Id, Status = "Booked", BookedAt = DateTime.UtcNow });
+db.Attendances.Add(new Attendance { SessionId = attendedSession.Id, MemberId = member.Id, AttendanceStatus = "PRESENT",
+    Note = "Member attendance note", CheckInTime = DateTime.UtcNow.AddDays(-1), CheckedInBy = coachUser.Id, CreatedAt = DateTime.UtcNow });
+await db.SaveChangesAsync();
+
+for (var index = 0; index < 22; index++)
+{
+    var paginationUser = Account($"paginationmember{index}", "Member");
+    db.Users.Add(paginationUser); await db.SaveChangesAsync();
+    db.MemberProfiles.Add(new MemberProfile { UserId = paginationUser.Id, CenterId = center.Id,
+        FullName = $"Pagination Member {index:D2}", MemberCode = $"PAGEMEMBER{index}", CreatedAt = DateTime.UtcNow });
+}
+db.AuditLogs.AddRange(Enumerable.Range(0, 65).Select(index => new AuditLog { CenterId = center.Id,
+    UserId = managerUser.Id, Action = "MANAGER.PAGE.TEST", EntityType = "Center", EntityId = center.Id,
+    CreatedAt = DateTime.UtcNow.AddDays(-1).AddSeconds(index) }));
+var sharedSport = new Sport { Name = "Shared Manager Test Sport", Status = "Active" };
+db.Sports.Add(sharedSport); await db.SaveChangesAsync();
 
 var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
 var apiDll = typeof(JwtTokenIssuer).Assembly.Location;
@@ -139,6 +177,47 @@ try
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", coachToken);
     var classes = await Json(await client.GetAsync("coaches/me/classes"), HttpStatusCode.OK, "coach catalog and relational roster load");
     Assert(classes.GetArrayLength() == 1 && classes[0].GetProperty("members").GetArrayLength() == 1, "coach sees only assigned class and members");
+    var roster = await Json(await client.GetAsync($"coaches/me/classes/{cls.Id}/members"), HttpStatusCode.OK, "coach reads basic member profile");
+    Assert(roster[0].GetProperty("fitnessGoal").GetString() == "Build endurance" && roster[0].GetProperty("medicalNote").GetString() == "Avoid high impact"
+        && roster[0].GetProperty("heightCm").GetDecimal() == 170, "coach profile includes stored goals, level and physical condition");
+    await Json(await client.GetAsync($"coaches/me/classes/{unassigned.Id}/members"), HttpStatusCode.Forbidden, "coach cannot inspect unassigned roster");
+    var teaching = await Json(await client.GetAsync($"coaches/me/teaching-schedule?from={memberToday.AddDays(-2):yyyy-MM-dd}&to={memberToday.AddDays(2):yyyy-MM-dd}&includeHistory=true"), HttpStatusCode.OK, "coach loads historical teaching dates");
+    Assert(teaching.GetArrayLength() == 3 && teaching[0].GetProperty("roomName").GetString() == studio.Name, "teaching schedule contains real dates and room names");
+    Assert(teaching[0].GetProperty("sessionStatus").GetString() == "Completed", "coach can see completed sessions when history is requested");
+    var legacyTeaching = await Json(await client.GetAsync($"coaches/me/teaching-schedule?from={memberToday.AddDays(-2):yyyy-MM-dd}&to={memberToday.AddDays(2):yyyy-MM-dd}"), HttpStatusCode.OK, "default teaching query remains compatible");
+    Assert(legacyTeaching.GetArrayLength() == 2, "default teaching query still excludes completed sessions");
+    await Json(await client.PostAsJsonAsync("coaches/me/progress", new { classId = cls.Id, memberId = member.Id, sessionId = attendedSession.Id, workoutResult = "Session endurance result", coachFeedback = "Steady breathing" }), HttpStatusCode.OK, "session progress persists without fabricated body metrics");
+    await Json(await client.PostAsJsonAsync("coaches/me/progress", new { classId = cls.Id, memberId = member.Id, sessionId = upcomingSession.Id, workoutResult = "Future" }), HttpStatusCode.Conflict, "progress rejects unfinished sessions");
+    await Json(await client.PostAsJsonAsync("coaches/me/progress", new { classId = unassigned.Id, memberId = member.Id, sessionId = attendedSession.Id, workoutResult = "Unauthorized" }), HttpStatusCode.Forbidden, "progress rejects unassigned classes");
+    await Json(await client.PostAsJsonAsync("coaches/me/progress", new { classId = cls.Id, memberId = member.Id, sessionId = 999999L, workoutResult = "Unknown" }), HttpStatusCode.BadRequest, "progress rejects unknown session IDs");
+    await Json(await client.PostAsJsonAsync("coaches/me/progress", new { classId = cls.Id, memberId = otherMember.Id, sessionId = attendedSession.Id, workoutResult = "Unrelated" }), HttpStatusCode.Forbidden, "progress rejects unrelated members");
+    await Json(await client.PostAsJsonAsync("coaches/me/progress", new { classId = cls.Id, memberId = member.Id, sessionId = attendedSession.Id, date = memberToday.ToString("yyyy-MM-dd"), workoutResult = "Wrong day" }), HttpStatusCode.BadRequest, "progress rejects dates that differ from the chosen session");
+    await db.ClassSessions.Where(s => s.Id == attendedSession.Id).ExecuteUpdateAsync(s => s.SetProperty(s => s.SessionStatus, "Cancelled"));
+    await Json(await client.PostAsJsonAsync("coaches/me/progress", new { classId = cls.Id, memberId = member.Id, sessionId = attendedSession.Id, workoutResult = "Cancelled" }), HttpStatusCode.Conflict, "progress rejects cancelled sessions");
+    await db.ClassSessions.Where(s => s.Id == attendedSession.Id).ExecuteUpdateAsync(s => s.SetProperty(s => s.SessionStatus, "Completed"));
+    await db.SessionBookings.Where(b => b.SessionId == attendedSession.Id && b.MemberId == member.Id).ExecuteUpdateAsync(s => s.SetProperty(b => b.Status, "Cancelled"));
+    await Json(await client.PostAsJsonAsync("coaches/me/progress", new { classId = cls.Id, memberId = member.Id, sessionId = attendedSession.Id, workoutResult = "Not booked" }), HttpStatusCode.BadRequest, "progress requires a valid booking even when member is enrolled in the class");
+    await db.SessionBookings.Where(b => b.SessionId == attendedSession.Id && b.MemberId == member.Id).ExecuteUpdateAsync(s => s.SetProperty(b => b.Status, "Booked"));
+    var sessionProgress = await Json(await client.GetAsync("coaches/me/progress"), HttpStatusCode.OK, "coach reloads session progress");
+    Assert(sessionProgress[0].GetProperty("sessionId").GetInt64() == attendedSession.Id
+        && sessionProgress[0].GetProperty("weight").ValueKind == JsonValueKind.Null
+        && sessionProgress[0].GetProperty("date").GetString() == attendedSession.SessionDate.ToString("yyyy-MM-dd"), "session progress roundtrips ID, date and empty measurements");
+    var aiContext = await Json(await client.GetAsync($"coaches/me/classes/{cls.Id}/members/{member.Id}/ai-context"), HttpStatusCode.OK, "AI context loads stored profile and history");
+    Assert(aiContext.GetProperty("recentHistory")[0].GetProperty("workoutResult").GetString() == "Session endurance result"
+        && aiContext.GetProperty("fitnessGoal").GetString() == "Build endurance" && !aiContext.TryGetProperty("memberName", out _)
+        && !aiContext.TryGetProperty("email", out _), "AI context uses actual member history without identity fields");
+    var contextFixtures = Enumerable.Range(1, 12).Select(i => new TrainingResult { MemberId = member.Id, CoachId = coach.Id,
+        ClassId = cls.Id, ResultDate = memberToday.AddDays(-i), WorkoutResult = $"Context history {i}", CreatedAt = DateTime.UtcNow.AddMinutes(-i) }).ToList();
+    contextFixtures.Add(new TrainingResult { MemberId = member.Id, CoachId = otherCoach.Id, ClassId = unassigned.Id,
+        ResultDate = memberToday, WorkoutResult = "Other class private history", CreatedAt = DateTime.UtcNow });
+    db.TrainingResults.AddRange(contextFixtures); await db.SaveChangesAsync();
+    var boundedContext = await new TrainingService(db).GetRecommendationContextAsync(coachUser.Id, cls.Id, member.Id, default);
+    Assert(boundedContext.RecentHistory.Length == 10 && boundedContext.RecentHistory.All(h => h.WorkoutResult != "Other class private history")
+        && boundedContext.RecentHistory[0].Date >= boundedContext.RecentHistory[^1].Date, "AI history is bounded, ordered and restricted to the selected class");
+    db.TrainingResults.RemoveRange(contextFixtures); await db.SaveChangesAsync();
+    await Json(await client.GetAsync($"coaches/me/classes/{cls.Id}/members/{otherMember.Id}/ai-context"), HttpStatusCode.Forbidden, "AI context rejects unrelated member");
+    await Json(await client.GetAsync($"coaches/me/classes/{unassigned.Id}/members/{member.Id}/ai-context"), HttpStatusCode.Forbidden, "AI context rejects unassigned class");
+    await Json(await client.PostAsJsonAsync("ai/recommendations", new { classId = cls.Id, memberId = member.Id, fitnessGoal = "Endurance", currentLevel = "Beginner" }), HttpStatusCode.ServiceUnavailable, "coach AI without key returns truthful 503");
     var request = new { classId = cls.Id, memberId = (long?)null, title = "Shared Plan", goal = "General fitness", startDate = "2026-10-11", endDate = (string?)null,
         fitnessCondition = (string?)null, exercises = new[] { new { name = "Warmup", sets = "2", reps = "10 min", note = "Easy" } } };
     var saved = await Json(await client.PostAsJsonAsync("coaches/me/training-plans", request), HttpStatusCode.OK, "class training plan persists");
@@ -157,6 +236,16 @@ try
     Assert(plans.GetArrayLength() == 2 && plans.EnumerateArray().Any(p => p.GetProperty("title").GetString() == "Updated Personal"), "personal plan upsert does not duplicate active plan");
     var progress = await Json(await client.GetAsync("members/me/progress"), HttpStatusCode.OK, "member reads stored progress");
     Assert(progress[0].GetProperty("muscleMass").GetDecimal() == 30 && progress[0].GetProperty("coachFeedback").GetString() == "Good", "progress contract roundtrips metrics and feedback");
+    var memberBookings = await Json(await client.GetAsync("members/me/session-bookings"), HttpStatusCode.OK, "member loads personal schedule and attendance");
+    var attendedBooking = memberBookings.EnumerateArray().Single(b => b.GetProperty("sessionId").GetInt64() == attendedSession.Id);
+    Assert(memberBookings.GetArrayLength() == 3 && attendedBooking.GetProperty("attendanceStatus").GetString() == "PRESENT"
+        && attendedBooking.GetProperty("attendanceNote").GetString() == "Member attendance note"
+        && attendedBooking.GetProperty("roomName").GetString() == studio.Name
+        && attendedBooking.GetProperty("coachName").GetString() == coach.FullName
+        && attendedBooking.GetProperty("coachSpecialization").GetString() == sport.Name,
+        "personal schedule joins real room, coach and member-owned attendance");
+    Assert(memberBookings.EnumerateArray().Single(b => b.GetProperty("sessionId").GetInt64() == upcomingSession.Id)
+        .GetProperty("attendanceStatus").ValueKind == JsonValueKind.Null, "future booking does not fabricate attendance");
     await Json(await client.GetAsync("notifications/me"), HttpStatusCode.OK, "member receives coach notification");
     await Json(await client.PutAsync($"notifications/{notificationId}/read", null), HttpStatusCode.NoContent, "notification owner marks read");
     await Json(await client.PostAsJsonAsync("ai/chat", new { message = "Warmup?" }), HttpStatusCode.ServiceUnavailable, "AI without configured key returns truthful 503");
@@ -165,6 +254,8 @@ try
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", otherToken);
     var otherPlans = await Json(await client.GetAsync("members/me/training-plans"), HttpStatusCode.OK, "other member plan query succeeds without leaking plans");
     Assert(otherPlans.GetArrayLength() == 0, "unrelated member cannot see shared or personal plans");
+    var unrelatedBookings = await Json(await client.GetAsync("members/me/session-bookings"), HttpStatusCode.OK, "unrelated member personal schedule loads");
+    Assert(unrelatedBookings.GetArrayLength() == 0, "personal schedule never leaks another member attendance or bookings");
     await Json(await client.PutAsync($"notifications/{notificationId}/read", null), HttpStatusCode.NotFound, "other member cannot mark foreign notification");
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", coachToken);
     await Json(await client.DeleteAsync($"coaches/me/training-plans/{planId}"), HttpStatusCode.NoContent, "coach archives own plan");
@@ -182,6 +273,44 @@ try
     Assert(swagger.GetProperty("components").GetProperty("securitySchemes").GetProperty("Bearer").GetProperty("scheme").GetString() == "bearer", "Swagger advertises JWT bearer authentication");
     var managerToken = await Login(managerUser);
     var candidateToken = await Login(candidateUser);
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", managerToken);
+    var membersPage1 = await Json(await client.GetAsync($"centers/{center.Id}/members?page=1&pageSize=20"), HttpStatusCode.OK, "manager can list members without a query");
+    var membersPage2 = await Json(await client.GetAsync($"centers/{center.Id}/members?page=2&pageSize=20"), HttpStatusCode.OK, "manager can read next member page");
+    Assert(membersPage1.GetProperty("totalCount").GetInt32() == await db.MemberProfiles.CountAsync(m => m.CenterId == center.Id)
+        && !membersPage1.GetProperty("items").EnumerateArray().Select(m => m.GetProperty("memberId").GetInt64())
+            .Intersect(membersPage2.GetProperty("items").EnumerateArray().Select(m => m.GetProperty("memberId").GetInt64())).Any(),
+        "member pagination counts all center profiles without duplicates");
+    await Json(await client.GetAsync($"centers/{otherCenter.Id}/members"), HttpStatusCode.Forbidden, "manager cannot list foreign-center members");
+    await Json(await client.PatchAsJsonAsync($"centers/{center.Id}/members/{otherMember.Id}/status", new { status = "Disabled" }), HttpStatusCode.NotFound, "manager cannot lock foreign member");
+    var editedMember = await Json(await client.PatchAsJsonAsync($"centers/{center.Id}/members/{member.Id}", new { fullName = member.FullName, address = "Manager updated address" }), HttpStatusCode.OK, "manager can edit member profile");
+    Assert(editedMember.GetProperty("address").GetString() == "Manager updated address", "member update persists requested profile data");
+    await Json(await client.PatchAsJsonAsync($"centers/{center.Id}/members/{member.Id}/status", new { status = "Disabled" }), HttpStatusCode.OK, "manager locks member account");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", memberToken);
+    await Json(await client.GetAsync("members/me"), HttpStatusCode.Unauthorized, "locked member JWT stops accessing protected data");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", managerToken);
+    await Json(await client.PatchAsJsonAsync($"centers/{center.Id}/members/{member.Id}/status", new { status = "Active" }), HttpStatusCode.OK, "manager restores member account");
+    var sportBody = new { name = "Manager New Sport", description = "Manager sport description", status = "Active" };
+    var createdSport = await Json(await client.PostAsJsonAsync($"centers/{center.Id}/sports", sportBody), HttpStatusCode.Created, "manager creates center sport");
+    var managedSportId = createdSport.GetProperty("id").GetInt64();
+    await Json(await client.PostAsJsonAsync($"centers/{center.Id}/sports", sportBody), HttpStatusCode.Conflict, "duplicate center sport rejected");
+    await Json(await client.PutAsJsonAsync($"centers/{center.Id}/sports/{managedSportId}", sportBody with { status = "Inactive" }), HttpStatusCode.OK, "unused sport can be deactivated");
+    var managementSports = await Json(await client.GetAsync($"centers/{center.Id}/sports/all"), HttpStatusCode.OK, "manager catalog includes inactive sports");
+    Assert(managementSports.EnumerateArray().Any(s => s.GetProperty("id").GetInt64() == managedSportId && s.GetProperty("status").GetString() == "Inactive"), "inactive sport remains manageable");
+    await Json(await client.PutAsJsonAsync($"centers/{center.Id}/sports/{sport.Id}", sportBody with { name = sport.Name, status = "Inactive" }), HttpStatusCode.Conflict, "sport with open classes cannot be deactivated");
+    await Json(await client.PutAsJsonAsync($"centers/{center.Id}/sports/{sharedSport.Id}", sportBody), HttpStatusCode.NotFound, "manager cannot edit shared sport");
+    await Json(await client.PostAsJsonAsync($"centers/{otherCenter.Id}/sports", sportBody), HttpStatusCode.Forbidden, "manager cannot create sport in foreign center");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", memberToken);
+    await Json(await client.PostAsJsonAsync($"centers/{center.Id}/sports", sportBody), HttpStatusCode.Forbidden, "member cannot create sports");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", managerToken);
+    var auditPage2 = await Json(await client.GetAsync($"centers/{center.Id}/audit-logs?page=2&pageSize=50"), HttpStatusCode.OK, "manager reads audit records beyond first 50");
+    Assert(auditPage2.GetProperty("totalCount").GetInt32() > 50 && auditPage2.GetProperty("items").GetArrayLength() > 0
+        && auditPage2.GetProperty("items").EnumerateArray().All(log => log.GetProperty("centerId").GetInt64() == center.Id), "audit pagination stays within assigned center");
+    var reportToday = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+    var membershipReport = await Json(await client.GetAsync($"reports/membership?from={reportToday:yyyy-MM-dd}&to={reportToday:yyyy-MM-dd}&groupBy=month"), HttpStatusCode.OK, "manager requests membership report by month");
+    Assert(membershipReport.GetProperty("totalMembers").GetInt32() == await db.MemberProfiles.CountAsync(m => m.CenterId == center.Id)
+        && membershipReport.GetProperty("newMembers").GetInt32() >= 22, "membership report includes new profiles without subscriptions");
+    var classCatalog = await Json(await client.GetAsync($"centers/{center.Id}/classes/all"), HttpStatusCode.OK, "manager class catalog includes enrollment counts");
+    Assert(classCatalog.EnumerateArray().Single(c => c.GetProperty("id").GetInt64() == cls.Id).GetProperty("enrolledCount").GetInt32() == 1, "coach assignment displays real confirmed enrollment count");
     var appointment = new { memberId = candidate.Id, roleName = "Coach", hireDate = "2026-10-11", specialization = "Swimming" };
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", memberToken);
     await Json(await client.PostAsJsonAsync($"centers/{center.Id}/staff/appointments", appointment), HttpStatusCode.Forbidden, "member cannot appoint staff");
@@ -201,6 +330,10 @@ try
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", managerToken);
     var staffUpdate = new { fullName = candidate.FullName, status = "Active", roleName = "Receptionist" };
     await Json(await client.PatchAsJsonAsync($"centers/{center.Id}/staff/{candidateUser.Id}", staffUpdate), HttpStatusCode.OK, "unassigned coach can become receptionist");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", candidateToken);
+    await Json(await client.GetAsync($"centers/{center.Id}/members"), HttpStatusCode.Forbidden, "receptionist still needs search query to access members");
+    await Json(await client.GetAsync($"centers/{center.Id}/members?query=Test"), HttpStatusCode.OK, "receptionist retains existing member search");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", managerToken);
     Assert(await db.CoachProfiles.AnyAsync(c => c.UserId == candidateUser.Id && c.Status == "Inactive"), "coach profile disabled while historical rows remain");
     await Json(await client.PatchAsJsonAsync($"centers/{center.Id}/staff/{candidateUser.Id}", staffUpdate with { roleName = "Coach" }), HttpStatusCode.OK, "receptionist can restore coach role");
     await Json(await client.PatchAsJsonAsync($"centers/{center.Id}/staff/{candidateUser.Id}", staffUpdate with { roleName = "Manager" }), HttpStatusCode.Forbidden, "staff role update cannot elevate to manager");
@@ -210,6 +343,27 @@ try
     Assert(checkins.GetProperty("count").GetInt32() == 101 && checkins.GetProperty("centerId").GetInt64() == center.Id,
         "check-in count is not truncated and respects Vietnam day boundary");
     await Json(await client.GetAsync("reports/checkins?from=2026-10-11&to=2026-10-10"), HttpStatusCode.BadRequest, "check-in report rejects reversed range");
+    await Json(await client.PutAsJsonAsync($"classes/{cls.Id}", new { sportId = sport.Id, roomId = newStudio.Id,
+        name = cls.Name, description = (string?)null, level = (string?)null, capacity = 10, durationMinutes = 60, allowWaitlist = true }),
+        HttpStatusCode.OK, "manager changes classroom for upcoming sessions");
+    await Json(await client.DeleteAsync($"classes/{cls.Id}/schedules/{cancelledSchedule.Id}"), HttpStatusCode.OK, "manager cancels a booked schedule");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", memberToken);
+    var scheduleMessages = await Json(await client.GetAsync("notifications/me"), HttpStatusCode.OK, "member receives persisted schedule-change notifications");
+    Assert(scheduleMessages.EnumerateArray().Count(n => n.GetProperty("notificationType").GetString() == "ScheduleChanged") == 2,
+        "room change and cancellation each notify the affected member once");
+    var updatedBookings = await Json(await client.GetAsync("members/me/session-bookings"), HttpStatusCode.OK, "member schedule refresh reflects room change and cancellation");
+    Assert(updatedBookings.EnumerateArray().Single(b => b.GetProperty("sessionId").GetInt64() == cancelledSession.Id).GetProperty("sessionStatus").GetString() == "Cancelled"
+        && updatedBookings.EnumerateArray().Single(b => b.GetProperty("sessionId").GetInt64() == upcomingSession.Id).GetProperty("roomName").GetString() == newStudio.Name,
+        "member sees the same committed schedule state as the notification");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", otherToken);
+    var unrelatedMessages = await Json(await client.GetAsync("notifications/me"), HttpStatusCode.OK, "unrelated member notifications load");
+    Assert(unrelatedMessages.GetArrayLength() == 0, "schedule-change notifications only reach affected members");
+    await db.Users.Where(u => u.Id == coachUser.Id).ExecuteUpdateAsync(s => s.SetProperty(u => u.Status, "Active"));
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", managerToken);
+    await Json(await client.PostAsJsonAsync($"classes/{cls.Id}/coaches", new { coachId = coach.Id, isPrimary = true }), HttpStatusCode.OK, "manager assigns primary coach");
+    Assert(await db.AuditLogs.AnyAsync(log => log.Action == "CLASS_COACH.ASSIGNED" && log.UserId == managerUser.Id
+        && log.CenterId == center.Id && log.EntityId == cls.Id && log.OldValues != null && log.NewValues != null),
+        "coach assignment and actor audit persist together");
     if (args.Contains("--browser"))
     {
         await db.Users.Where(u => u.Id == coachUser.Id).ExecuteUpdateAsync(s => s.SetProperty(u => u.Status, "Active"));

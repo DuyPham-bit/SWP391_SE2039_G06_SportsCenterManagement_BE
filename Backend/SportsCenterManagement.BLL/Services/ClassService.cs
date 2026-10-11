@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.BLL.DTOs.Classes;
+using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.DAL.Entities;
 using SportsCenterManagement.DAL.Repositories.Interfaces;
@@ -31,6 +32,7 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
     }
 
     public async Task<ClassCoachResponse> AssignCoachToClassAsync(
+        long actorUserId,
         long classId,
         AssignCoachRequest request,
         CancellationToken cancellationToken = default)
@@ -145,6 +147,7 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
 
         // A class may have assistant coaches, but it must keep exactly one primary coach.
         var assignments = await db.ClassCoaches.Where(cc => cc.ClassId == classId).ToListAsync(cancellationToken);
+        var previousAssignments = assignments.Select(cc => new { cc.CoachId, cc.IsPrimary, cc.AssignedDate }).ToArray();
         var existingClassCoach = assignments.SingleOrDefault(cc => cc.CoachId == request.CoachId);
         if (!request.IsPrimary && !assignments.Any(cc => cc.IsPrimary && cc.CoachId != request.CoachId))
         {
@@ -186,6 +189,8 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
         foreach (var session in upcomingSessions)
             session.CoachId = primaryCoachId;
 
+        AuditLogWriter.Add(unitOfWork, actorUserId, classEntity.CenterId, "CLASS_COACH.ASSIGNED", "Class", classId,
+            previousAssignments, new { CoachId = coachProfile.Id, coachProfile.FullName, request.IsPrimary });
         await unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -226,6 +231,7 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
     }
 
     public async Task UnassignCoachFromClassAsync(
+        long actorUserId,
         long classId,
         long coachId,
         CancellationToken cancellationToken = default)
@@ -262,6 +268,8 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
             .ToListAsync(cancellationToken);
         foreach (var session in upcomingSessions)
             session.CoachId = primaryCoachId;
+        AuditLogWriter.Add(unitOfWork, actorUserId, classEntity.CenterId, "CLASS_COACH.UNASSIGNED", "Class", classId,
+            new { classCoach.CoachId, classCoach.IsPrimary }, new { PrimaryCoachId = primaryCoachId });
         await unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }

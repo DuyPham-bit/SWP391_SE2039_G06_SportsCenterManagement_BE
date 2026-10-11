@@ -12,6 +12,10 @@ namespace SportsCenterManagement.API.Controllers;
 [CenterCapability("checkin_member")]
 public sealed class CheckinsController(ICheckinService checkinService) : FlowControllerBase
 {
+    [HttpGet("centers/{centerId:long}/checkins/summary")]
+    public async Task<ActionResult<CheckinSummary>> Summary(long centerId, CancellationToken ct) =>
+        Ok(await checkinService.GetTodaySummaryAsync(CurrentUserId, centerId, ct));
+
     [HttpPost("centers/{centerId:long}/checkins")]
     public async Task<ActionResult<CheckinResponse>> CheckIn(
         long centerId,

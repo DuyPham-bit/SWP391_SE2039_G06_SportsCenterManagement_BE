@@ -19,7 +19,8 @@ public static class Responses
         DateOnly? PackageExpiry = null,
         string? PackageStatus = null,
         long? PackageId = null,
-        long? SubscriptionId = null);
+        long? SubscriptionId = null,
+        DateOnly? PackageStartDate = null);
 
     public sealed record MemberSubscriptionResponse(
         long SubscriptionId,

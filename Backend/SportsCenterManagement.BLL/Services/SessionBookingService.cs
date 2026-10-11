@@ -138,14 +138,26 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
     public async Task<IReadOnlyList<SessionBookingResponse>> ListMyBookingsAsync(long currentUserId, CancellationToken cancellationToken = default)
     {
         var member = await GetMemberAsync(currentUserId, cancellationToken);
-        var rows = await (
+        return await (
             from b in Db.SessionBookings
             join s in Db.ClassSessions on b.SessionId equals s.Id
             join c in Db.Classes on s.ClassId equals c.Id
+            join room in Db.Rooms on s.RoomId equals (long?)room.Id into rooms
+            from room in rooms.DefaultIfEmpty()
+            join coach in Db.CoachProfiles on s.CoachId equals (long?)coach.Id into coaches
+            from coach in coaches.DefaultIfEmpty()
+            join attendance in Db.Attendances on new { b.SessionId, b.MemberId }
+                equals new { attendance.SessionId, attendance.MemberId } into attendances
+            from attendance in attendances.DefaultIfEmpty()
             where b.MemberId == member.Id
             orderby s.SessionDate descending, s.StartTime descending
-            select new { b, s, c }).ToListAsync(cancellationToken);
-        return rows.Select(r => ToResponse(r.b, r.s, r.c)).ToList();
+            select new SessionBookingResponse(
+                b.Id, b.SessionId, c.Id, c.Name, s.SessionDate, s.StartTime, s.EndTime, b.Status, b.BookedAt,
+                s.SessionStatus, room == null ? null : room.Name,
+                coach == null ? null : coach.FullName, coach == null ? null : coach.Specialization,
+                attendance == null ? null : attendance.AttendanceStatus,
+                attendance == null ? null : attendance.Note,
+                attendance == null ? null : attendance.CheckInTime)).ToListAsync(cancellationToken);
     }
 
     // ------------------------------------------------------------------ rules

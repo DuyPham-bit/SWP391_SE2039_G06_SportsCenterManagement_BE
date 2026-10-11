@@ -112,7 +112,8 @@ public sealed record TeachingScheduleItemResponse(
     string SessionStatus,
     string ClassStatus,
     int Capacity,
-    int BookedCount);
+    int BookedCount,
+    string? RoomName = null);
 
 // ---------- UC-43 / UC-44: session bookings ----------
 
@@ -125,7 +126,14 @@ public sealed record SessionBookingResponse(
     TimeOnly StartTime,
     TimeOnly EndTime,
     string Status,
-    DateTime BookedAt);
+    DateTime BookedAt,
+    string? SessionStatus = null,
+    string? RoomName = null,
+    string? CoachName = null,
+    string? CoachSpecialization = null,
+    string? AttendanceStatus = null,
+    string? AttendanceNote = null,
+    DateTime? CheckInTime = null);
 
 public sealed record BookSessionResult(
     bool Booked,

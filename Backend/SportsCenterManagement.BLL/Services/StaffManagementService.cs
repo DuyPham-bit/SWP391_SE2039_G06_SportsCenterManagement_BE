@@ -43,7 +43,7 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
                       || staff.FullName.Contains(term)
                       || user.Username.Contains(term)
                       || user.Email.Contains(term))
-            orderby staff.FullName
+            orderby staff.FullName, staff.Id
             select new { Staff = staff, User = user, RoleName = role.Name, Coach = coach })
             .Skip((page - 1) * pageSize)
             .Take(pageSize)

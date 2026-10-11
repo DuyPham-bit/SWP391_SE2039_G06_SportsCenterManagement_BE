@@ -77,6 +77,7 @@ builder.Services.AddHttpClient<IMoMoService, MoMoService>();
 builder.Services.AddHttpClient<IPayOsService, PayOsService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ICheckinService, CheckinService>();
+builder.Services.AddScoped<SupportRequestService>();
 builder.Services.AddScoped<TrainingService>();
 builder.Services.AddSingleton<GoogleTokenValidator>();
 builder.Services.AddHttpClient<GeminiService>(client => client.Timeout = TimeSpan.FromSeconds(45));

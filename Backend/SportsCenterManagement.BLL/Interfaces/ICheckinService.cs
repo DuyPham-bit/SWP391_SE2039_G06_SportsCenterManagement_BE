@@ -4,6 +4,8 @@ namespace SportsCenterManagement.BLL.Interfaces;
 
 public interface ICheckinService
 {
+    Task<CheckinSummary> GetTodaySummaryAsync(long actorUserId, long centerId, CancellationToken cancellationToken = default);
+
     Task<CheckinResponse> CheckInMemberAsync(
         long actorUserId,
         long centerId,

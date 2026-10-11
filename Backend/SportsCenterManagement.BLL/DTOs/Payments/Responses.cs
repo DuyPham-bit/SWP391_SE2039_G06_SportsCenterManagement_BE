@@ -390,7 +390,11 @@ public sealed record InvoiceDetailsResponse(
     decimal AmountPaid,
     decimal OutstandingBalance,
     IReadOnlyList<InvoiceLineResponse> Items,
-    IReadOnlyList<InvoicePaymentResponse> Payments);
+    IReadOnlyList<InvoicePaymentResponse> Payments,
+    string? MemberName = null,
+    string? MemberCode = null,
+    string? CenterName = null,
+    string? CenterAddress = null);
 
 public sealed record InvoiceLineResponse(
     string Description,

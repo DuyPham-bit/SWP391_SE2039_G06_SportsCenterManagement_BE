@@ -26,7 +26,8 @@ public sealed record RecordProgressRequest(
     [param: Range(0, 500)] decimal? MuscleMass,
     [param: Required, StringLength(1000)] string WorkoutResult,
     [param: StringLength(1000)] string? CoachFeedback,
-    DateOnly? Date);
+    DateOnly? Date,
+    [param: Range(1, long.MaxValue)] long? SessionId = null);
 
 public sealed record SendNotificationRequest(
     [param: Range(1, long.MaxValue)] long? ClassId,
@@ -40,4 +41,11 @@ public sealed record TrainingPlanResponse(long Id, long? ClassId, string? ClassN
 
 public sealed record ProgressResponse(long Id, long? ClassId, string? ClassName, string? SportName,
     long MemberId, string MemberName, string CoachName, DateOnly Date, decimal? Weight, decimal? BodyFat,
+    decimal? MuscleMass, string? WorkoutResult, string? CoachFeedback,
+    long? SessionId = null, TimeOnly? SessionStartTime = null, TimeOnly? SessionEndTime = null);
+
+public sealed record RecommendationHistory(DateOnly Date, decimal? Weight, decimal? BodyFat,
     decimal? MuscleMass, string? WorkoutResult, string? CoachFeedback);
+
+public sealed record RecommendationContext(string SportName, string? FitnessGoal, string? FitnessLevel,
+    string? MedicalNote, RecommendationHistory[] RecentHistory);

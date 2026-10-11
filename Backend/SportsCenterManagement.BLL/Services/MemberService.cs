@@ -188,24 +188,26 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         int pageSize,
         CancellationToken cancellationToken = default)
     {
-        if (centerId <= 0 || string.IsNullOrWhiteSpace(query) || query.Trim().Length < 2 || query.Length > 100
+        var term = query.Trim();
+        if (centerId <= 0 || (term.Length > 0 && term.Length < 2) || query.Length > 100
             || page is < 1 or > 1_000_000 || pageSize is < 1 or > 50)
         {
             throw new ValidationException("Từ khóa cần từ 2 đến 100 ký tự; page từ 1 và pageSize từ 1 đến 50.");
         }
-        await EnsureCenterStaffAsync(actorUserId, centerId, cancellationToken);
-
-        var term = query.Trim();
+        if (term.Length == 0)
+            await EnsureCenterManagerAsync(actorUserId, centerId, cancellationToken);
+        else
+            await EnsureCenterStaffAsync(actorUserId, centerId, cancellationToken);
         // Lọc center trước khi phân trang để không lộ member của center khác.
         var matches =
             from profile in unitOfWork.Context.MemberProfiles.AsNoTracking()
             join user in unitOfWork.Context.Users.AsNoTracking() on profile.UserId equals user.Id
             where profile.CenterId == centerId
-                  && (profile.MemberCode.Contains(term)
+                  && (term == "" || profile.MemberCode.Contains(term)
                       || profile.FullName.Contains(term)
                       || user.Email.Contains(term)
                       || (user.Phone != null && user.Phone.Contains(term)))
-            orderby profile.FullName
+            orderby profile.FullName, profile.Id
             select new MembersResponses.MemberProfileResponse(profile.Id, user.Id, profile.MemberCode, user.Username,
                 user.Email, user.Phone, profile.FullName, profile.DateOfBirth, profile.Gender,
                 profile.Address, profile.CreatedAt, user.Status);
@@ -375,7 +377,7 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         if (items.Count == 0) return items.ToList();
 
         var memberIds = items.Select(m => m.MemberId).Distinct().ToList();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
 
         var subs = await (
             from sub in unitOfWork.Context.MemberSubscriptions.AsNoTracking()
@@ -400,7 +402,8 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             var mSubs = subs.Where(s => s.MemberId == m.MemberId).ToList();
 
             var activeSub = mSubs
-                .Where(s => string.Equals(s.Status, "Active", StringComparison.OrdinalIgnoreCase) && (s.EndDate == null || s.EndDate >= today))
+                .Where(s => string.Equals(s.Status, "Active", StringComparison.OrdinalIgnoreCase)
+                    && s.StartDate.HasValue && s.StartDate <= today && s.EndDate.HasValue && s.EndDate >= today)
                 .OrderByDescending(s => s.EndDate)
                 .FirstOrDefault();
 
@@ -417,7 +420,9 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             {
                 if (string.Equals(currentSub.Status, "Active", StringComparison.OrdinalIgnoreCase))
                 {
-                    pkgStatus = (currentSub.EndDate != null && currentSub.EndDate < today) ? "EXPIRED" : "ACTIVE";
+                    pkgStatus = !currentSub.StartDate.HasValue || !currentSub.EndDate.HasValue ? "INACTIVE"
+                        : currentSub.StartDate > today ? "SCHEDULED"
+                        : currentSub.EndDate < today ? "EXPIRED" : "ACTIVE";
                 }
                 else if (string.Equals(currentSub.Status, "PendingPayment", StringComparison.OrdinalIgnoreCase))
                 {
@@ -443,7 +448,8 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
                 PackageExpiry = pkgExpiry,
                 PackageStatus = pkgStatus,
                 PackageId = currentSub?.PackageId,
-                SubscriptionId = currentSub?.Id
+                SubscriptionId = currentSub?.Id,
+                PackageStartDate = currentSub?.StartDate
             };
         }).ToList();
     }

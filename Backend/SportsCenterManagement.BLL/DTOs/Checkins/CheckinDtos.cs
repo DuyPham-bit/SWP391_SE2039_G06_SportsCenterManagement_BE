@@ -15,3 +15,5 @@ public sealed record CheckinResponse(
     string CheckInTime,
     string ReceptionistName
 );
+
+public sealed record CheckinSummary(DateOnly Date, int TotalCount, int UniqueMembers);

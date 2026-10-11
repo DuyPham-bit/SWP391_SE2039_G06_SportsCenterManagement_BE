@@ -17,6 +17,9 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
     {
         await EnsureCenterStaffAsync(actorUserId, centerId, cancellationToken);
 
+        await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+
         var searchId = request.MemberId;
         var term = request.Identifier?.Trim();
 
@@ -30,18 +33,16 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
         if (searchId.HasValue)
         {
             member = await unitOfWork.Context.MemberProfiles.AsNoTracking()
-                .FirstOrDefaultAsync(m => (m.Id == searchId.Value || m.UserId == searchId.Value) && m.CenterId == centerId, cancellationToken);
+                .FirstOrDefaultAsync(m => m.Id == searchId.Value && m.CenterId == centerId, cancellationToken);
         }
 
-        if (member == null && !string.IsNullOrWhiteSpace(term))
+        if (!searchId.HasValue && !string.IsNullOrWhiteSpace(term))
         {
-            var isNumeric = long.TryParse(term, out var numericId);
             member = await (
                 from m in unitOfWork.Context.MemberProfiles.AsNoTracking()
                 join u in unitOfWork.Context.Users.AsNoTracking() on m.UserId equals u.Id
                 where m.CenterId == centerId && (
                     m.MemberCode == term
-                    || (isNumeric && (m.Id == numericId || m.UserId == numericId))
                     || u.Phone == term
                     || u.Email == term
                     || u.Username == term
@@ -64,11 +65,12 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
         }
 
         // 3. Kiểm tra gói tập còn hiệu lực không
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
         var activeSub = await (
             from s in unitOfWork.Context.MemberSubscriptions.AsNoTracking()
             join pkg in unitOfWork.Context.MembershipPackages.AsNoTracking() on s.PackageId equals pkg.Id
-            where s.MemberId == member.Id && s.Status == "Active" && (!s.EndDate.HasValue || s.EndDate.Value >= today)
+            where s.MemberId == member.Id && pkg.CenterId == centerId && s.Status == "Active"
+                && s.StartDate.HasValue && s.StartDate <= today && s.EndDate.HasValue && s.EndDate >= today
             orderby s.EndDate descending
             select new { s.Id, s.PackageId, PackageName = pkg.Name }
         ).FirstOrDefaultAsync(cancellationToken);
@@ -91,6 +93,10 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
 
         await unitOfWork.Context.CenterCheckins.AddAsync(checkin, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
+        unitOfWork.Context.AuditLogs.Add(new AuditLog { UserId = actorUserId, CenterId = centerId,
+            Action = "Checkin.Recorded", EntityType = "CenterCheckin", EntityId = checkin.Id, CreatedAt = now });
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         // 5. Lấy tên nhân viên lễ tân thực hiện
         var staffProfile = await unitOfWork.Context.StaffProfiles.AsNoTracking()
@@ -120,15 +126,15 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
     {
         await EnsureCenterStaffAsync(actorUserId, centerId, cancellationToken);
 
-        // Lấy các lượt checkin trong ngày hôm nay (UTC)
-        var todayUtc = DateTime.UtcNow.Date;
+        var todayUtc = DateTime.UtcNow.AddHours(7).Date.AddHours(-7);
+        var tomorrowUtc = todayUtc.AddDays(1);
         var checkins = await (
             from c in unitOfWork.Context.CenterCheckins.AsNoTracking()
             join m in unitOfWork.Context.MemberProfiles.AsNoTracking() on c.MemberId equals m.Id
             join staff in unitOfWork.Context.StaffProfiles.AsNoTracking() on c.CheckedInBy equals staff.UserId into staffJoin
             from staff in staffJoin.DefaultIfEmpty()
-            where c.CenterId == centerId && c.CheckInTime >= todayUtc
-            orderby c.CheckInTime descending
+            where c.CenterId == centerId && c.CheckInTime >= todayUtc && c.CheckInTime < tomorrowUtc
+            orderby c.CheckInTime descending, c.Id descending
             select new
             {
                 c.Id,
@@ -146,11 +152,12 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
         }
 
         var memberIds = checkins.Select(c => c.MemberId).Distinct().ToList();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
         var memberSubsList = await (
             from s in unitOfWork.Context.MemberSubscriptions.AsNoTracking()
             join pkg in unitOfWork.Context.MembershipPackages.AsNoTracking() on s.PackageId equals pkg.Id
-            where memberIds.Contains(s.MemberId) && s.Status == "Active" && (!s.EndDate.HasValue || s.EndDate.Value >= today)
+            where memberIds.Contains(s.MemberId) && pkg.CenterId == centerId && s.Status == "Active"
+                && s.StartDate.HasValue && s.StartDate <= today && s.EndDate.HasValue && s.EndDate >= today
             orderby s.EndDate descending
             select new { s.MemberId, PackageName = pkg.Name }
         ).ToListAsync(cancellationToken);
@@ -170,10 +177,24 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
         )).ToList();
     }
 
+    public async Task<CheckinSummary> GetTodaySummaryAsync(long actorUserId, long centerId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCenterStaffAsync(actorUserId, centerId, cancellationToken);
+        var date = DateTime.UtcNow.AddHours(7).Date;
+        var start = date.AddHours(-7);
+        var end = start.AddDays(1);
+        var rows = unitOfWork.Context.CenterCheckins.AsNoTracking()
+            .Where(c => c.CenterId == centerId && c.CheckInTime >= start && c.CheckInTime < end);
+        return new CheckinSummary(DateOnly.FromDateTime(date), await rows.CountAsync(cancellationToken),
+            await rows.Select(c => c.MemberId).Distinct().CountAsync(cancellationToken));
+    }
+
     private async Task EnsureCenterStaffAsync(long actorUserId, long centerId, CancellationToken cancellationToken)
     {
         var user = await unitOfWork.Repository<User>().GetByIdAsync(actorUserId, cancellationToken)
             ?? throw FlowException.Forbidden("Tài khoản không tồn tại hoặc phiên đăng nhập hết hạn.");
+        if (user.Status != "Active" || user.LockedUntil > DateTime.UtcNow)
+            throw FlowException.Forbidden("Tài khoản không hoạt động.");
 
         var role = await unitOfWork.Repository<Role>().GetByIdAsync(user.RoleId, cancellationToken);
         if (role?.Name is "Admin" or "SystemAdmin")

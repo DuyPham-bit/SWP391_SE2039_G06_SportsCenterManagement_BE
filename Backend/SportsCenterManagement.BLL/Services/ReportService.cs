@@ -47,23 +47,18 @@ public sealed class ReportService(
         var timeZone = GetReportTimeZone();
         var (startUtc, endUtc) = GetUtcRange(from, to, timeZone);
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, timeZone));
-        var memberRows = from profile in _unitOfWork.Context.MemberProfiles
-                         join subscription in _unitOfWork.Context.MemberSubscriptions on profile.Id equals subscription.MemberId
-                         join package in _unitOfWork.Context.MembershipPackages on subscription.PackageId equals package.Id
-                         where package.CenterId == centerId
-                         select new { profile.Id, subscription.CreatedAt };
-        var firstCenterSubscriptions = await memberRows
-            .GroupBy(row => row.Id)
-            .Select(group => new { Id = group.Key, CreatedAt = group.Min(row => row.CreatedAt) })
+        var centerMembers = await _unitOfWork.Context.MemberProfiles.AsNoTracking()
+            .Where(profile => profile.CenterId == centerId)
+            .Select(profile => new { profile.Id, profile.CreatedAt })
             .ToListAsync(cancellationToken);
-        var totalMembers = firstCenterSubscriptions.Count;
+        var totalMembers = centerMembers.Count;
         var activeMembers = await (
             from subscription in _unitOfWork.Context.MemberSubscriptions
             join package in _unitOfWork.Context.MembershipPackages on subscription.PackageId equals package.Id
             where package.CenterId == centerId && subscription.Status == "Active" &&
                   subscription.StartDate <= today && subscription.EndDate >= today
             select subscription.MemberId).Distinct().CountAsync(cancellationToken);
-        var newMemberRows = firstCenterSubscriptions
+        var newMemberRows = centerMembers
             .Where(row => row.CreatedAt >= startUtc && row.CreatedAt < endUtc)
             .ToArray();
         var newMembersByPeriod = newMemberRows

@@ -21,6 +21,7 @@ public sealed class ClassResourcesController(SportsCenterDbContext db) : FlowCon
             orderby cls.Name
             select new { cls.Id, cls.SportId, SportName = sport.Name, cls.RoomId, cls.Name,
                 cls.Description, cls.Level, cls.Capacity, cls.DurationMinutes, cls.Status, cls.AllowWaitlist,
+                EnrolledCount = db.ClassEnrollments.Count(e => e.ClassId == cls.Id && e.Status == "Confirmed"),
                 RoomName = db.Rooms.Where(r => r.Id == cls.RoomId).Select(r => r.Name).FirstOrDefault(),
                 CoachId = db.ClassCoaches.Where(c => c.ClassId == cls.Id && c.IsPrimary).Select(c => (long?)c.CoachId).FirstOrDefault(),
                 CoachName = (from a in db.ClassCoaches join c in db.CoachProfiles on a.CoachId equals c.Id
@@ -43,7 +44,71 @@ public sealed class ClassResourcesController(SportsCenterDbContext db) : FlowCon
         return Ok(await (from coach in db.CoachProfiles join user in db.Users on coach.UserId equals user.Id
             where coach.CenterId == centerId && coach.Status == "Active" && user.Status == "Active"
             orderby coach.FullName
-            select new { coach.Id, coach.UserId, coach.FullName, coach.Specialization }).ToListAsync(ct));
+            select new { coach.Id, coach.UserId, coach.FullName, coach.Specialization, coach.Certification }).ToListAsync(ct));
+    }
+
+    [HttpGet("centers/{centerId:long}/sports/all")]
+    public async Task<IActionResult> AllSports(long centerId, CancellationToken ct)
+    {
+        await CenterScope.EnsureCenterAccessAsync(db, User, centerId, ct);
+        return Ok(await db.Sports.Where(s => s.CenterId == null || s.CenterId == centerId)
+            .OrderBy(s => s.Name).Select(s => new { s.Id, s.Name, s.Description, s.Status,
+                IsShared = s.CenterId == null }).ToListAsync(ct));
+    }
+
+    public sealed record SportRequest(string Name, string? Description, string Status = "Active");
+
+    [HttpPost("centers/{centerId:long}/sports")]
+    public async Task<IActionResult> CreateSport(long centerId, SportRequest request, CancellationToken ct)
+    {
+        await CenterScope.EnsureCenterAccessAsync(db, User, centerId, ct);
+        ValidateSport(request);
+        await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        await EnsureSportNameAvailable(centerId, null, request.Name.Trim(), ct);
+        var sport = new Sport { CenterId = centerId, Name = request.Name.Trim(),
+            Description = request.Description?.Trim(), Status = request.Status };
+        db.Sports.Add(sport);
+        await db.SaveChangesAsync(ct);
+        db.AuditLogs.Add(new AuditLog { UserId = CurrentUserId, CenterId = centerId, Action = "SPORT.CREATED",
+            EntityType = "Sport", EntityId = sport.Id, NewValues = System.Text.Json.JsonSerializer.Serialize(request), CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return StatusCode(201, new { sport.Id, sport.Name, sport.Description, sport.Status, IsShared = false });
+    }
+
+    [HttpPut("centers/{centerId:long}/sports/{sportId:long}")]
+    public async Task<IActionResult> UpdateSport(long centerId, long sportId, SportRequest request, CancellationToken ct)
+    {
+        await CenterScope.EnsureCenterAccessAsync(db, User, centerId, ct);
+        ValidateSport(request);
+        await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        var sport = await db.Sports.SingleOrDefaultAsync(s => s.Id == sportId && s.CenterId == centerId, ct)
+            ?? throw FlowException.NotFound("Chỉ được sửa bộ môn riêng của trung tâm này.");
+        await EnsureSportNameAvailable(centerId, sportId, request.Name.Trim(), ct);
+        if (request.Status != "Active" && await db.Classes.AnyAsync(c => c.SportId == sportId
+            && c.Status != "Cancelled" && c.Status != "Completed", ct))
+            throw FlowException.Conflict("Bộ môn đang có lớp hoạt động; cần đóng các lớp trước khi ngừng sử dụng.");
+        var before = new { sport.Name, sport.Description, sport.Status };
+        sport.Name = request.Name.Trim(); sport.Description = request.Description?.Trim(); sport.Status = request.Status;
+        db.AuditLogs.Add(new AuditLog { UserId = CurrentUserId, CenterId = centerId, Action = "SPORT.UPDATED",
+            EntityType = "Sport", EntityId = sport.Id, OldValues = System.Text.Json.JsonSerializer.Serialize(before),
+            NewValues = System.Text.Json.JsonSerializer.Serialize(request), CreatedAt = DateTime.UtcNow });
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return Ok(new { sport.Id, sport.Name, sport.Description, sport.Status, IsShared = false });
+    }
+
+    private async Task EnsureSportNameAvailable(long centerId, long? sportId, string name, CancellationToken ct)
+    {
+        if (await db.Sports.AnyAsync(s => s.Id != sportId && (s.CenterId == centerId || s.CenterId == null)
+            && s.Name == name, ct)) throw FlowException.Conflict("Tên bộ môn đã tồn tại.");
+    }
+
+    private static void ValidateSport(SportRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Name) || request.Name.Trim().Length > 100
+            || request.Description?.Length > 500 || request.Status is not ("Active" or "Inactive"))
+            throw FlowException.BadRequest("Tên bộ môn bắt buộc, tối đa 100 ký tự; mô tả tối đa 500; trạng thái Active hoặc Inactive.");
     }
 
     [HttpGet("centers/{centerId:long}/rooms")]

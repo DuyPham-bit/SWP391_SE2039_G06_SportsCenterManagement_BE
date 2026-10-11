@@ -26,7 +26,7 @@ public interface IClassScheduleQueryService
 
     /// <summary>The coach is always resolved from <paramref name="currentUserId"/>, never from client input.</summary>
     Task<IReadOnlyList<TeachingScheduleItemResponse>> GetTeachingScheduleAsync(
-        long currentUserId, DateOnly? from, DateOnly? to, CancellationToken cancellationToken = default);
+        long currentUserId, DateOnly? from, DateOnly? to, CancellationToken cancellationToken = default, bool includeHistory = false);
 }
 
 /// <summary>UC-43 Book Class and UC-44 Cancel Class Booking.</summary>

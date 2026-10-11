@@ -620,7 +620,7 @@ public sealed class PaymentService(
         }
         var isAdmin = string.Equals(actorRole, "Admin", StringComparison.OrdinalIgnoreCase);
         var isStaffInCenter = actorCenterId == invoice.CenterId &&
-                              (actorRole is "Manager" or "Receptionist");
+                              (actorRole.ToUpperInvariant() is "MANAGER" or "RECEPTIONIST");
         var ownsInvoice = await _unitOfWork.Context.MemberProfiles
             .AnyAsync(profile => profile.Id == invoice.MemberId && profile.UserId == actorUserId, cancellationToken);
         if (!isAdmin && !isStaffInCenter && !ownsInvoice)
@@ -1665,10 +1665,13 @@ public sealed class PaymentService(
                 .Select(refund => new InvoiceRefundResponse(refund.Id, refund.Amount, refund.Status,
                     refund.Reason, refund.ProviderRefundId, refund.ExternalReference, refund.CreatedAt, refund.ProcessedAt))
                 .ToArray())).ToArray();
+        var member = await _unitOfWork.Context.MemberProfiles.SingleAsync(m => m.Id == invoice.MemberId, cancellationToken);
+        var center = await _unitOfWork.Context.Centers.SingleAsync(c => c.Id == invoice.CenterId, cancellationToken);
         return new InvoiceDetailsResponse(
             invoice.Id, invoice.InvoiceNumber, invoice.MemberId, invoice.CenterId,
             invoice.IssuedAt, invoice.PaidAt, invoice.Status, invoice.Subtotal, invoice.Discount,
-            invoice.Tax, invoice.TotalAmount, paid, Math.Max(0m, invoice.TotalAmount - paid), items, payments);
+            invoice.Tax, invoice.TotalAmount, paid, Math.Max(0m, invoice.TotalAmount - paid), items, payments,
+            member.FullName, member.MemberCode, center.Name, center.Address);
     }
 
     private async Task<CounterPaymentResponse> BuildCounterResponseAsync(

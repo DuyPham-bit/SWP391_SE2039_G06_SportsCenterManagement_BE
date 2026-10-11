@@ -218,6 +218,11 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
                     && (s.SessionDate > localToday || (s.SessionDate == localToday && s.StartTime > localNow)))
                 .ToListAsync(cancellationToken);
             foreach (var session in upcoming) session.RoomId = request.RoomId;
+            var roomName = await Db.Rooms.Where(room => room.Id == request.RoomId)
+                .Select(room => room.Name).FirstOrDefaultAsync(cancellationToken) ?? "Chưa phân công phòng";
+            await NotifyBookedMembersAsync(actorUserId, upcoming.Select(session => session.Id).ToList(),
+                $"Thay đổi địa điểm: {entity.Name}",
+                $"Địa điểm các buổi học sắp tới của lớp {entity.Name} đã đổi thành {roomName}. Vui lòng kiểm tra lịch cá nhân trước khi đến tập.", cancellationToken);
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -263,7 +268,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         foreach (var schedule in schedules) schedule.Status = FlowStatuses.ScheduleCancelled;
 
         var (sessions, bookings) = await CancelUpcomingSessionsAsync(
-            Db.ClassSessions.Where(s => s.ClassId == classId), cancellationToken);
+            Db.ClassSessions.Where(s => s.ClassId == classId), actorUserId, cancellationToken);
 
         entity.Status = FlowStatuses.ClassCancelled;
         entity.UpdatedAt = now;
@@ -408,7 +413,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         var previousStatus = schedule.Status;
         schedule.Status = FlowStatuses.ScheduleCancelled;
         var (cancelledSessions, cancelledBookings) = await CancelUpcomingSessionsAsync(
-            Db.ClassSessions.Where(s => s.ScheduleId == scheduleId), cancellationToken);
+            Db.ClassSessions.Where(s => s.ScheduleId == scheduleId), actorUserId, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         AuditLogWriter.Add(unitOfWork, actorUserId, classCenterId, "class_schedule.cancelled",
             "ClassSchedule", schedule.Id,
@@ -589,7 +594,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
     }
 
     /// <summary>Cancels not-yet-held sessions from the given set together with their active bookings.</summary>
-    private async Task<(int Sessions, int Bookings)> CancelUpcomingSessionsAsync(IQueryable<ClassSession> source, CancellationToken ct)
+    private async Task<(int Sessions, int Bookings)> CancelUpcomingSessionsAsync(IQueryable<ClassSession> source, long actorUserId, CancellationToken ct)
     {
         var today = ScheduleTime.VietnamToday;
         var now = TimeOnly.FromDateTime(ScheduleTime.VietnamNow);
@@ -602,6 +607,9 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
             .Where(b => ids.Contains(b.SessionId) && b.Status == FlowStatuses.BookingBooked)
             .ToListAsync(ct);
 
+        // Persist recipient links in the same transaction as the schedule change.
+        await NotifyBookedMembersAsync(actorUserId, ids, "Lịch học đã bị hủy",
+            "Trung tâm đã hủy lịch học bạn đã đăng ký. Vui lòng xem lịch cá nhân để kiểm tra buổi bị hủy và chọn buổi học khác.", ct);
         foreach (var session in sessions) session.SessionStatus = FlowStatuses.SessionCancelled;
         foreach (var booking in bookings) booking.Status = FlowStatuses.BookingCancelled;
         var waitlists = await Db.ClassWaitlists
@@ -609,6 +617,16 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
             .ToListAsync(ct);
         foreach (var waitlist in waitlists) waitlist.Status = FlowStatuses.WaitlistCancelled;
         return (sessions.Count, bookings.Count);
+    }
+
+    private async Task NotifyBookedMembersAsync(long actorUserId, List<long> sessionIds, string title, string message, CancellationToken ct)
+    {
+        if (sessionIds.Count == 0) return;
+        var recipients = await (from booking in Db.SessionBookings
+            join member in Db.MemberProfiles on booking.MemberId equals member.Id
+            where sessionIds.Contains(booking.SessionId) && booking.Status == FlowStatuses.BookingBooked
+            select member.UserId).Distinct().ToListAsync(ct);
+        await FlowNotificationWriter.CreateAsync(Db, actorUserId, recipients, title, message, "ScheduleChanged", ct);
     }
 
     private static ClassDetailResponse ToResponse(ClassEntity c) => new(

@@ -37,7 +37,8 @@ public sealed class TrainingService(SportsCenterDbContext db)
         var members = await (from m in db.MemberProfiles join u in db.Users on m.UserId equals u.Id
             where memberIds.Contains(m.Id) && u.Status == "Active"
             select new { m.Id, MemberId = m.Id, MemberName = m.FullName, m.FullName, m.MemberCode,
-                u.Email, u.Phone, m.FitnessGoal, m.FitnessLevel }).ToListAsync(ct);
+                u.Email, u.Phone, m.FitnessGoal, m.FitnessLevel, m.DateOfBirth, m.Gender,
+                m.HeightCm, m.WeightKg, m.MedicalNote }).ToListAsync(ct);
         return classes.Select(c => new { c.Id, ClassId = c.Id, c.Name, c.SportName, c.Capacity, c.Status,
             Members = members.Where(m => memberships.Any(x => x.ClassId == c.Id && x.MemberId == m.Id)).ToArray() }).ToArray();
     }
@@ -49,7 +50,8 @@ public sealed class TrainingService(SportsCenterDbContext db)
         return await (from m in ClassMembers(classId) join u in db.Users on m.UserId equals u.Id
             where u.Status == "Active" orderby m.FullName
             select new { m.Id, MemberId = m.Id, MemberName = m.FullName, m.FullName, m.MemberCode,
-                u.Email, u.Phone, m.FitnessGoal, m.FitnessLevel }).ToListAsync(ct);
+                u.Email, u.Phone, m.FitnessGoal, m.FitnessLevel, m.DateOfBirth, m.Gender,
+                m.HeightCm, m.WeightKg, m.MedicalNote }).ToListAsync(ct);
     }
 
     public async Task<CoachProfile> EnsureCoachAsync(long userId, long classId, long? memberId, CancellationToken ct)
@@ -148,7 +150,9 @@ public sealed class TrainingService(SportsCenterDbContext db)
                 db.Classes.Where(c => c.Id == r.ClassId).Select(c => c.Name).FirstOrDefault(),
                 (from c in db.Classes join s in db.Sports on c.SportId equals s.Id where c.Id == r.ClassId select s.Name).FirstOrDefault(),
                 m.Id, m.FullName, coach.FullName, r.ResultDate, r.Weight, r.BodyFatPercentage,
-                r.MuscleMass, r.WorkoutResult ?? r.Notes, r.CoachFeedback)).ToListAsync(ct);
+                r.MuscleMass, r.WorkoutResult ?? r.Notes, r.CoachFeedback, r.SessionId,
+                db.ClassSessions.Where(s => s.Id == r.SessionId).Select(s => (TimeOnly?)s.StartTime).FirstOrDefault(),
+                db.ClassSessions.Where(s => s.Id == r.SessionId).Select(s => (TimeOnly?)s.EndTime).FirstOrDefault())).ToListAsync(ct);
     }
 
     public async Task<long> RecordProgressAsync(long userId, RecordProgressRequest request, CancellationToken ct)
@@ -157,13 +161,39 @@ public sealed class TrainingService(SportsCenterDbContext db)
         if (date > DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7))) throw FlowException.BadRequest("Không ghi tiến độ cho ngày tương lai.");
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var coach = await EnsureCoachAsync(userId, request.ClassId, request.MemberId, ct);
+        if (request.SessionId.HasValue)
+        {
+            var session = await db.ClassSessions.SingleOrDefaultAsync(s => s.Id == request.SessionId && s.ClassId == request.ClassId, ct)
+                ?? throw FlowException.BadRequest("Buổi tập không thuộc lớp đã chọn.");
+            if (session.SessionStatus == "Cancelled" || session.SessionDate.ToDateTime(session.EndTime) > DateTime.UtcNow.AddHours(7))
+                throw FlowException.Conflict("Chỉ ghi kết quả sau khi buổi tập kết thúc và không bị hủy.");
+            if (!await db.SessionBookings.AnyAsync(b => b.SessionId == session.Id && b.MemberId == request.MemberId && b.Status == "Booked", ct))
+                throw FlowException.BadRequest("Học viên chưa đăng ký buổi tập này.");
+            if (request.Date.HasValue && request.Date != session.SessionDate)
+                throw FlowException.BadRequest("Ngày ghi nhận phải trùng ngày của buổi tập.");
+            date = session.SessionDate;
+        }
         var row = new TrainingResult { MemberId = request.MemberId, ClassId = request.ClassId, CoachId = coach.Id,
+            SessionId = request.SessionId,
             ResultDate = date, Weight = request.Weight, BodyFatPercentage = request.BodyFat, MuscleMass = request.MuscleMass,
             WorkoutResult = request.WorkoutResult.Trim(), CoachFeedback = request.CoachFeedback?.Trim(), CreatedAt = DateTime.UtcNow };
         db.TrainingResults.Add(row);
         AddAudit(userId, coach.CenterId, "TRAINING_PROGRESS_RECORDED", "TrainingResult");
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
         return row.Id;
+    }
+
+    public async Task<RecommendationContext> GetRecommendationContextAsync(long userId, long classId, long memberId, CancellationToken ct)
+    {
+        await EnsureCoachAsync(userId, classId, memberId, ct);
+        var profile = await db.MemberProfiles.AsNoTracking().SingleAsync(m => m.Id == memberId, ct);
+        var sport = await (from c in db.Classes join s in db.Sports on c.SportId equals s.Id
+            where c.Id == classId select s.Name).SingleAsync(ct);
+        var history = await db.TrainingResults.AsNoTracking().Where(r => r.MemberId == memberId && r.ClassId == classId)
+            .OrderByDescending(r => r.ResultDate).ThenByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id).Take(10)
+            .Select(r => new RecommendationHistory(r.ResultDate, r.Weight, r.BodyFatPercentage, r.MuscleMass,
+                r.WorkoutResult ?? r.Notes, r.CoachFeedback)).ToArrayAsync(ct);
+        return new RecommendationContext(sport, profile.FitnessGoal, profile.FitnessLevel, profile.MedicalNote, history);
     }
 
     public async Task SendNotificationAsync(long userId, SendNotificationRequest request, CancellationToken ct)

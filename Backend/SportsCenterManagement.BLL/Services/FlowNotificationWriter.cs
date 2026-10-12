@@ -6,6 +6,16 @@ namespace SportsCenterManagement.BLL.Services;
 
 internal static class FlowNotificationWriter
 {
+    public static async Task CreateForMemberAsync(
+        SportsCenterDbContext db, long? senderId, long memberId,
+        string title, string message, string type, CancellationToken cancellationToken)
+    {
+        // Notifications are addressed to login accounts, not member profile IDs.
+        var userId = await db.MemberProfiles.Where(m => m.Id == memberId)
+            .Select(m => m.UserId).SingleAsync(cancellationToken);
+        await CreateAsync(db, senderId ?? userId, [userId], title, message, type, cancellationToken);
+    }
+
     public static async Task CreateAsync(
         SportsCenterDbContext db,
         long senderId,

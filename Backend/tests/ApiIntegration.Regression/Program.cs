@@ -171,9 +171,20 @@ try
         if (response.StatusCode != expected) throw new Exception($"FAIL: {name}: {response.StatusCode}: {body}");
         Pass(name); return string.IsNullOrWhiteSpace(body) ? default : JsonDocument.Parse(body).RootElement.Clone();
     }
-    async Task<string> Login(User user) => (await Json(await client.PostAsJsonAsync("auth/login", new { email = user.Email, password }), HttpStatusCode.OK, $"password login {user.Username}")).GetProperty("accessToken").GetString()!;
+    async Task<string> Login(User user)
+    {
+        using var response = await client.PostAsJsonAsync("auth/login", new { email = user.Email, password });
+        if (response.Headers.Contains("Set-Cookie")) throw new Exception("JWT login must not create an authentication Session cookie.");
+        return (await Json(response, HttpStatusCode.OK, $"password login {user.Username}")).GetProperty("accessToken").GetString()!;
+    }
     await Json(await client.GetAsync("profile/me"), HttpStatusCode.Unauthorized, "protected API rejects missing JWT");
     var coachToken = await Login(coachUser); var memberToken = await Login(memberUser); var otherToken = await Login(otherMemberUser);
+    using (var bearerOnlyClient = new HttpClient(new HttpClientHandler { UseCookies = false }) { BaseAddress = client.BaseAddress })
+    {
+        bearerOnlyClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", coachToken);
+        var jwtProfile = await Json(await bearerOnlyClient.GetAsync("profile/me"), HttpStatusCode.OK, "fresh client authenticates with JWT alone and no cookies");
+        Assert(jwtProfile.GetProperty("userId").GetInt64() == coachUser.Id, "JWT alone preserves the authenticated account");
+    }
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", coachToken);
     var classes = await Json(await client.GetAsync("coaches/me/classes"), HttpStatusCode.OK, "coach catalog and relational roster load");
     Assert(classes.GetArrayLength() == 1 && classes[0].GetProperty("members").GetArrayLength() == 1, "coach sees only assigned class and members");
@@ -246,7 +257,13 @@ try
         "personal schedule joins real room, coach and member-owned attendance");
     Assert(memberBookings.EnumerateArray().Single(b => b.GetProperty("sessionId").GetInt64() == upcomingSession.Id)
         .GetProperty("attendanceStatus").ValueKind == JsonValueKind.Null, "future booking does not fabricate attendance");
-    await Json(await client.GetAsync("notifications/me"), HttpStatusCode.OK, "member receives coach notification");
+    var memberMessages = await Json(await client.GetAsync("notifications/me"), HttpStatusCode.OK, "member notifications load");
+    Assert(memberMessages.EnumerateArray().Any(n => n.GetProperty("id").GetInt64() == notificationId
+        && !n.GetProperty("isRead").GetBoolean()), "member receives unread coach message with recipient link");
+    Assert(memberMessages.EnumerateArray().Count(n => n.GetProperty("notificationType").GetString() == "TrainingPlanUpdated") == 3,
+        "shared, personal and updated training plans notify the member");
+    Assert(memberMessages.EnumerateArray().Count(n => n.GetProperty("notificationType").GetString() == "ProgressUpdated") == 2,
+        "recorded workout results notify the member");
     await Json(await client.PutAsync($"notifications/{notificationId}/read", null), HttpStatusCode.NoContent, "notification owner marks read");
     await Json(await client.PostAsJsonAsync("ai/chat", new { message = "Warmup?" }), HttpStatusCode.ServiceUnavailable, "AI without configured key returns truthful 503");
     await Json(await client.PostAsJsonAsync("ai/chat", new { message = "Warmup?", conversationId = 99999 }), HttpStatusCode.NotFound, "AI rejects unknown or foreign conversation before provider call");
@@ -382,6 +399,119 @@ try
         Console.WriteLine(await browserErrors);
         Assert(browserProcess.ExitCode == 0, "browser workflow checks pass against the isolated API");
     }
+    // Exercise additional notification producers after browser checks so their fixtures stay stable.
+    var waitingUser = Account("notificationwaiting", "Member");
+    db.Users.Add(waitingUser); await db.SaveChangesAsync();
+    var waitingMember = new MemberProfile { UserId = waitingUser.Id, CenterId = center.Id,
+        FullName = "Waiting Member", MemberCode = "NOTIFYWAITING", CreatedAt = DateTime.UtcNow };
+    var notificationPackage = new MembershipPackage { CenterId = center.Id, Name = "Notification Package",
+        Price = 100, DurationDays = 30, AllowedSports = 1, Status = "Active", CreatedAt = DateTime.UtcNow };
+    db.MemberProfiles.Add(waitingMember); db.MembershipPackages.Add(notificationPackage); await db.SaveChangesAsync();
+    var waitingToken = await Login(waitingUser);
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", managerToken);
+    client.DefaultRequestHeaders.Add("Idempotency-Key", "notification-partial-checkout");
+    var checkout = await Json(await client.PostAsJsonAsync("payments/counter-checkout", new {
+        memberId = member.Id, packageId = notificationPackage.Id, paymentMethod = "CASH", amountReceived = 40
+    }), HttpStatusCode.OK, "partial counter payment succeeds");
+    Assert(!await (from link in db.UserNotifications join n in db.Notifications on link.NotificationId equals n.Id
+        where link.UserId == memberUser.Id && n.NotificationType == "MembershipActivated" select link.Id).AnyAsync(),
+        "partial payment does not falsely notify membership activation");
+    var invoiceNumber = checkout.GetProperty("invoiceNumber").GetString();
+    client.DefaultRequestHeaders.Remove("Idempotency-Key");
+    client.DefaultRequestHeaders.Add("Idempotency-Key", "notification-complete-payment");
+    for (var attempt = 0; attempt < 2; attempt++)
+        await Json(await client.PostAsJsonAsync($"invoices/{invoiceNumber}/payments", new { amount = 60, paymentMethod = "CASH" }),
+            HttpStatusCode.OK, "complete payment and retry succeed");
+    client.DefaultRequestHeaders.Remove("Idempotency-Key");
+    client.DefaultRequestHeaders.Add("Idempotency-Key", "notification-waiting-checkout");
+    var waitingCheckout = new { memberId = waitingMember.Id, packageId = notificationPackage.Id, paymentMethod = "CASH", amountReceived = 100 };
+    for (var attempt = 0; attempt < 2; attempt++)
+        await Json(await client.PostAsJsonAsync("payments/counter-checkout", waitingCheckout), HttpStatusCode.OK, "full counter payment and retry succeed");
+    client.DefaultRequestHeaders.Remove("Idempotency-Key");
+    var notificationSession = MemberSession(memberToday.AddDays(2), 12);
+    db.ClassSessions.Add(notificationSession); await db.SaveChangesAsync();
+    // Capacity is scoped to this test and restored before testing class enrollment.
+    await db.Classes.Where(c => c.Id == cls.Id).ExecuteUpdateAsync(s => s.SetProperty(c => c.Capacity, 1));
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", memberToken);
+    var booked = await Json(await client.PostAsync($"class-sessions/{notificationSession.Id}/bookings", null), HttpStatusCode.Created, "booking creates member notification");
+    await Json(await client.PostAsync($"class-sessions/{notificationSession.Id}/bookings", null), HttpStatusCode.Created, "booking retry succeeds");
+    var bookedId = booked.GetProperty("booking").GetProperty("id").GetInt64();
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", waitingToken);
+    for (var attempt = 0; attempt < 2; attempt++)
+        await Json(await client.PostAsync($"class-sessions/{notificationSession.Id}/bookings", null), HttpStatusCode.Accepted, "full session waitlist and retry succeed");
+    await Json(await client.DeleteAsync($"session-bookings/{bookedId}"), HttpStatusCode.Forbidden, "foreign booking cancellation does not emit notifications");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", memberToken);
+    await Json(await client.DeleteAsync($"session-bookings/{bookedId}"), HttpStatusCode.OK, "cancellation promotes waitlisted member");
+    var bookingMessages = await Json(await client.GetAsync("notifications/me"), HttpStatusCode.OK, "member loads payment and booking notifications");
+    foreach (var type in new[] { "MembershipActivated", "BookingConfirmed", "BookingCancelled" })
+        Assert(bookingMessages.EnumerateArray().Count(n => n.GetProperty("notificationType").GetString() == type) == 1,
+            $"{type} reaches the booking owner exactly once despite retries and denied requests");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", waitingToken);
+    var waitingMessages = await Json(await client.GetAsync("notifications/me"), HttpStatusCode.OK, "waitlisted member loads notifications");
+    foreach (var type in new[] { "MembershipActivated", "WaitlistJoined", "WaitlistPromoted" })
+        Assert(waitingMessages.EnumerateArray().Count(n => n.GetProperty("notificationType").GetString() == type
+            && !n.GetProperty("isRead").GetBoolean()) == 1, $"{type} reaches the waiting member exactly once and unread");
+    Assert(!waitingMessages.EnumerateArray().Any(n => n.GetProperty("notificationType").GetString() == "BookingCancelled"),
+        "waiting member never receives another member's cancellation");
+    await db.Classes.Where(c => c.Id == cls.Id).ExecuteUpdateAsync(s => s.SetProperty(c => c.Capacity, 10));
+    var subscriptionId = await db.MemberSubscriptions.Where(s => s.MemberId == waitingMember.Id && s.Status == "Active").Select(s => s.Id).SingleAsync();
+    var enrollment = await Json(await client.PostAsJsonAsync($"classes/{cls.Id}/enrollments", new { subscriptionId }), HttpStatusCode.Created, "class enrollment creates notification");
+    await Json(await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"classes/{cls.Id}/enrollments/{enrollment.GetProperty("id").GetInt64()}") {
+        Content = JsonContent.Create(new { reason = "Notification regression" }) }), HttpStatusCode.OK, "class enrollment cancellation creates notification");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", managerToken);
+    await Json(await client.PostAsJsonAsync($"centers/{center.Id}/support-requests", new {
+        memberId = waitingMember.Id, subject = "", description = "Please help", priority = "Invalid"
+    }), HttpStatusCode.BadRequest, "invalid support input returns validation error without notification");
+    var support = await Json(await client.PostAsJsonAsync($"centers/{center.Id}/support-requests", new {
+        memberId = waitingMember.Id, subject = "Notification Support", description = "Please help", priority = "Normal"
+    }), HttpStatusCode.OK, "staff creates support request with member notification");
+    var supportId = support.GetProperty("request").GetProperty("id").GetInt64();
+    await Json(await client.PatchAsJsonAsync($"centers/{center.Id}/support-requests/{supportId}", new { status = "Resolved", note = "Support reply delivered" }),
+        HttpStatusCode.OK, "support response creates notification");
+    await Json(await client.PatchAsJsonAsync($"centers/{center.Id}/support-requests/{supportId}", new { status = "Resolved" }),
+        HttpStatusCode.OK, "unchanged support status does not create duplicate notification");
+    await Json(await client.PatchAsJsonAsync($"centers/{center.Id}/support-requests/{supportId}", new { status = "Invalid" }),
+        HttpStatusCode.BadRequest, "invalid support update returns validation error without notification");
+    var supportPage = await Json(await client.GetAsync($"centers/{center.Id}/support-requests?query=Waiting&status=Resolved&pageSize=1"),
+        HttpStatusCode.OK, "support request query filters and paginates in SQL");
+    Assert(supportPage.GetProperty("totalCount").GetInt32() == 1 && supportPage.GetProperty("items")[0].GetProperty("id").GetInt64() == supportId,
+        "support search returns the updated request by member name and status");
+    await Json(await client.GetAsync($"centers/{otherCenter.Id}/support-requests/{supportId}"), HttpStatusCode.Forbidden,
+        "support lookup remains restricted to the staff center");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", waitingToken);
+    var finalMessages = await Json(await client.GetAsync("notifications/me"), HttpStatusCode.OK, "member reloads notifications from all new sources");
+    Assert(finalMessages.EnumerateArray().Count(n => n.GetProperty("notificationType").GetString() == "SupportUpdated") == 2
+        && finalMessages.EnumerateArray().Any(n => n.GetProperty("content").GetString()!.Contains("Support reply delivered")),
+        "support creation and reply persist readable content without no-op duplicates");
+    Assert(finalMessages.EnumerateArray().Count(n => n.GetProperty("notificationType").GetString() == "BookingConfirmed") == 1
+        && finalMessages.EnumerateArray().Count(n => n.GetProperty("notificationType").GetString() == "BookingCancelled") == 1,
+        "class enrollment notifications reach their owner");
+    var supportNotificationId = finalMessages.EnumerateArray().First(n => n.GetProperty("notificationType").GetString() == "SupportUpdated").GetProperty("id").GetInt64();
+    await Json(await client.PutAsync($"notifications/{supportNotificationId}/read", null), HttpStatusCode.NoContent, "new-source notification can be marked read");
+    var reloadedMessages = await Json(await client.GetAsync("notifications/me"), HttpStatusCode.OK, "read notification reloads");
+    Assert(reloadedMessages.EnumerateArray().Single(n => n.GetProperty("id").GetInt64() == supportNotificationId).GetProperty("isRead").GetBoolean(),
+        "new-source read state persists");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", otherToken);
+    var privateMessages = await Json(await client.GetAsync("notifications/me"), HttpStatusCode.OK, "unrelated member inbox remains private");
+    Assert(privateMessages.GetArrayLength() == 0, "new notification sources never leak across recipients or centers");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", coachToken);
+    await Json(await client.PutAsJsonAsync("coaches/me/personal-training-plans", request with { memberId = member.Id, title = "Private notification plan" }),
+        HttpStatusCode.OK, "personal plan update succeeds with multiple classmates");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", waitingToken);
+    var classmateMessages = await Json(await client.GetAsync("notifications/me"), HttpStatusCode.OK, "classmate inbox loads after private plan update");
+    Assert(!classmateMessages.EnumerateArray().Any(n => n.GetProperty("notificationType").GetString() == "TrainingPlanUpdated"),
+        "personal training notification never reaches another member of the same class");
+    var legacyPending = await Json(await client.PostAsJsonAsync("members/me/subscriptions", new { packageId = notificationPackage.Id }),
+        HttpStatusCode.Created, "member requests another package for legacy cash API");
+    var legacyInvoiceId = legacyPending.GetProperty("invoiceId").GetInt64();
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", managerToken);
+    for (var attempt = 0; attempt < 2; attempt++)
+        await Json(await client.PostAsJsonAsync($"invoices/{legacyInvoiceId}/payments", new { amount = 100, idempotencyKey = "notification-legacy-cash-payment" }),
+            HttpStatusCode.Created, "legacy cash payment and retry succeed");
+    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", waitingToken);
+    var legacyMessages = await Json(await client.GetAsync("notifications/me"), HttpStatusCode.OK, "legacy payment recipient loads notifications");
+    Assert(legacyMessages.EnumerateArray().Count(n => n.GetProperty("notificationType").GetString() == "MembershipActivated") == 2,
+        "legacy cash payment emits one activation notification and retry does not duplicate it");
     Console.WriteLine($"Passed {passed} checks. Isolated test database: {databaseName}");
 }
 finally

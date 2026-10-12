@@ -1595,6 +1595,8 @@ public sealed class PaymentService(
             join subscription in _unitOfWork.Context.MemberSubscriptions on item.SubscriptionId equals subscription.Id
             where item.InvoiceId == invoiceId && item.SubscriptionId != null && subscription.Status == "PendingPayment"
             select subscription).ToListAsync(cancellationToken);
+        var senderId = await _unitOfWork.Context.Invoices.Where(i => i.Id == invoiceId)
+            .Select(i => i.CreatedBy).SingleAsync(cancellationToken);
         foreach (var subscription in subscriptions)
         {
             var package = await _unitOfWork.Context.MembershipPackages
@@ -1610,6 +1612,10 @@ public sealed class PaymentService(
             subscription.DurationDays = durationDays;
             subscription.Status = "Active";
             subscription.UpdatedAt = now;
+            await FlowNotificationWriter.CreateForMemberAsync(_unitOfWork.Context, senderId, subscription.MemberId,
+                "Thanh toán thành công - Gói tập đã kích hoạt",
+                $"Gói {package.Name} đã được thanh toán và kích hoạt từ {subscription.StartDate:dd/MM/yyyy} đến {subscription.EndDate:dd/MM/yyyy}.",
+                "MembershipActivated", cancellationToken);
         }
     }
 

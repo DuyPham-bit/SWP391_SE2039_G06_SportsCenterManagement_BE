@@ -122,6 +122,11 @@ public sealed class TrainingService(SportsCenterDbContext db)
         plan.ExercisesJson = JsonSerializer.Serialize(request.Exercises);
         plan.UpdatedAt = DateTime.UtcNow;
         AddAudit(userId, coach.CenterId, "TRAINING_PLAN_SAVED", "TrainingPlan");
+        var recipients = await ClassMembers(request.ClassId)
+            .Where(m => (!personal || m.Id == request.MemberId) && db.Users.Any(u => u.Id == m.UserId && u.Status == "Active"))
+            .Select(m => m.UserId).ToArrayAsync(ct);
+        await FlowNotificationWriter.CreateAsync(db, userId, recipients, "Giáo án tập luyện được cập nhật",
+            $"HLV {coach.FullName} đã cập nhật giáo án: {plan.Name}. Xem Giáo án & Kết quả tập để biết chi tiết.", "TrainingPlanUpdated", ct);
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
         return plan.Id;
     }
@@ -135,6 +140,11 @@ public sealed class TrainingService(SportsCenterDbContext db)
         if (plan.CoachId != coach.Id) throw FlowException.Forbidden("Bạn chỉ được xóa giáo án của mình.");
         plan.Status = "Archived"; plan.UpdatedAt = DateTime.UtcNow;
         AddAudit(userId, coach.CenterId, "TRAINING_PLAN_ARCHIVED", "TrainingPlan", planId);
+        var recipients = await ClassMembers(plan.ClassId ?? 0)
+            .Where(m => (plan.MemberId == null || m.Id == plan.MemberId) && db.Users.Any(u => u.Id == m.UserId && u.Status == "Active"))
+            .Select(m => m.UserId).ToArrayAsync(ct);
+        await FlowNotificationWriter.CreateAsync(db, userId, recipients, "Giáo án đã được thu hồi",
+            $"HLV {coach.FullName} đã thu hồi giáo án: {plan.Name}.", "TrainingPlanUpdated", ct);
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
     }
 
@@ -179,6 +189,8 @@ public sealed class TrainingService(SportsCenterDbContext db)
             WorkoutResult = request.WorkoutResult.Trim(), CoachFeedback = request.CoachFeedback?.Trim(), CreatedAt = DateTime.UtcNow };
         db.TrainingResults.Add(row);
         AddAudit(userId, coach.CenterId, "TRAINING_PROGRESS_RECORDED", "TrainingResult");
+        await FlowNotificationWriter.CreateForMemberAsync(db, userId, request.MemberId, "Có kết quả tập luyện mới",
+            $"HLV {coach.FullName} đã ghi nhận kết quả tập ngày {date:dd/MM/yyyy}. Xem Giáo án & Kết quả tập để biết chi tiết.", "ProgressUpdated", ct);
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
         return row.Id;
     }

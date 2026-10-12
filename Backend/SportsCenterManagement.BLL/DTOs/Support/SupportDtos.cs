@@ -3,14 +3,14 @@ using System.ComponentModel.DataAnnotations;
 namespace SportsCenterManagement.BLL.DTOs.Support;
 
 public sealed record CreateSupportRequest(
-    [property: Range(1, long.MaxValue)] long MemberId,
-    [property: Required, StringLength(200)] string Subject,
-    [property: Required, StringLength(5000)] string Description,
-    [property: Required, RegularExpression("^(Low|Normal|High)$")] string Priority);
+    [Range(1, long.MaxValue)] long MemberId,
+    [Required, StringLength(200)] string Subject,
+    [Required, StringLength(5000)] string Description,
+    [Required, RegularExpression("^(Low|Normal|High)$")] string Priority);
 
 public sealed record UpdateSupportRequest(
-    [property: Required, RegularExpression("^(Open|InProgress|Resolved)$")] string Status,
-    [property: StringLength(5000)] string? Note);
+    [Required, RegularExpression("^(Open|InProgress|Resolved)$")] string Status,
+    [StringLength(5000)] string? Note);
 
 public sealed record SupportSummary(long Id, long MemberId, string MemberName, string MemberCode,
     string Subject, string Priority, string Status, DateTime CreatedAt, DateTime? ResolvedAt);

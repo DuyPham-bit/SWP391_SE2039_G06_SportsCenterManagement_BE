@@ -22,10 +22,13 @@ public sealed class SupportRequestService(IUnitOfWork unitOfWork)
         if (!allowed) throw FlowException.Forbidden("Bạn không có quyền tiếp nhận yêu cầu tại trung tâm này.");
     }
 
-    private IQueryable<SupportSummary> Summaries(long centerId) =>
-        from request in unitOfWork.Context.SupportRequests.AsNoTracking()
+    private IQueryable<SupportRequest> Requests(long centerId) => unitOfWork.Context.SupportRequests.AsNoTracking()
+        .Where(request => unitOfWork.Context.MemberProfiles.Any(member => member.Id == request.MemberId && member.CenterId == centerId));
+
+    private IQueryable<SupportSummary> Summaries(IQueryable<SupportRequest> requests) =>
+        from request in requests
         join member in unitOfWork.Context.MemberProfiles.AsNoTracking() on request.MemberId equals member.Id
-        where member.CenterId == centerId
+        orderby request.CreatedAt descending, request.Id descending
         select new SupportSummary(request.Id, member.Id, member.FullName, member.MemberCode,
             request.Subject, request.Priority, request.Status, request.CreatedAt, request.ResolvedAt);
 
@@ -36,20 +39,22 @@ public sealed class SupportRequestService(IUnitOfWork unitOfWork)
             throw FlowException.BadRequest("Bộ lọc hoặc phân trang không hợp lệ.");
         if (!string.IsNullOrEmpty(status) && status is not ("Open" or "InProgress" or "Resolved"))
             throw FlowException.BadRequest("Trạng thái yêu cầu không hợp lệ.");
-        var rows = Summaries(centerId);
+        var rows = Requests(centerId);
         var term = query?.Trim();
-        if (!string.IsNullOrEmpty(term)) rows = rows.Where(r => r.Subject.Contains(term) || r.MemberName.Contains(term) || r.MemberCode.Contains(term));
+        if (!string.IsNullOrEmpty(term)) rows = rows.Where(r => r.Subject.Contains(term) ||
+            unitOfWork.Context.MemberProfiles.Any(m => m.Id == r.MemberId && (m.FullName.Contains(term) || m.MemberCode.Contains(term))));
         if (!string.IsNullOrEmpty(status)) rows = rows.Where(r => r.Status == status);
         var count = await rows.CountAsync(ct);
-        var items = await rows.OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id)
-            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        // Filter and page entities before constructing records so EF translates the query to SQL.
+        var items = await Summaries(rows.OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize)).ToListAsync(ct);
         return new SupportPage(items, count, page, pageSize);
     }
 
     public async Task<SupportDetails> Get(long actorId, long centerId, long id, CancellationToken ct)
     {
         await EnsureStaff(actorId, centerId, ct);
-        var summary = await Summaries(centerId).SingleOrDefaultAsync(r => r.Id == id, ct)
+        var summary = await Summaries(Requests(centerId).Where(r => r.Id == id)).SingleOrDefaultAsync(ct)
             ?? throw FlowException.NotFound("Không tìm thấy yêu cầu hỗ trợ tại trung tâm này.");
         var description = await unitOfWork.Context.SupportRequests.Where(r => r.Id == id).Select(r => r.Description).SingleAsync(ct);
         var messages = await (from message in unitOfWork.Context.SupportRequestMessages.AsNoTracking()
@@ -73,6 +78,8 @@ public sealed class SupportRequestService(IUnitOfWork unitOfWork)
         unitOfWork.Context.SupportRequests.Add(request);
         await unitOfWork.SaveChangesAsync(ct);
         Audit(actorId, centerId, request, "Support.Created");
+        await FlowNotificationWriter.CreateForMemberAsync(unitOfWork.Context, actorId, request.MemberId,
+            "Yêu cầu hỗ trợ đã được tiếp nhận", $"Trung tâm đã tiếp nhận yêu cầu: {request.Subject}.", "SupportUpdated", ct);
         await unitOfWork.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return await Get(actorId, centerId, request.Id, ct);
@@ -88,12 +95,20 @@ public sealed class SupportRequestService(IUnitOfWork unitOfWork)
             join m in unitOfWork.Context.MemberProfiles on r.MemberId equals m.Id
             where r.Id == id && m.CenterId == centerId select r).SingleOrDefaultAsync(ct)
             ?? throw FlowException.NotFound("Không tìm thấy yêu cầu hỗ trợ tại trung tâm này.");
+        var statusChanged = request.Status != body.Status;
         request.ResolvedAt = body.Status == "Resolved" ? request.ResolvedAt ?? DateTime.UtcNow : null;
         request.Status = body.Status;
         request.HandledBy = actorId;
         if (!string.IsNullOrWhiteSpace(body.Note)) unitOfWork.Context.SupportRequestMessages.Add(new SupportRequestMessage {
             RequestId = id, SenderId = actorId, Message = body.Note.Trim(), CreatedAt = DateTime.UtcNow });
         Audit(actorId, centerId, request, "Support.Updated");
+        if (statusChanged || !string.IsNullOrWhiteSpace(body.Note))
+        {
+            var statusLabel = body.Status switch { "Resolved" => "Đã giải quyết", "InProgress" => "Đang xử lý", _ => "Đã tiếp nhận" };
+            await FlowNotificationWriter.CreateForMemberAsync(unitOfWork.Context, actorId, request.MemberId,
+                "Yêu cầu hỗ trợ được cập nhật", $"{request.Subject}: {statusLabel}." +
+                (string.IsNullOrWhiteSpace(body.Note) ? "" : $"\nPhản hồi: {body.Note.Trim()}"), "SupportUpdated", ct);
+        }
         await unitOfWork.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return await Get(actorId, centerId, id, ct);

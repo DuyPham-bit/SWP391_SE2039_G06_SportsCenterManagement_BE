@@ -24,7 +24,11 @@ Nguồn: [bảng giá Gemini](https://ai.google.dev/gemini-api/docs/pricing), [q
 4. Lưu cùng Client ID ở hai nơi:
 
 ```powershell
-dotnet user-secrets set "Google:ClientId" "CLIENT_ID.apps.googleusercontent.com" --project Backend/Backend/SportsCenterManagement.API
+$googleClientId = (Read-Host 'Dán OAuth Web Client ID thực tế từ Google Cloud').Trim()
+if ($googleClientId -notmatch '^\d+-[a-zA-Z0-9_-]+\.apps\.googleusercontent\.com$') {
+    throw 'Client ID chưa hợp lệ. Không nhập giá trị mẫu CLIENT_ID.apps.googleusercontent.com.'
+}
+dotnet user-secrets set "Google:ClientId" $googleClientId --project Backend/Backend/SportsCenterManagement.API
 ```
 
 Trong `Frontend/.env.local`:
@@ -36,6 +40,18 @@ VITE_GOOGLE_CLIENT_ID=CLIENT_ID.apps.googleusercontent.com
 ```
 
 Client ID là cấu hình công khai; Gemini API key là bí mật. Hướng dẫn chính thức: [thiết lập Google Identity Services](https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid).
+
+### Lỗi “ID token Google không hợp lệ hoặc đã hết hạn”
+
+Trong Development, `Google:ClientId` trong User Secrets được ưu tiên hơn `appsettings.json`. Vì vậy, appsettings và frontend giống nhau vẫn có thể lỗi nếu User Secrets còn Client ID mẫu hoặc ID của ứng dụng khác. Token Google phải có `aud` khớp Client ID mà backend thực sự sử dụng.
+
+Đã phát hiện và sửa trường hợp này trên môi trường local ngày 12/10/2026: `Frontend/.env.local` và appsettings dùng cùng Client ID thật, nhưng User Secrets ghi đè bằng giá trị mẫu. Đã cập nhật riêng `Google:ClientId` trong User Secrets và xác minh mọi khóa khác giữ nguyên. Không đổi code xác thực hoặc nới điều kiện chữ ký/issuer/audience/thời hạn token.
+
+Kiểm chứng sau sửa: ba nguồn cấu hình dùng cùng Client ID đúng định dạng; endpoint Google metadata/khóa RS256 truy cập được, API local `/api/health` trả 200. Kiểm tra thời gian qua phản hồi Google không cache lệch khoảng một giây. Chưa xác nhận đăng nhập Google thật vì cần người dùng chọn tài khoản và cấp credential mới trên website.
+
+Khi gặp lại, lấy Client ID thực tế trong `VITE_GOOGLE_CLIENT_ID`, đặt cùng giá trị cho `Google:ClientId` bằng lệnh trên, khởi động lại backend rồi tải lại trang và chọn tài khoản Google để nhận credential mới. Nếu frontend đã đổi `.env.local`, khởi động lại Vite hoặc build lại giao diện nhúng. Không gửi Client Secret, JWT của ứng dụng hoặc access token vào trường `idToken`.
+
+Nguồn: [thứ tự ưu tiên cấu hình ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/configuration/?view=aspnetcore-10.0#security-and-user-secrets), [xác minh Google ID token](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token).
 
 ## 3. Khởi động lại và thử
 

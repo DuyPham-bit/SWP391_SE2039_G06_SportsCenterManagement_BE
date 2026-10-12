@@ -77,6 +77,8 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
                 };
                 await Db.ClassWaitlists.AddAsync(entry, cancellationToken);
                 AuditLogWriter.Add(unitOfWork, actorUserId ?? currentUserId, cls.CenterId, "JOIN_SESSION_WAITLIST", "ClassSession", sessionId);
+                await NotifyMemberAsync(actorUserId ?? currentUserId, member.Id, session, cls,
+                    "Đã tham gia danh sách chờ", "Bạn đã vào danh sách chờ của buổi học", "WaitlistJoined", cancellationToken);
                 await SaveAsync(cancellationToken);
             }
             await transaction.CommitAsync(cancellationToken);
@@ -87,6 +89,8 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
         var booking = await CreateOrReactivateBookingAsync(member.Id, sessionId, subscription.Id, cancellationToken);
         await CancelWaitingEntriesAsync(sessionId, member.Id, cancellationToken);
         AuditLogWriter.Add(unitOfWork, actorUserId ?? currentUserId, cls.CenterId, "BOOK_SESSION", "ClassSession", sessionId);
+        await NotifyMemberAsync(actorUserId ?? currentUserId, member.Id, session, cls,
+            "Đặt lớp thành công", "Bạn đã được xác nhận chỗ học", "BookingConfirmed", cancellationToken);
         await SaveAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new BookSessionResult(true, false, ToResponse(booking, session, cls), null, "Đặt lịch thành công.");
@@ -123,9 +127,12 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
         if (!late)
         {
             await SaveAsync(cancellationToken); // free the seat before promoting
-            promotedMemberId = await PromoteNextWaitlistAsync(session, cls, now, cancellationToken);
+            promotedMemberId = await PromoteNextWaitlistAsync(session, cls, now, actorUserId ?? currentUserId, cancellationToken);
         }
 
+        await NotifyMemberAsync(actorUserId ?? currentUserId, member.Id, session, cls,
+            "Đã hủy đặt lớp", late ? "Bạn đã hủy muộn; buổi học vẫn được tính là đã tham gia" : "Chỗ học của bạn đã được hủy",
+            "BookingCancelled", cancellationToken);
         await SaveAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
@@ -317,7 +324,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
     /// BR-BOOK-04. Promotes the earliest waiting member of the class who is still eligible for the freed session.
     /// Ineligible members (no active package, clash, ...) stay in the waitlist.
     /// </summary>
-    private async Task<long?> PromoteNextWaitlistAsync(ClassSession session, ClassEntity cls, DateTime now, CancellationToken ct)
+    private async Task<long?> PromoteNextWaitlistAsync(ClassSession session, ClassEntity cls, DateTime now, long actorUserId, CancellationToken ct)
     {
         var capacity = await GetEffectiveCapacityAsync(session, cls, ct);
         var booked = await Db.SessionBookings.CountAsync(
@@ -352,6 +359,8 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
             }
 
             entry.Status = FlowStatuses.WaitlistPromoted;
+            await NotifyMemberAsync(actorUserId, candidate.Id, session, cls, "Đã có chỗ học từ danh sách chờ",
+                "Bạn đã được tự động xác nhận chỗ học từ danh sách chờ", "WaitlistPromoted", ct);
             return candidate.Id;
         }
 
@@ -359,6 +368,11 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
     }
 
     // ------------------------------------------------------------------ helpers
+
+    private Task NotifyMemberAsync(long actorUserId, long memberId, ClassSession session, ClassEntity cls,
+        string title, string message, string type, CancellationToken ct) =>
+        FlowNotificationWriter.CreateForMemberAsync(Db, actorUserId, memberId, title,
+            $"{message}: {cls.Name}, ngày {session.SessionDate:dd/MM/yyyy} lúc {session.StartTime:HH:mm}.", type, ct);
 
     private async Task<MemberProfile> GetMemberAsync(long userId, CancellationToken ct) =>
         await Db.MemberProfiles.SingleOrDefaultAsync(m => m.UserId == userId, ct)

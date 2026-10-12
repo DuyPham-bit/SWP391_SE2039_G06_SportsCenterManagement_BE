@@ -314,6 +314,8 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         existing.CancelledAt = null;
         existing.CancellationReason = null;
         existing.Status = "Confirmed";
+        await FlowNotificationWriter.CreateForMemberAsync(_unitOfWork.Context, registeredBy, memberId,
+            "Ghi danh lớp thành công", "Bạn đã được xác nhận ghi danh lớp. Xem lịch học để biết chi tiết.", "BookingConfirmed", cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return existing;
@@ -340,6 +342,8 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         enrollment.Status = "Cancelled";
         enrollment.CancelledAt = DateTime.UtcNow;
         enrollment.CancellationReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim()[..Math.Min(reason.Trim().Length, 500)];
+        await FlowNotificationWriter.CreateForMemberAsync(_unitOfWork.Context, null, memberId,
+            "Đã hủy ghi danh lớp", "Ghi danh lớp của bạn đã được hủy.", "BookingCancelled", cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return enrollment;
@@ -459,6 +463,10 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
                 subscription.EndDate = subscription.StartDate.Value.AddDays(durationDays - 1);
                 subscription.Status = "Active";
                 subscription.UpdatedAt = now;
+                await FlowNotificationWriter.CreateForMemberAsync(db, processedBy, subscription.MemberId,
+                    "Thanh toán thành công - Gói tập đã kích hoạt",
+                    $"Gói tập đã được thanh toán và kích hoạt từ {subscription.StartDate:dd/MM/yyyy} đến {subscription.EndDate:dd/MM/yyyy}.",
+                    "MembershipActivated", cancellationToken);
             }
         }
 

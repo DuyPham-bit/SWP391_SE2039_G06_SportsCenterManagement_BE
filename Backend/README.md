@@ -74,6 +74,8 @@ API được xây bằng ASP.NET Core MVC Controllers và trả JSON; không dù
 
 MVP tắt email verification; mật khẩu cần ít nhất 6 ký tự gồm chữ hoa, chữ thường, số và ký tự đặc biệt. API dùng JWT HS256 qua JwtBearer, kiểm tra chữ ký, issuer, audience và thời hạn (mặc định 60 phút, cấu hình `Jwt:ExpiresMinutes`); trạng thái tài khoản, role và center được đọc lại từ DB mỗi request. Token Data Protection cũ cần đăng nhập lại. Subscription chỉ bắt đầu khi invoice được thanh toán đủ.
 
+Không sử dụng Session/cookie để đăng nhập. Frontend giữ JWT và hồ sơ/quyền trong bộ nhớ riêng từng tab; F5 cần đăng nhập lại. Nếu dùng frontend nhúng do API phục vụ, chạy `npm.cmd run build:api` tại `Frontend/` trước khi chạy/publish backend để cập nhật `SportsCenterManagement.API/wwwroot` và loại bỏ bundle cũ. `wwwroot` chỉ chứa tài nguyên build; sửa tài nguyên nguồn ở `Frontend/public/`.
+
 Giáo án, tiến độ, thông báo và các endpoint Google/AI được mô tả tại [api-jwt-integration.md](docs/requirements/api-jwt-integration.md). Thiết lập Google Client ID và Gemini Free Tier: [free-google-gemini-setup.md](docs/requirements/free-google-gemini-setup.md).
 
 Manager/Receptionist cần có `StaffProfile` trạng thái `Active` tại center được giao. Manager tạo Coach/Receptionist trong center mình quản lý; System Admin có thể quản trị nhân sự theo quyền được cấp. Mọi endpoint nhạy cảm kiểm tra permission và center ở backend.

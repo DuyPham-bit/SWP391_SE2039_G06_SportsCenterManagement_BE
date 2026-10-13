@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace SportsCenterManagement.BLL.DTOs.Payments
@@ -118,6 +119,9 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
 
         [JsonPropertyName("virtualAccountNumber")]
         public string VirtualAccountNumber { get; set; } = string.Empty;
+
+        [JsonExtensionData]
+        public Dictionary<string, JsonElement> ExtensionData { get; set; } = new();
     }
 
     public sealed class ReconcilePendingPaymentRequest

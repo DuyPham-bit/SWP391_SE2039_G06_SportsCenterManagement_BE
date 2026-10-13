@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -38,7 +39,15 @@ public static class PayOsSecurity
         var sortedQueryString = CreateSortedDataQueryString(data);
         var calculatedSignature = ComputeHmacSha256(sortedQueryString, checksumKey);
 
-        return string.Equals(calculatedSignature, signature, StringComparison.OrdinalIgnoreCase);
+        try
+        {
+            return CryptographicOperations.FixedTimeEquals(
+                Convert.FromHexString(calculatedSignature), Convert.FromHexString(signature));
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -57,8 +66,7 @@ public static class PayOsSecurity
 
         foreach (var property in jsonObject)
         {
-            if (property.Value == null) continue;
-            sortedDict.Add(property.Key, property.Value.ToString());
+            sortedDict.Add(property.Key, GetSignatureValue(property.Value));
         }
 
         var builder = new StringBuilder();
@@ -72,6 +80,40 @@ public static class PayOsSecurity
         }
 
         return builder.ToString();
+    }
+
+    private static string GetSignatureValue(JsonNode? value)
+    {
+        if (value == null) return string.Empty;
+
+        if (value is JsonArray array)
+        {
+            // PayOS signs arrays as compact JSON with each object's keys sorted.
+            var sortedArray = new JsonArray();
+            foreach (var item in array)
+            {
+                if (item is JsonObject itemObject)
+                {
+                    var sortedItem = new JsonObject();
+                    foreach (var property in itemObject.OrderBy(property => property.Key, StringComparer.Ordinal))
+                        sortedItem.Add(property.Key, property.Value?.DeepClone());
+                    sortedArray.Add(sortedItem);
+                }
+                else
+                {
+                    sortedArray.Add(item?.DeepClone());
+                }
+            }
+            return sortedArray.ToJsonString(new JsonSerializerOptions
+            {
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            });
+        }
+
+        if (value is JsonValue jsonValue && jsonValue.TryGetValue<string>(out var text))
+            return text is "null" or "undefined" ? string.Empty : text;
+
+        return value.ToJsonString();
     }
 
     /// <summary>

@@ -36,6 +36,11 @@ public interface IPaymentService
         string idempotencyKey,
         CancellationToken cancellationToken = default);
 
+    Task<PaymentResultResponse> SyncVietQrPaymentAsync(
+        long memberId,
+        long orderCode,
+        CancellationToken cancellationToken = default);
+
     Task<PaymentResultResponse> ReconcilePendingPaymentAsync(
         long managerUserId,
         long? managerCenterId,

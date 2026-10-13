@@ -210,6 +210,51 @@ public sealed class PaymentService(
             callback.TransId, callback.Amount, $"MoMo result {callback.ResultCode}", cancellationToken);
     }
 
+    public async Task<PaymentResultResponse> SyncVietQrPaymentAsync(
+        long memberId,
+        long orderCode,
+        CancellationToken cancellationToken = default)
+    {
+        var gatewayReference = orderCode.ToString(CultureInfo.InvariantCulture);
+        var payment = await _unitOfWork.Context.Payments.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == orderCode
+                && candidate.GatewayReference == gatewayReference && candidate.PaymentMethod == "PAYOS", cancellationToken)
+            ?? throw BusinessException.NotFound("Khong tim thay giao dich PayOS.");
+        var invoice = await _unitOfWork.Context.Invoices.AsNoTracking()
+            .SingleAsync(candidate => candidate.Id == payment.InvoiceId, cancellationToken);
+        if (payment.MemberId != memberId || invoice.MemberId != memberId)
+            throw BusinessException.Forbidden("Khong duoc dong bo giao dich cua hoi vien khac.");
+
+        PayOsPaymentInfo paymentInfo;
+        try
+        {
+            paymentInfo = await _payOsService.GetPaymentInfoAsync(orderCode, cancellationToken);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or InvalidOperationException or JsonException
+            || exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            throw new BusinessException(HttpStatusCode.ServiceUnavailable,
+                "Chua the xac minh trang thai tu PayOS. Hay thu dong bo lai sau; khong thanh toan lai.");
+        }
+
+        if (paymentInfo.OrderCode != orderCode || paymentInfo.Amount != payment.Amount)
+            return FailedCallback("Thong tin PayOS khong khop giao dich.", invoice.InvoiceNumber);
+        if (paymentInfo.Status != "PAID")
+            return FailedCallback($"PayOS chua xac nhan thanh toan: {paymentInfo.Status}.", invoice.InvoiceNumber);
+        if (paymentInfo.AmountPaid != payment.Amount || paymentInfo.AmountRemaining != 0)
+            return FailedCallback("So tien PayOS da nhan khong khop giao dich.", invoice.InvoiceNumber);
+
+        var transactions = paymentInfo.Transactions;
+        if (transactions == null || transactions.Count == 0
+            || transactions.Any(transaction => string.IsNullOrWhiteSpace(transaction.Reference))
+            || transactions.Sum(transaction => transaction.Amount) != paymentInfo.AmountPaid)
+            return FailedCallback("PayOS chua tra ve giao dich ngan hang hop le.", invoice.InvoiceNumber);
+
+        return await CompleteGatewayPaymentAsync(
+            "PAYOS", gatewayReference, null, true, false, transactions[0].Reference,
+            paymentInfo.AmountPaid, "Dong bo trang thai thanh toan tu PayOS", cancellationToken);
+    }
+
     public async Task<PaymentResultResponse> ProcessPayOsWebhookAsync(
         PayOsWebhookRequest webhookRequest,
         CancellationToken cancellationToken = default)

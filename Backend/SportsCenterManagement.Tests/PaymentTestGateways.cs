@@ -45,4 +45,18 @@ internal sealed class PaymentTestPayOs : IPayOsService
         });
 
     public bool VerifyWebhookSignature(PayOsWebhookRequest webhookRequest) => false;
+
+    public string Status { get; set; } = "PAID";
+    public int StatusReads { get; private set; }
+
+    public Task<PayOsPaymentInfo> GetPaymentInfoAsync(long orderCode, CancellationToken cancellationToken = default)
+    {
+        StatusReads++;
+        return Task.FromResult(new PayOsPaymentInfo
+        {
+            OrderCode = orderCode, Amount = 100m, AmountPaid = Status == "PAID" ? 100m : 0m,
+            AmountRemaining = Status == "PAID" ? 0m : 100m, Status = Status,
+            Transactions = [new PayOsPaymentTransaction { Reference = $"REF-{orderCode}", Amount = 100m }]
+        });
+    }
 }

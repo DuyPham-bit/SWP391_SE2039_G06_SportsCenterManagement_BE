@@ -42,12 +42,15 @@
   - API nhận Webhook Server-to-Server: `POST /api/payments/momo-ipn`.
   - Đã test thành công trên Swagger và giao diện Sandbox MoMo.
 
-- [x] **Cổng thanh toán VietQR / Chuyển khoản Napas 247 (PayOS Gateway Wrapper & Webhook):**
-  - **Crypto & Webhook Signature Wrapper (`PayOsSecurity.cs`):** Tự động sắp xếp Alphabet A-Z các trường dữ liệu, băm chữ ký HMAC-SHA256 chuẩn PayOS, xác thực Webhook Server-to-Server chống giả mạo 100%.
-  - **Gateway Service Wrapper (`IPayOsService` ➔ `PayOsService`):** Đóng gói giao tiếp RESTful API sang PayOS, tạo link `checkoutUrl` và sinh mã `qrCode` Napas 247.
-  - **Core Orchestrator (`IPaymentService` ➔ `PaymentService`):** Tự động sinh `orderCode` số nguyên, khởi tạo `Invoice` (`SC-{orderCode}`) & `MemberSubscription` (`PendingPayment`), xử lý Webhook kích hoạt gói tập (`Paid`/`Active`) và lưu giao dịch `Payments` (`VIETQR-PAYOS`).
-  - **API Endpoints:** `POST /api/payments/create-vietqr` và `POST /api/payments/payos-webhook`.
-  - *Ghi chú:* Đã hoàn tất 100% logic mã nguồn Backend, bước đăng ký tài khoản `my.payos.vn` lấy ClientId/ApiKey thực tế sẽ điền vào `appsettings.json` sau.
+- [x] **VietQR / PayOS: checkout và đồng bộ khi lỡ webhook (2026-10-13):**
+  - Đã ánh xạ `PayOS:ClientId`, `PayOS:ApiKey`, `PayOS:ChecksumKey` tới header xác thực và HMAC-SHA256; key thật giữ trong cấu hình local/User Secrets hoặc biến môi trường, không đưa vào commit.
+  - Nhánh `feature/payment-fix` giữ API `POST /api/payments/create-payos-url`, yêu cầu JWT hội viên và `Idempotency-Key`; `orderCode` là `Payment.Id` / `GatewayReference`, không phải `Invoice.Id`.
+  - Webhook nhận tại `POST /api/payments/payos-ipn` hoặc alias `POST /api/payments/payos-webhook`; giữ cơ chế xác minh chữ ký, idempotency, `ReviewRequired`, void/refund hiện có.
+  - Bổ sung `POST /api/payments/vietqr/{orderCode}/sync`: kiểm tra chủ giao dịch, truy vấn trạng thái từ PayOS, xác minh chữ ký trên JSON gốc, số tiền và mã giao dịch trước khi hoàn tất thanh toán qua transaction hiện có.
+  - Sửa chuẩn hóa checksum với `null` và mảng giao dịch; giữ trường webhook mở rộng bằng `JsonExtensionData`.
+  - Bản local tổng hợp đã xác nhận checkout và giao dịch thật đơn `34`, `2.000đ`: PayOS `PAID`; sau khi sync, Invoice `Paid`, Payment `Succeeded`, Subscription `Active`. Mapping ID của bản local khác nhánh này; không chuyển dữ liệu DB hoặc đổi mapping của nhánh.
+  - Kiểm chứng nhánh `feature/payment-fix`: 67/67 test pass (nền trước khi ghép: 45/45), gồm chữ ký theo mẫu PayOS, phản hồi GET có `null`/mảng, happy/unhappy case đồng bộ, JWT/chủ giao dịch, request lặp và nhận tiền sau void; test dùng SQLite và gateway giả lập, không chuyển tiền thật. Bản local tổng hợp trước đó có 86/86 test pass.
+  - **Chưa xác nhận webhook tự động end-to-end.** Cấu hình webhook public tạm hoãn theo yêu cầu người dùng; tài liệu: `Backend/docs/vietqr-testing.md`.
 
 - [x] **Đồng bộ 4 Gói tập chuẩn từ giao diện Frontend vào Database:**
   - `Gói Basic Thể Thao`: 650.000đ (30 ngày, 1 môn tự chọn).
@@ -70,10 +73,13 @@
 
 ### 🟡 ĐANG LÀM / CHỜ GHÉP (IN PROGRESS)
 - [ ] **Ghép nối Frontend `CounterMembership.jsx`:** Kết nối API `counter-checkout` và in hóa đơn `window.print()`.
-- [ ] **Đăng ký tài khoản PayOS (my.payos.vn) & Điền API Keys thực tế:** Cập nhật `ClientId`, `ApiKey`, `ChecksumKey` vào `appsettings.json`.
+- [ ] **TẠM HOÃN: cấu hình webhook public và kiểm thử tự động VietQR / PayOS (2026-10-13):**
+  - Người dùng yêu cầu chưa xử lý phần này; chỉ tiếp tục khi được yêu cầu.
+  - Khi tiếp tục: đăng ký URL HTTPS public trỏ tới `/api/payments/payos-webhook` cho đúng kênh trên `my.payos.vn`, xác nhận webhook đến backend và kiểm thử tự động cập nhật Invoice/Payment/Subscription, request lặp và trường hợp lỗi.
+  - Trong thời gian tạm hoãn, dùng API sync chủ động cho giao dịch đã thanh toán. `ReturnUrl`/`CancelUrl` không thay thế webhook hoặc sync.
 - [ ] **Kết nối Frontend `MemberPackages.jsx` ➔ Backend:**
   - Ghép API `paymentApi.createVnpayUrl` / `paymentApi.createMomoUrl` / `paymentApi.createVietQr` và điều hướng sang `paymentUrl` / hiển thị QR modal.
-  - Trang nhận kết quả `PaymentResult.jsx` gọi callback API.
+  - Trang nhận kết quả `PaymentResult.jsx` gọi callback API cho VNPay/MoMo; VietQR cần ghép API sync với JWT của chủ giao dịch khi cần xác nhận lại từ PayOS. Chưa ghép tự động vào frontend.
 - [ ] **Xác thực người dùng (JWT Authentication & Claims):**
   - Gắn `memberId` thực tế từ JWT Token thay vì `X-Member-Id` header tạm thời.
 

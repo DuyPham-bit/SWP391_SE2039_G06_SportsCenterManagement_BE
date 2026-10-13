@@ -124,6 +124,34 @@ public class PayOsService : IPayOsService
         return payOsResponse;
     }
 
+    public async Task<PayOsPaymentInfo> GetPaymentInfoAsync(long orderCode, CancellationToken cancellationToken = default)
+    {
+        if (orderCode <= 0) throw new ArgumentOutOfRangeException(nameof(orderCode));
+        var clientId = RequireConfiguration("PayOS:ClientId");
+        var apiKey = RequireConfiguration("PayOS:ApiKey");
+        var checksumKey = RequireConfiguration("PayOS:ChecksumKey");
+        var baseUrl = _configuration["PayOS:BaseUrl"] ?? "https://api-merchant.payos.vn";
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri) || baseUri.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidOperationException("PayOS:BaseUrl must be an absolute HTTPS URL.");
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(baseUri, $"/v2/payment-requests/{orderCode}"));
+        request.Headers.Add("x-client-id", clientId);
+        request.Headers.Add("x-api-key", apiKey);
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        var paymentInfo = JsonSerializer.Deserialize<PayOsPaymentInfoResponse>(responseContent);
+        if (paymentInfo?.Code != "00" || paymentInfo.Data == null)
+            throw new InvalidOperationException("PayOS could not return the payment status.");
+
+        // Keep all optional fields and bank details in the signed data.
+        using var document = JsonDocument.Parse(responseContent);
+        if (!PayOsSecurity.VerifyWebhookSignature(document.RootElement.GetProperty("data"), paymentInfo.Signature, checksumKey))
+            throw new InvalidOperationException("Invalid PayOS payment status signature.");
+
+        return paymentInfo.Data;
+    }
+
     public bool VerifyWebhookSignature(PayOsWebhookRequest webhookRequest)
     {
         var checksumKey = _configuration["PayOS:ChecksumKey"] ?? string.Empty;

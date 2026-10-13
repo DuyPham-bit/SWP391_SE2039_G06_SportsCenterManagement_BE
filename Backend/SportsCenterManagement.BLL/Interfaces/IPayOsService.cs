@@ -28,4 +28,6 @@ public interface IPayOsService
     /// Xác thực signature số Webhook nhận được từ PayOS xem có hợp lệ không.
     /// </summary>
     bool VerifyWebhookSignature(PayOsWebhookRequest webhookRequest);
+
+    Task<PayOsPaymentInfo> GetPaymentInfoAsync(long orderCode, CancellationToken cancellationToken = default);
 }

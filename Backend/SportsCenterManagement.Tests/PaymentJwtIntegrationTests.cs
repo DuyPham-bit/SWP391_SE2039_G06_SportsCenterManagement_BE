@@ -54,6 +54,7 @@ public sealed class PaymentJwtIntegrationTests : IDisposable
     [InlineData("/api/payments/create-momo-url")]
     [InlineData("/api/payments/create-payos-url")]
     [InlineData("/api/payments/counter-checkout")]
+    [InlineData("/api/payments/vietqr/34/sync")]
     [InlineData("/api/payments/counter-void/unknown")]
     [InlineData("/api/payments/unknown/reconcile")]
     [InlineData("/api/payments/1/refunds")]
@@ -87,6 +88,66 @@ public sealed class PaymentJwtIntegrationTests : IDisposable
             Assert.Equal(1, (await db.Invoices.SingleAsync()).MemberId);
             Assert.Equal(1, (await db.Payments.SingleAsync()).MemberId);
         });
+    }
+
+    [Fact]
+    public async Task MemberCanSyncPaidPayOsOrderWithoutDuplicatingPaymentOrMembership()
+    {
+        await BranchApiFactory.LoginAsync(client, "member@test.local");
+        using var created = await client.PostAsJsonAsync("/api/payments/create-payos-url", new { packageId = 1 });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        long orderCode = 0;
+        await WithDatabase(async db => orderCode = (await db.Payments.SingleAsync()).Id);
+
+        using var synced = await client.PostAsync($"/api/payments/vietqr/{orderCode}/sync", null);
+        Assert.Equal(HttpStatusCode.OK, synced.StatusCode);
+        Assert.True((await synced.Content.ReadFromJsonAsync<PaymentResultResponse>())?.Success);
+        string? membershipBeforeRetry = null;
+        await WithDatabase(async db => membershipBeforeRetry = System.Text.Json.JsonSerializer.Serialize(
+            await db.MemberSubscriptions.OrderBy(subscription => subscription.Id)
+                .Select(subscription => new { subscription.Id, subscription.StartDate, subscription.EndDate, subscription.Status }).ToListAsync()));
+        using var repeated = await client.PostAsync($"/api/payments/vietqr/{orderCode}/sync", null);
+        Assert.Equal(HttpStatusCode.OK, repeated.StatusCode);
+        await WithDatabase(async db =>
+        {
+            Assert.Equal("Paid", (await db.Invoices.SingleAsync()).Status);
+            Assert.Equal("Succeeded", (await db.Payments.SingleAsync()).PaymentStatus);
+            Assert.Equal(1, await db.Payments.CountAsync());
+            Assert.Equal(membershipBeforeRetry, System.Text.Json.JsonSerializer.Serialize(
+                await db.MemberSubscriptions.OrderBy(subscription => subscription.Id)
+                    .Select(subscription => new { subscription.Id, subscription.StartDate, subscription.EndDate, subscription.Status }).ToListAsync()));
+        });
+    }
+
+    [Fact]
+    public async Task MemberCannotSyncAnotherMembersPayOsOrder()
+    {
+        await BranchApiFactory.LoginAsync(client, "member@test.local");
+        using var created = await client.PostAsJsonAsync("/api/payments/create-payos-url", new { packageId = 1 });
+        Assert.Equal(HttpStatusCode.OK, created.StatusCode);
+        long orderCode = 0;
+        await WithDatabase(async db =>
+        {
+            var payment = await db.Payments.SingleAsync();
+            var invoice = await db.Invoices.SingleAsync();
+            orderCode = payment.Id;
+            payment.MemberId = 999;
+            invoice.MemberId = 999;
+            // Use an existing FK owner with no member access in the test database.
+            db.Users.Add(new SportsCenterManagement.DAL.Entities.User
+            {
+                Id = 999, Username = "other-member", Email = "other-member@test.local", RoleId = 4,
+                PasswordHash = "unused", Status = "Active"
+            });
+            db.MemberProfiles.Add(new SportsCenterManagement.DAL.Entities.MemberProfile
+            {
+                Id = 999, UserId = 999, MemberCode = "OTHER-999", FullName = "Other Member"
+            });
+            await db.SaveChangesAsync();
+        });
+        using var response = await client.PostAsync($"/api/payments/vietqr/{orderCode}/sync", null);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await WithDatabase(async db => Assert.Equal("Pending", (await db.Payments.SingleAsync()).PaymentStatus));
     }
 
     [Theory]
@@ -192,10 +253,11 @@ public sealed class PaymentJwtIntegrationTests : IDisposable
     [InlineData("GET", "/api/payments/momo-callback")]
     [InlineData("POST", "/api/payments/momo-ipn")]
     [InlineData("POST", "/api/payments/payos-ipn")]
+    [InlineData("POST", "/api/payments/payos-webhook")]
     public async Task GatewayCallbacksStayAnonymousAndRejectInvalidSignatures(string method, string path)
     {
         using var response = method == "GET" ? await client.GetAsync(path) : await client.PostAsJsonAsync(path, new { });
-        Assert.Equal(path == "/api/payments/payos-ipn" ? HttpStatusCode.BadRequest : HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(path is "/api/payments/payos-ipn" or "/api/payments/payos-webhook" ? HttpStatusCode.BadRequest : HttpStatusCode.OK, response.StatusCode);
         await WithDatabase(async db => Assert.Empty(await db.Payments.ToListAsync()));
     }
 

@@ -154,6 +154,14 @@ public sealed class PaymentsController : ControllerBase
         return Ok(new { success = true, paymentUrl });
     }
 
+    [HttpPost("vietqr/{orderCode:long}/sync")]
+    [ProducesResponseType(typeof(PaymentResultResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PaymentResultResponse>> SyncVietQrPayment(long orderCode, CancellationToken cancellationToken)
+    {
+        var memberId = await GetCurrentMemberIdAsync(GetRequiredUserId(), cancellationToken);
+        return Ok(await _paymentService.SyncVietQrPaymentAsync(memberId, orderCode, cancellationToken));
+    }
+
     [AllowAnonymous]
     [HttpGet("momo-callback")]
     public async Task<ActionResult<PaymentResultResponse>> MomoPaymentCallback(CancellationToken cancellationToken)
@@ -185,6 +193,7 @@ public sealed class PaymentsController : ControllerBase
 
     [AllowAnonymous]
     [HttpPost("payos-ipn")]
+    [HttpPost("payos-webhook")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> PayOsPaymentIpn(

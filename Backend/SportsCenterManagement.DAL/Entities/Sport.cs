@@ -18,6 +18,10 @@ public class Sport : Common.BaseEntity
     [Column("description")]
     public string? Description { get; set; }
 
+    [MaxLength(2048)]
+    [Column("image_url")]
+    public string? ImageUrl { get; set; }
+
     [MaxLength(30)]
     [Column("status")]
     public string Status { get; set; } = null!;

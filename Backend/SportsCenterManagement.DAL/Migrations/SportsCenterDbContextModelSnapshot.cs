@@ -1817,6 +1817,11 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("datetime2")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)")
+                        .HasColumnName("image_url");
+
                     b.Property<string>("LocationDescription")
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)")
@@ -1916,6 +1921,11 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)")
                         .HasColumnName("description");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)")
+                        .HasColumnName("image_url");
 
                     b.Property<string>("Name")
                         .IsRequired()

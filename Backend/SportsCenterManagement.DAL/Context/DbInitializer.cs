@@ -142,6 +142,8 @@ public static class DbInitializer
         }
         await context.SaveChangesAsync();
 
+        await EnsureManagerMemberStaffAuditPermissionsAsync(context);
+
         if (!seedDemoData)
         {
             await EnsureAuthAndReceptionPermissionsAsync(context);
@@ -687,6 +689,54 @@ public static class DbInitializer
             SettingKey = seedMarker,
             SettingValue = "applied",
             Description = "One-time backfill for member sign-in profile access and receptionist member search."
+        });
+        await context.SaveChangesAsync();
+    }
+
+    private static async Task EnsureManagerMemberStaffAuditPermissionsAsync(SportsCenterDbContext context)
+    {
+        const string seedMarker = "seed.rbac.manager-member-staff-audit.v2";
+        if (await context.SystemSettings.AnyAsync(setting => setting.SettingKey == seedMarker)) return;
+
+        var managerRole = await context.Roles.SingleOrDefaultAsync(role => role.Name == RoleNames.Manager)
+            ?? throw new InvalidOperationException("Role Manager chÆ°a Ä‘Æ°á»£c khá»Ÿi táº¡o.");
+        var grantSpecs = new (string Code, string Name, string Description, string Module)[]
+        {
+            (PermissionCodes.MemberCenterRead, "View center members", "Search and view members assigned to a center.", "MEMBERS"),
+            (PermissionCodes.MemberCenterCreate, "Create center members", "Register members at a center.", "MEMBERS"),
+            (PermissionCodes.MemberCenterUpdate, "Update center members", "Update member profile details at a center.", "MEMBERS"),
+            (PermissionCodes.MemberCenterManageStatus, "Manage member status", "Activate or disable a member account.", "MEMBERS"),
+            (PermissionCodes.StaffCenterRead, "View center staff", "View staff accounts assigned to a center.", "STAFF"),
+            (PermissionCodes.StaffCenterCreate, "Create center staff", "Create staff accounts at a center.", "STAFF"),
+            (PermissionCodes.StaffCenterUpdate, "Update center staff", "Update staff profiles and statuses.", "STAFF"),
+            (PermissionCodes.SubscriptionRead, "View subscriptions", "View own or authorized center subscription history.", "SUBSCRIPTIONS"),
+            (PermissionCodes.AuditCenterRead, "View center audit history", "View operational audit events for an assigned center.", "AUDIT")
+        };
+
+        foreach (var spec in grantSpecs)
+        {
+            var permission = await context.Permissions.SingleOrDefaultAsync(item => item.Code == spec.Code);
+            if (permission is null)
+            {
+                permission = new Permission { Code = spec.Code, Name = spec.Name,
+                    Description = spec.Description, Module = spec.Module };
+                context.Permissions.Add(permission);
+                await context.SaveChangesAsync();
+            }
+
+            if (!await context.RolePermissions.AnyAsync(link =>
+                    link.RoleId == managerRole.Id && link.PermissionId == permission.Id))
+            {
+                context.RolePermissions.Add(new RolePermission
+                    { RoleId = managerRole.Id, PermissionId = permission.Id });
+            }
+        }
+
+        context.SystemSettings.Add(new SystemSetting
+        {
+            SettingKey = seedMarker,
+            SettingValue = "applied",
+            Description = "One-time backfill for manager member, staff, and audit access."
         });
         await context.SaveChangesAsync();
     }

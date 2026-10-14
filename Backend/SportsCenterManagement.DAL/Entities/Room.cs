@@ -26,6 +26,10 @@ public class Room : Common.BaseEntity
     [Column("location_description")]
     public string? LocationDescription { get; set; }
 
+    [MaxLength(2048)]
+    [Column("image_url")]
+    public string? ImageUrl { get; set; }
+
     [MaxLength(30)]
     [Column("status")]
     public string Status { get; set; } = null!;

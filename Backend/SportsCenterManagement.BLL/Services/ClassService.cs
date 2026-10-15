@@ -27,7 +27,8 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
                 item.Description,
                 item.Level,
                 item.Capacity,
-                item.DurationMinutes))
+                item.DurationMinutes,
+                item.ImageUrl))
             .ToListAsync(cancellationToken);
     }
 

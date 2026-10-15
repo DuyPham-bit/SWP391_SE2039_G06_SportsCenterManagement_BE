@@ -36,6 +36,21 @@ public sealed class ReportsController(IReportService reportService) : Controller
         return Ok(report);
     }
 
+    [HttpGet("analytics")]
+    [ProducesResponseType(typeof(RevenueAnalyticsReportResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<RevenueAnalyticsReportResponse>> GetRevenueAnalytics(
+        [FromQuery] DateOnly from,
+        [FromQuery] DateOnly to,
+        [FromQuery] string groupBy = "day",
+        [FromQuery] long? centerId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCenterScope(centerId, out var scopedCenterId)) return CenterScopeFailure();
+
+        return Ok(await reportService.GetRevenueAnalyticsAsync(
+            scopedCenterId, from, to, groupBy, cancellationToken));
+    }
+
     [HttpGet("membership")]
     [ProducesResponseType(typeof(MembershipReportResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MembershipReportResponse>> GetMembership(

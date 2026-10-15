@@ -27,4 +27,11 @@ public interface IReportService
         DateOnly to,
         string groupBy,
         CancellationToken cancellationToken = default);
+
+    Task<RevenueAnalyticsReportResponse> GetRevenueAnalyticsAsync(
+        long centerId,
+        DateOnly from,
+        DateOnly to,
+        string groupBy,
+        CancellationToken cancellationToken = default);
 }

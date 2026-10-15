@@ -138,6 +138,16 @@ public sealed class MembershipPackagesController(
         }
     }
 
+    [HttpDelete("{packageId:long}")]
+    [Authorize(Roles = "MANAGER,ADMIN")]
+    public async Task<IActionResult> Delete(long centerId, long packageId, CancellationToken cancellationToken)
+    {
+        await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
+        await packageService.SetPackageStatusAsync(
+            CenterScope.GetUserId(User), centerId, packageId, "Inactive", cancellationToken);
+        return NoContent();
+    }
+
     [HttpPatch("/api/membership-packages/{packageId:long}")]
     [RequirePermission(PermissionCodes.MembershipPackagesManage)]
     public async Task<IActionResult> UpdateFromDirectRoute(

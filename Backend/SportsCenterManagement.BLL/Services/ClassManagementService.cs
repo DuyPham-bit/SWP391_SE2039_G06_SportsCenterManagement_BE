@@ -24,6 +24,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
     public async Task<ClassDetailResponse> CreateClassAsync(long actorUserId, CreateClassRequest request, CancellationToken cancellationToken = default)
     {
         ValidateClassInput(request.Name, request.Capacity, request.DurationMinutes);
+        ValidateImageUrl(request.ImageUrl);
         await using var transaction = await Db.Database.BeginTransactionAsync(
             System.Data.IsolationLevel.Serializable, cancellationToken);
 
@@ -40,6 +41,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
             RoomId = request.RoomId,
             Name = request.Name.Trim(),
             Description = request.Description?.Trim(),
+            ImageUrl = NormalizeImageUrl(request.ImageUrl),
             Level = request.Level?.Trim(),
             Capacity = request.Capacity,
             AllowWaitlist = request.AllowWaitlist,
@@ -116,6 +118,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
     public async Task<ClassDetailResponse> UpdateClassAsync(long actorUserId, long classId, UpdateClassRequest request, CancellationToken cancellationToken = default)
     {
         ValidateClassInput(request.Name, request.Capacity, request.DurationMinutes);
+        ValidateImageUrl(request.ImageUrl);
 
         await using var transaction = await Db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
         var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
@@ -126,7 +129,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         var oldValues = new
         {
             entity.Name, entity.SportId, entity.RoomId, entity.Capacity,
-            entity.AllowWaitlist, entity.DurationMinutes, entity.Status
+            entity.AllowWaitlist, entity.DurationMinutes, entity.ImageUrl, entity.Status
         };
 
         await EnsureSportAndRoomAsync(entity.CenterId, request.SportId, request.RoomId, request.Capacity, cancellationToken);
@@ -201,6 +204,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         entity.RoomId = request.RoomId;
         entity.Name = request.Name.Trim();
         entity.Description = request.Description?.Trim();
+        entity.ImageUrl = NormalizeImageUrl(request.ImageUrl);
         entity.Level = request.Level?.Trim();
         entity.Capacity = request.Capacity;
         entity.AllowWaitlist = request.AllowWaitlist;
@@ -230,7 +234,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
             oldValues, new
             {
                 entity.Name, entity.SportId, entity.RoomId, entity.Capacity,
-                entity.AllowWaitlist, entity.DurationMinutes, entity.Status
+                entity.AllowWaitlist, entity.DurationMinutes, entity.ImageUrl, entity.Status
             });
         await unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -434,6 +438,17 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         if (durationMinutes <= 0) throw FlowException.BadRequest("Thời lượng phải lớn hơn 0 phút.");
     }
 
+    private static void ValidateImageUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+        var normalized = value.Trim();
+        if (normalized.Length > 2048 || !Uri.TryCreate(normalized, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            throw FlowException.BadRequest("URL ảnh lớp học không hợp lệ.");
+    }
+
+    private static string? NormalizeImageUrl(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     private static void ValidateScheduleInput(int dayOfWeek, TimeOnly start, TimeOnly end, DateOnly startDate, DateOnly endDate)
     {
         if (dayOfWeek is < 0 or > 6) throw FlowException.BadRequest("Thứ trong tuần phải từ 0 (Chủ nhật) đến 6 (Thứ bảy).");
@@ -631,7 +646,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
 
     private static ClassDetailResponse ToResponse(ClassEntity c) => new(
         c.Id, c.CenterId, c.SportId, c.RoomId, c.Name, c.Description, c.Level,
-        c.Capacity, c.DurationMinutes, c.Status, c.AllowWaitlist);
+        c.Capacity, c.DurationMinutes, c.Status, c.AllowWaitlist, c.ImageUrl);
 
     private static ClassScheduleResponse ToResponse(ClassSchedule s, int generated) => new(
         s.Id, s.ClassId, s.RoomId, s.DayOfWeek, s.StartTime, s.EndTime, s.StartDate, s.EndDate, s.Status, generated);

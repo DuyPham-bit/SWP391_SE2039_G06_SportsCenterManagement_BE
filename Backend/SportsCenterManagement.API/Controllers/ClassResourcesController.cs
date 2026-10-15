@@ -25,14 +25,33 @@ public sealed class ClassResourcesController(SportsCenterDbContext db, IWebHostE
                 || (s.CenterId == null && !db.Sports.Any(local => local.CenterId == centerId && local.Name == s.Name)))
                 && s.Status == "Active")
             .OrderBy(s => s.Name)
-            .Select(s => new { s.Name, s.ImageUrl })
+            .Select(s => new { s.Id, s.Name, s.Description, s.ImageUrl })
             .ToListAsync(ct);
         var rooms = await db.Rooms.Where(room => room.CenterId == centerId && room.Status == "Active")
             .OrderBy(room => room.Name)
-            .Select(room => new { room.Name, Type = room.RoomType, room.ImageUrl })
+            .Select(room => new { room.Id, room.Name, Type = room.RoomType, room.Capacity,
+                Location = room.LocationDescription, room.ImageUrl })
             .ToListAsync(ct);
 
-        return Ok(new { sports, rooms });
+        var classes = await (from cls in db.Classes
+            join sport in db.Sports on cls.SportId equals sport.Id
+            where cls.CenterId == centerId && cls.Status == "Published" && sport.Status == "Active"
+            orderby cls.Name
+            select new { cls.Id, cls.Name, cls.Description, cls.Level, cls.DurationMinutes,
+                SportName = sport.Name, cls.ImageUrl }).ToListAsync(ct);
+        var coaches = await (from coach in db.CoachProfiles
+            join user in db.Users on coach.UserId equals user.Id
+            where coach.CenterId == centerId && coach.Status == "Active" && user.Status == "Active"
+            orderby coach.FullName
+            select new { coach.Id, coach.FullName, coach.Specialization, coach.Certification, coach.Bio, coach.ImageUrl })
+            .ToListAsync(ct);
+        var packages = await db.MembershipPackages.Where(package => package.CenterId == centerId && package.Status == "Active")
+            .OrderBy(package => package.Price)
+            .Select(package => new { package.Id, package.Name, package.Description, package.DurationDays,
+                package.Price, package.MaxClasses, package.AccessType, package.AllowedSports, package.Badge })
+            .ToListAsync(ct);
+
+        return Ok(new { sports, rooms, classes, coaches, packages });
     }
 
     [HttpPost("centers/{centerId:long}/resources/images")]
@@ -120,7 +139,7 @@ public sealed class ClassResourcesController(SportsCenterDbContext db, IWebHostE
             where cls.CenterId == centerId
             orderby cls.Name
             select new { cls.Id, cls.SportId, SportName = sport.Name, cls.RoomId, cls.Name,
-                cls.Description, cls.Level, cls.Capacity, cls.DurationMinutes, cls.Status, cls.AllowWaitlist,
+                cls.Description, cls.Level, cls.Capacity, cls.DurationMinutes, cls.Status, cls.AllowWaitlist, cls.ImageUrl,
                 EnrolledCount = db.ClassEnrollments.Count(e => e.ClassId == cls.Id && e.Status == "Confirmed"),
                 RoomName = db.Rooms.Where(r => r.Id == cls.RoomId).Select(r => r.Name).FirstOrDefault(),
                 CoachId = db.ClassCoaches.Where(c => c.ClassId == cls.Id && c.IsPrimary).Select(c => (long?)c.CoachId).FirstOrDefault(),
@@ -146,7 +165,7 @@ public sealed class ClassResourcesController(SportsCenterDbContext db, IWebHostE
         return Ok(await (from coach in db.CoachProfiles join user in db.Users on coach.UserId equals user.Id
             where coach.CenterId == centerId && coach.Status == "Active" && user.Status == "Active"
             orderby coach.FullName
-            select new { coach.Id, coach.UserId, coach.FullName, coach.Specialization, coach.Certification }).ToListAsync(ct));
+            select new { coach.Id, coach.UserId, coach.FullName, coach.Specialization, coach.Certification, coach.ImageUrl }).ToListAsync(ct));
     }
 
     [HttpGet("centers/{centerId:long}/sports/all")]
@@ -417,7 +436,9 @@ public sealed class ClassResourcesController(SportsCenterDbContext db, IWebHostE
         var path = Uri.UnescapeDataString(uri.AbsolutePath);
         if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return;
         if (await db.Sports.AnyAsync(item => item.ImageUrl == imageUrl, ct)
-            || await db.Rooms.AnyAsync(item => item.ImageUrl == imageUrl, ct)) return;
+            || await db.Rooms.AnyAsync(item => item.ImageUrl == imageUrl, ct)
+            || await db.Classes.AnyAsync(item => item.ImageUrl == imageUrl, ct)
+            || await db.CoachProfiles.AnyAsync(item => item.ImageUrl == imageUrl, ct)) return;
 
         var fileName = Path.GetFileName(path[prefix.Length..]);
         if (string.IsNullOrWhiteSpace(fileName)

@@ -59,6 +59,7 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                 x.session.Id,
                 ClassId = x.cls.Id,
                 ClassName = x.cls.Name,
+                x.cls.ImageUrl,
                 x.cls.SportId,
                 SportName = x.sport.Name,
                 RoomId = x.session.RoomId ?? x.cls.RoomId,
@@ -113,7 +114,8 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                     && p.SessionDate.ToDateTime(p.StartTime) - now >= TimeSpan.FromMinutes(30)
                     && p.SessionDate.ToDateTime(p.StartTime) - now <= TimeSpan.FromDays(7)
                     && (available > 0 || p.AllowWaitlist),
-                AllowWaitlist: p.AllowWaitlist);
+                AllowWaitlist: p.AllowWaitlist,
+                ImageUrl: p.ImageUrl);
         }).ToList();
 
         return new PagedResult<SessionScheduleItemResponse>(items, query.Page, query.PageSize, total);

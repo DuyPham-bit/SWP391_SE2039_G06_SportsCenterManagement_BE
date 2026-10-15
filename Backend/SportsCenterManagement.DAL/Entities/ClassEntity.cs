@@ -25,6 +25,10 @@ public class ClassEntity : Common.BaseEntity
     [Column("description")]
     public string? Description { get; set; }
 
+    [MaxLength(2048)]
+    [Column("image_url")]
+    public string? ImageUrl { get; set; }
+
     [MaxLength(50)]
     [Column("level")]
     public string? Level { get; set; }

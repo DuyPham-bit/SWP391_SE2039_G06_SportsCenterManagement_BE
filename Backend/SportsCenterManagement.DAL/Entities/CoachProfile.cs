@@ -36,6 +36,10 @@ public class CoachProfile : Common.BaseEntity
     [Column("bio")]
     public string? Bio { get; set; }
 
+    [MaxLength(2048)]
+    [Column("image_url")]
+    public string? ImageUrl { get; set; }
+
     [Column("hire_date")]
     public DateOnly? HireDate { get; set; }
 

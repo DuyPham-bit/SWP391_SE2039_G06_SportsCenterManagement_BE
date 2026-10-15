@@ -19,7 +19,8 @@ namespace SportsCenterManagement.BLL.DTOs.Classes
         string? Level,
         int Capacity,
         int DurationMinutes,
-        bool AllowWaitlist = true);
+        bool AllowWaitlist = true,
+        string? ImageUrl = null);
 
     public sealed record CreateClassScheduleRequest(
         long? RoomId,
@@ -37,7 +38,8 @@ namespace SportsCenterManagement.BLL.DTOs.Classes
         string? Level,
         int Capacity,
         int DurationMinutes,
-        bool AllowWaitlist = true);
+        bool AllowWaitlist = true,
+        string? ImageUrl = null);
 
     public sealed record UpdateClassScheduleRequest(
         long? RoomId,

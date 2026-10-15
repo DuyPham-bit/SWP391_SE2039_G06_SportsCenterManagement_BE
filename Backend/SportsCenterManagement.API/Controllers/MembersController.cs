@@ -81,6 +81,20 @@ public sealed class MembersController(IMemberService memberService, ICoreFlowSer
             GetUserId(), centerId, memberId, request.Status, cancellationToken)));
     }
 
+    [HttpDelete("centers/{centerId:long}/members/{memberId:long}")]
+    [RequirePermission(PermissionCodes.MemberCenterManageStatus)]
+    public async Task<IActionResult> DeleteAtCenter(
+        long centerId,
+        long memberId,
+        CancellationToken cancellationToken)
+    {
+        return await Run(async () =>
+        {
+            await memberService.SetMemberStatusAsync(GetUserId(), centerId, memberId, "Disabled", cancellationToken);
+            return NoContent();
+        });
+    }
+
     [HttpPost("members/me/subscriptions")]
     [RequirePermission(PermissionCodes.SubscriptionSelfCreate)]
     public async Task<IActionResult> CreateMySubscription(MembersRequests.CreateSubscriptionRequest request, CancellationToken cancellationToken)

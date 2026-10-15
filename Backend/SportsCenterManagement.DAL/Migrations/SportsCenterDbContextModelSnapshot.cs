@@ -616,6 +616,11 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("int")
                         .HasColumnName("duration_minutes");
 
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)")
+                        .HasColumnName("image_url");
+
                     b.Property<string>("Level")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)")
@@ -903,6 +908,11 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.Property<DateOnly?>("HireDate")
                         .HasColumnType("date")
                         .HasColumnName("hire_date");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)")
+                        .HasColumnName("image_url");
 
                     b.Property<string>("Specialization")
                         .HasMaxLength(255)

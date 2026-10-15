@@ -11,7 +11,8 @@ public static class Responses
         string? Description,
         string? Level,
         int Capacity,
-        int DurationMinutes);
+        int DurationMinutes,
+        string? ImageUrl = null);
 }
 }
 
@@ -54,7 +55,8 @@ public sealed record ClassDetailResponse(
     int Capacity,
     int DurationMinutes,
     string Status,
-    bool AllowWaitlist = true);
+    bool AllowWaitlist = true,
+    string? ImageUrl = null);
 
 /// <summary>Result of "deleting" a class: classes are never hard-deleted, only set to Cancelled.</summary>
 public sealed record CancelClassResult(
@@ -98,7 +100,8 @@ public sealed record SessionScheduleItemResponse(
     int BookedCount,
     int AvailableSeats,
     bool IsBookable,
-    bool AllowWaitlist = true);
+    bool AllowWaitlist = true,
+    string? ImageUrl = null);
 
 public sealed record TeachingScheduleItemResponse(
     long SessionId,
@@ -160,7 +163,8 @@ public sealed record ClassCatalogResponse(
     string? Description,
     string? Level,
     int Capacity,
-    int DurationMinutes);
+    int DurationMinutes,
+    string? ImageUrl = null);
 }
 
 namespace SportsCenterManagement.BLL.DTOs.Classes

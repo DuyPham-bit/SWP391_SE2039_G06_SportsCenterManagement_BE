@@ -133,6 +133,7 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
                 Certification = Normalize(request.Certification),
                 ExperienceYears = request.ExperienceYears,
                 Bio = Normalize(request.Bio),
+                ImageUrl = NormalizeImageUrl(request.ImageUrl),
                 HireDate = request.HireDate,
                 Status = "Active",
                 CreatedAt = now
@@ -180,7 +181,8 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
             coach = new CoachProfile { UserId = user.Id, CenterId = centerId, CoachCode = MakeCode("CO"),
                 FullName = member.FullName, Specialization = Normalize(request.Specialization),
                 Certification = Normalize(request.Certification), ExperienceYears = request.ExperienceYears,
-                Bio = Normalize(request.Bio), HireDate = request.HireDate, Status = "Active", CreatedAt = now };
+                Bio = Normalize(request.Bio), ImageUrl = NormalizeImageUrl(request.ImageUrl),
+                HireDate = request.HireDate, Status = "Active", CreatedAt = now };
             unitOfWork.Context.CoachProfiles.Add(coach);
         }
         AuditLogWriter.Add(unitOfWork, actorUserId, centerId, "staff.appointed", "User", user.Id,
@@ -305,6 +307,7 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
             coach.Certification = Normalize(request.Certification);
             coach.ExperienceYears = request.ExperienceYears;
             coach.Bio = Normalize(request.Bio);
+            coach.ImageUrl = NormalizeImageUrl(request.ImageUrl);
             coach.HireDate = request.HireDate;
             coach.Status = role.Name == RoleNames.Coach ? staff.Status : "Inactive";
             coach.UpdatedAt = now;
@@ -364,8 +367,17 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
     private static StaffResponses.CenterStaffResponse Map(StaffProfile staff, User user, string roleName, CoachProfile? coach) =>
         new(user.Id, staff.CenterId, staff.StaffCode, coach?.CoachCode, user.Username, user.Email, user.Phone,
             roleName, staff.FullName, user.Status, staff.HireDate, coach?.Specialization,
-            coach?.Certification, coach?.ExperienceYears, coach?.Bio);
+            coach?.Certification, coach?.ExperienceYears, coach?.Bio, coach?.ImageUrl);
 
     private static string MakeCode(string prefix) => $"{prefix}{Guid.NewGuid():N}"[..12].ToUpperInvariant();
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static string? NormalizeImageUrl(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var normalized = value.Trim();
+        if (normalized.Length > 2048 || !Uri.TryCreate(normalized, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            throw new ValidationException("URL ảnh huấn luyện viên không hợp lệ.");
+        return normalized;
+    }
 }

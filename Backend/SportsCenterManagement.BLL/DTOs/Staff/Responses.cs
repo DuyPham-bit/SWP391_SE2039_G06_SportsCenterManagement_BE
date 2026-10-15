@@ -17,5 +17,6 @@ public static class Responses
         string? Specialization,
         string? Certification,
         int? ExperienceYears,
-        string? Bio);
+        string? Bio,
+        string? ImageUrl);
 }

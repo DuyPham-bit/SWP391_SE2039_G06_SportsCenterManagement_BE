@@ -38,6 +38,8 @@ public sealed class PermissionAuthorizationHandler(IUnitOfWork unitOfWork)
             var centerId = await CenterRolePolicy.CenterForUser(unitOfWork.Context, userId, CancellationToken.None);
             var policy = centerId.HasValue ? await CenterRolePolicy.Read(unitOfWork.Context, centerId.Value, user.RoleId, CancellationToken.None) : null;
             if (policy is not null && !policy.PermissionCodes.Contains(requirement.PermissionCode)) return;
+            var userPolicy = centerId.HasValue ? await CenterRolePolicy.ReadUser(unitOfWork.Context, centerId.Value, userId, CancellationToken.None) : null;
+            if (userPolicy is not null && !userPolicy.PermissionCodes.Contains(requirement.PermissionCode)) return;
             context.Succeed(requirement);
         }
     }

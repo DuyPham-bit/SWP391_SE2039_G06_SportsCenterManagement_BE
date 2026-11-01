@@ -2,12 +2,12 @@
   "profiles": {
     "SportsCenterManagement.API": {
       "commandName": "Project",
-      "launchBrowser": true,
+      "launchBrowser": false,
       "launchUrl": "swagger",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "applicationUrl": "http://localhost:54162"
+      "applicationUrl": "http://localhost:5000"
     }
   }
 }

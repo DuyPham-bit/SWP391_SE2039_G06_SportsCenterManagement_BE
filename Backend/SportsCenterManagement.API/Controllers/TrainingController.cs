@@ -3,11 +3,12 @@ using Microsoft.AspNetCore.Mvc;
 using SportsCenterManagement.API.Authorization;
 using SportsCenterManagement.BLL.DTOs.Training;
 using SportsCenterManagement.BLL.Services;
+using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace SportsCenterManagement.API.Controllers;
 
 [Authorize]
-public sealed class TrainingController(TrainingService training) : FlowControllerBase
+public sealed class TrainingController(TrainingService training) : FlowControllerBase, IAsyncActionFilter
 {
     [HttpGet("coaches/me/classes")]
     [Authorize(Roles = "COACH,MANAGER")]
@@ -68,4 +69,23 @@ public sealed class TrainingController(TrainingService training) : FlowControlle
     [CenterCapability("view_teaching_schedule")]
     public async Task<IActionResult> Send(SendNotificationRequest request, CancellationToken ct)
     { await training.SendNotificationAsync(CurrentUserId, request, ct); return NoContent(); }
+
+    [NonAction]
+    public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
+    {
+        var executed = await next();
+        // Only tagged business failures are mapped here; unexpected errors remain available to the middleware.
+        if (executed.ExceptionHandled || executed.Exception is not InvalidOperationException exception ||
+            exception.Data["StatusCode"] is not int statusCode) return;
+
+        executed.Result = new ObjectResult(new
+        {
+            code = exception.Data["Code"] as string,
+            message = exception.Message,
+            detail = exception.Message,
+            proposedHandling = exception.Data["ProposedHandling"] as string,
+            isDraftPolicy = exception.Data["IsDraftPolicy"] is true
+        }) { StatusCode = statusCode };
+        executed.ExceptionHandled = true;
+    }
 }

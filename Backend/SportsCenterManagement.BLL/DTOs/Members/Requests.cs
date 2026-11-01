@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace SportsCenterManagement.BLL.DTOs.Members
 {
@@ -9,6 +10,14 @@ namespace SportsCenterManagement.BLL.DTOs.Members
         public sealed record UpdateMemberProfileRequest(
             [param: Required, StringLength(150, MinimumLength = 1)] string FullName,
             [param: EmailAddress, StringLength(150)] string? Email,
+            [param: StringLength(20)] string? Phone,
+            DateOnly? DateOfBirth,
+            [param: StringLength(20)] string? Gender,
+            [param: StringLength(255)] string? Address);
+
+        [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+        public sealed record UpdateMemberAtCenterRequest(
+            [param: Required, StringLength(150, MinimumLength = 1)] string FullName,
             [param: StringLength(20)] string? Phone,
             DateOnly? DateOfBirth,
             [param: StringLength(20)] string? Gender,

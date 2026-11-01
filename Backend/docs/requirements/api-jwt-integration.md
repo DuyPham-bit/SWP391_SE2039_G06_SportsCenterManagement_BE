@@ -52,11 +52,11 @@ Tất cả đường dẫn dưới đây có tiền tố `/api`. Ngoại trừ `
 |---|---|---|
 | FE production build | `npm.cmd run build` trong `Frontend` | Pass; Vite cảnh báo bundle >500 kB và CJS API deprecated |
 | FE regression | `npm.cmd test` trong `Frontend` | 23/23 pass |
-| BE build | `dotnet build Backend/Backend/SportsCenterManagement.API/SportsCenterManagement.API.csproj --no-restore -o .validation/jwt-api` | Pass, 0 warning / 0 error |
+| BE build | `dotnet build Backend/SportsCenterManagement.API/SportsCenterManagement.API.csproj --no-restore -o .validation/jwt-api` | Pass, 0 warning / 0 error |
 | GeminiService với Gemini thật | Sau khi build BE Release vào `.validation/jwt-api`, chạy `dotnet run --project .validation/gemini-live-smoke/GeminiLiveSmoke.csproj --configuration Release --no-restore` | Pass: model 3.5 Flash-Lite, chat có nội dung, JSON giáo án có đủ trường và 2 bài tập; key đọc từ User Secrets, không ghi database |
-| Flow 2 regression | `dotnet run --project Backend/Backend/tests/Flow2.Regression/Flow2.Regression.csproj --no-restore --configuration Release` | 10 validation + 4 capability checks pass |
-| JWT, migration, SQL Server, HTTP và browser | `dotnet run --project Backend/Backend/tests/ApiIntegration.Regression/ApiIntegration.Regression.csproj --configuration Release --no-restore -- --sql --browser` | 64 checks pass; bao gồm 1 kiểm tra tổng hợp với 12 kịch bản Chrome |
-| Model/migration | `dotnet ef migrations has-pending-model-changes --project SportsCenterManagement.DAL --startup-project SportsCenterManagement.API --configuration Release --no-build` trong `Backend/Backend` | Không còn thay đổi model chưa có migration |
+| Flow 2 regression | `dotnet run --project Backend/tests/Flow2.Regression/Flow2.Regression.csproj --no-restore --configuration Release` | 10 validation + 4 capability checks pass |
+| JWT, migration, SQL Server, HTTP và browser | `dotnet run --project Backend/tests/ApiIntegration.Regression/ApiIntegration.Regression.csproj --configuration Release --no-restore -- --sql --browser` | 64 checks pass; bao gồm 1 kiểm tra tổng hợp với 12 kịch bản Chrome |
+| Model/migration | `dotnet ef migrations has-pending-model-changes --project SportsCenterManagement.DAL --startup-project SportsCenterManagement.API --configuration Release --no-build` trong `Backend` | Không còn thay đổi model chưa có migration |
 
 HTTP kiểm tra chữ ký/issuer/audience/expiry/algorithm, từ chối token cũ, tài khoản bị khóa sau đăng nhập, phạm vi HLV/hội viên, lưu/đọc dữ liệu, upsert giáo án, thông báo và quyền sở hữu, CORS, Swagger, Google/AI thiếu cấu hình. Fixture HLV có cả StaffProfile để kiểm tra không vô tình nhận quyền xem của Manager.
 

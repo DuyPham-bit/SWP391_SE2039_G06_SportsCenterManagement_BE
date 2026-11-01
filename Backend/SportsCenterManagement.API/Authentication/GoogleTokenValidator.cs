@@ -2,7 +2,6 @@ using System.IdentityModel.Tokens.Jwt;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
-using SportsCenterManagement.BLL.Exceptions;
 
 namespace SportsCenterManagement.API.Authentication;
 
@@ -17,7 +16,7 @@ public sealed class GoogleTokenValidator(IConfiguration configuration)
     {
         var clientId = configuration["Google:ClientId"];
         if (string.IsNullOrWhiteSpace(clientId))
-            throw new FlowException(503, "Đăng nhập Google chưa được cấu hình. Cần Google OAuth Web Client ID.");
+            throw new InvalidOperationException("Đăng nhập Google chưa được cấu hình. Cần Google OAuth Web Client ID.") { Data = { ["StatusCode"] = 503 } };
         try
         {
             var metadata = await _metadata.GetConfigurationAsync(ct);
@@ -41,11 +40,11 @@ public sealed class GoogleTokenValidator(IConfiguration configuration)
         catch (SecurityTokenSignatureKeyNotFoundException)
         {
             _metadata.RequestRefresh();
-            throw new FlowException(401, "Không xác minh được tài khoản Google. Vui lòng thử đăng nhập lại.");
+            throw new InvalidOperationException("Không xác minh được tài khoản Google. Vui lòng thử đăng nhập lại.") { Data = { ["StatusCode"] = 401 } };
         }
         catch (Exception ex) when (ex is SecurityTokenException or ArgumentException)
-        { throw new FlowException(401, "ID token Google không hợp lệ hoặc đã hết hạn."); }
+        { throw new InvalidOperationException("ID token Google không hợp lệ hoặc đã hết hạn.") { Data = { ["StatusCode"] = 401 } }; }
         catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException || ex is OperationCanceledException && !ct.IsCancellationRequested)
-        { throw new FlowException(503, "Không kết nối được dịch vụ xác minh Google. Vui lòng thử lại."); }
+        { throw new InvalidOperationException("Không kết nối được dịch vụ xác minh Google. Vui lòng thử lại.") { Data = { ["StatusCode"] = 503 } }; }
     }
 }

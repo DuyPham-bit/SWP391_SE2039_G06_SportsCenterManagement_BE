@@ -26,7 +26,7 @@ public sealed class AuditLogsController(IAuditLogService auditLogService) : Cont
     }
 
     [HttpGet("/api/admin/audit-logs")]
-    [Authorize(Roles = RoleNames.SystemAdmin)]
+    [Authorize(Roles = RoleNames.Admin)]
     [ProducesResponseType(typeof(AuditResponses.AuditLogPageResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetSystemLogs(
         [FromQuery] long? centerId,

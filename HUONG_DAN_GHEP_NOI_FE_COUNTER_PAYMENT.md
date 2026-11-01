@@ -1,6 +1,6 @@
 # Tích hợp thanh toán tại quầy
 
-Tài liệu này mô tả hợp đồng hiện tại của backend .NET 10. Thanh toán tại quầy hỗ trợ `CASH` và `POS`; checkout tại quầy không nhận `VIETQR`, `MOMO` hoặc `VNPAY` trong endpoint này.
+Tài liệu này mô tả hợp đồng hiện tại của backend .NET 10. Thu trực tiếp qua `counter-checkout` vẫn hỗ trợ `CASH` và `POS`; màn hình đăng ký gói tại quầy dùng `CASH` hoặc endpoint VNPay riêng.
 
 ## Endpoint
 
@@ -8,6 +8,7 @@ Tài liệu này mô tả hợp đồng hiện tại của backend .NET 10. Than
 |---|---|---|
 | Đăng nhập | `POST /api/auth/login` | Public |
 | Tạo hóa đơn và thu tại quầy | `POST /api/payments/counter-checkout` | Receptionist, Manager, Admin |
+| Tạo URL VNPay cho hội viên được chọn | `POST /api/payments/counter-vnpay-url` | Receptionist, Manager, Admin |
 | Thu tiếp số dư hóa đơn | `POST /api/invoices/{invoiceNumber}/payments` | Receptionist, Manager, Admin |
 | Xem hóa đơn/biên nhận | `GET /api/invoices/{invoiceNumber}` | Hội viên sở hữu, nhân sự cùng center, Admin |
 | Void hóa đơn chưa thu tiền | `POST /api/payments/counter-void/{invoiceNumber}` | Manager, Admin |
@@ -34,7 +35,7 @@ Content-Type: application/json
 }
 ```
 
-`paymentMethod` chỉ nhận `CASH` hoặc `POS`. `amountReceived` là số tiền khách đưa. CASH được thu một phần hoặc thừa tiền; backend chỉ ghi số tiền đến hạn, tính tiền thối và chỉ kích hoạt subscription khi hóa đơn đã được trả đủ. POS cần mã chuẩn chi và phải thu đúng toàn bộ giá gói. Giá và thời hạn luôn lấy từ database.
+`paymentMethod` chỉ nhận `CASH` hoặc `POS`. `amountReceived` là số tiền khách đưa. CASH được thu một phần hoặc thừa tiền; backend chỉ ghi số tiền đến hạn, tính tiền thối và chỉ kích hoạt subscription khi hóa đơn đã được trả đủ. POS cần mã chuẩn chi và phải thu đúng toàn bộ giá gói. Giá và thời hạn luôn lấy từ database. Để mở VNPay cho hội viên được chọn, gửi `memberId`, `packageId` và `cancelPendingIfAny` tới `POST /api/payments/counter-vnpay-url` cùng `Idempotency-Key`; backend chỉ cho phép hội viên/gói thuộc trung tâm của nhân viên.
 
 Phản hồi thành công gồm `invoiceNumber`, `invoiceStatus`, `amount`, `amountReceived`, `amountPaid`, `outstandingBalance`, `changeDue`, thông tin hội viên và gói. Có thể dùng `invoiceNumber` để gọi GET hóa đơn và in/xuất lại biên nhận.
 
@@ -68,4 +69,4 @@ Nếu client timeout sau khi gửi lệnh thu, gửi lại đúng `Idempotency-K
 
 ## Cổng thanh toán trực tuyến
 
-Member dùng riêng `POST /api/payments/create-vnpay-url` hoặc `POST /api/payments/create-momo-url` với JWT role `Member` và `Idempotency-Key`. Callback/IPN của cổng là endpoint public nhưng bắt buộc chữ ký hợp lệ, mã tham chiếu và số tiền phải khớp. Payment chưa rõ trạng thái được giữ `Pending`; Manager/Admin phải đối soát qua `/api/payments/{gatewayReference}/reconcile` trước khi có thể thử lại.
+Member dùng `POST /api/payments/create-vnpay-url` hoặc `POST /api/payments/create-momo-url`; nhân viên tại quầy dùng `POST /api/payments/counter-vnpay-url` cho hội viên đã chọn. Tất cả yêu cầu tạo link cần `Idempotency-Key`. Callback/IPN của cổng là endpoint public nhưng bắt buộc chữ ký hợp lệ, mã tham chiếu và số tiền phải khớp. Payment chưa rõ trạng thái được giữ `Pending`; Manager/Admin phải đối soát qua `/api/payments/{gatewayReference}/reconcile` trước khi có thể thử lại.

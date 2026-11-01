@@ -8,7 +8,7 @@ namespace SportsCenterManagement.API.Controllers;
 
 /// <summary>Endpoints for system roles and permissions management (UC-15).</summary>
 [ApiController]
-[Authorize(Roles = RoleNames.SystemAdmin)]
+[Authorize(Roles = RoleNames.Admin)]
 [Route("api")]
 public sealed class RolesController(IRolePermissionService rolePermissionService) : ControllerBase
 {

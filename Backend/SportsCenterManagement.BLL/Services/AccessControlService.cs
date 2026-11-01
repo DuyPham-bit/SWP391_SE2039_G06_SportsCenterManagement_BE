@@ -53,10 +53,10 @@ public sealed class AccessControlService(IUnitOfWork unitOfWork) : IAccessContro
             .Select(user => new { user.RoleId })
             .SingleOrDefaultAsync(cancellationToken)
             ?? throw new UnauthorizedAccessException("Tài khoản không có quyền quản lý ma trận role.");
-        var systemAdminRole = await unitOfWork.Context.Roles.AsNoTracking()
-            .SingleOrDefaultAsync(role => role.Name == RoleNames.SystemAdmin, cancellationToken)
-            ?? throw new InvalidOperationException("Role SystemAdmin chưa được khởi tạo.");
-        if (actor.RoleId != systemAdminRole.Id)
+        var adminRole = await unitOfWork.Context.Roles.AsNoTracking()
+            .SingleOrDefaultAsync(role => role.Name == RoleNames.Admin, cancellationToken)
+            ?? throw new InvalidOperationException("Role Admin chưa được khởi tạo.");
+        if (actor.RoleId != adminRole.Id)
         {
             throw new UnauthorizedAccessException("Chỉ System Admin được quản lý ma trận role.");
         }
@@ -91,14 +91,14 @@ public sealed class AccessControlService(IUnitOfWork unitOfWork) : IAccessContro
             .SingleOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException("Permission quản lý role chưa được khởi tạo.");
         if (selectedPermissions.Any(permission => permission.Id == rolePermissionManageId)
-            && roleId != systemAdminRole.Id)
+            && roleId != adminRole.Id)
         {
-            throw new InvalidOperationException("Chỉ role SystemAdmin mới được giữ quyền quản lý ma trận role.");
+            throw new InvalidOperationException("Chỉ role Admin mới được giữ quyền quản lý ma trận role.");
         }
-        if (roleId == systemAdminRole.Id
+        if (roleId == adminRole.Id
             && selectedPermissions.All(permission => permission.Id != rolePermissionManageId))
         {
-            throw new InvalidOperationException("Không thể gỡ quyền quản lý ma trận khỏi role SystemAdmin.");
+            throw new InvalidOperationException("Không thể gỡ quyền quản lý ma trận khỏi role Admin.");
         }
 
         var existing = await unitOfWork.Context.RolePermissions

@@ -15,6 +15,9 @@ public class PasswordResetToken : Common.BaseEntity
     [Column("token")]
     public string Token { get; set; } = null!;
 
+    [Column("failed_attempts")]
+    public int FailedAttempts { get; set; }
+
     [Column("expires_at")]
     public DateTime ExpiresAt { get; set; }
 

@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.DTOs.Classes;
-using SportsCenterManagement.BLL.Exceptions;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
@@ -16,6 +15,9 @@ namespace SportsCenterManagement.BLL.Services;
 public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManagementService
 {
     private const int MaxScheduleSpanDays = 366;
+    private const double MaxDailyTeachingHours = 8.0;
+    private static readonly TimeOnly CenterOpeningTime = new(5, 0);
+    private static readonly TimeOnly CenterClosingTime = new(22, 0);
 
     private SportsCenterDbContext Db => unitOfWork.Context;
 
@@ -29,7 +31,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
 
         var centerExists = await unitOfWork.Repository<Center>().AnyAsync(
             c => c.Id == request.CenterId && c.Status == "Active", cancellationToken);
-        if (!centerExists) throw FlowException.NotFound("Cơ sở không tồn tại hoặc đã ngừng hoạt động.");
+        if (!centerExists) throw new InvalidOperationException("Cơ sở không tồn tại hoặc đã ngừng hoạt động.") { Data = { ["StatusCode"] = 404 } };
 
         await EnsureSportAndRoomAsync(request.CenterId, request.SportId, request.RoomId, request.Capacity, cancellationToken);
 
@@ -61,21 +63,21 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         await using var transaction = await Db.Database.BeginTransactionAsync(
             System.Data.IsolationLevel.Serializable, cancellationToken);
         var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
-            ?? throw FlowException.NotFound("Lớp học không tồn tại.");
+            ?? throw new InvalidOperationException("Lớp học không tồn tại.") { Data = { ["StatusCode"] = 404 } };
         if (entity.Status == FlowStatuses.ClassPublished)
         {
             await transaction.CommitAsync(cancellationToken);
             return ToResponse(entity);
         }
         if (FlowStatuses.IsClosed(entity.Status))
-            throw FlowException.Conflict($"Không thể mở lớp ở trạng thái '{entity.Status}'.");
+            throw new InvalidOperationException($"Không thể mở lớp ở trạng thái '{entity.Status}'.") { Data = { ["StatusCode"] = 409 } };
         var previousStatus = entity.Status;
 
         var hasSchedule = await Db.ClassSchedules.AnyAsync(
             schedule => schedule.ClassId == classId && schedule.Status == FlowStatuses.ScheduleActive,
             cancellationToken);
         if (!hasSchedule)
-            throw FlowException.Conflict("Cần tạo ít nhất một lịch hoạt động trước khi mở lớp.");
+            throw new InvalidOperationException("Cần tạo ít nhất một lịch hoạt động trước khi mở lớp.") { Data = { ["StatusCode"] = 409 } };
 
         var hasActiveCoach = await (
             from assignment in Db.ClassCoaches
@@ -86,7 +88,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
                 && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
             select assignment.CoachId).AnyAsync(cancellationToken);
         if (!hasActiveCoach)
-            throw FlowException.Conflict("Cần phân công ít nhất một huấn luyện viên đang hoạt động trước khi mở lớp.");
+            throw new InvalidOperationException("Cần phân công ít nhất một huấn luyện viên đang hoạt động trước khi mở lớp.") { Data = { ["StatusCode"] = 409 } };
 
         var hasUpcomingSession = await Db.ClassSessions.AnyAsync(session =>
             session.ClassId == classId && session.SessionStatus == FlowStatuses.SessionScheduled
@@ -94,7 +96,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
                 || (session.SessionDate == ScheduleTime.VietnamToday && session.StartTime > TimeOnly.FromDateTime(ScheduleTime.VietnamNow))),
             cancellationToken);
         if (!hasUpcomingSession)
-            throw FlowException.Conflict("Lịch lớp chưa tạo buổi học sắp tới trong khoảng hiệu lực.");
+            throw new InvalidOperationException("Lịch lớp chưa tạo buổi học sắp tới trong khoảng hiệu lực.") { Data = { ["StatusCode"] = 409 } };
 
         entity.Status = FlowStatuses.ClassPublished;
         entity.UpdatedAt = DateTime.UtcNow;
@@ -109,7 +111,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
     public async Task<ClassDetailResponse> GetClassAsync(long classId, CancellationToken cancellationToken = default)
     {
         var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
-            ?? throw FlowException.NotFound("Lớp học không tồn tại.");
+            ?? throw new InvalidOperationException("Lớp học không tồn tại.") { Data = { ["StatusCode"] = 404 } };
         return ToResponse(entity);
     }
 
@@ -119,9 +121,9 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
 
         await using var transaction = await Db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
         var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
-            ?? throw FlowException.NotFound("Lớp học không tồn tại.");
+            ?? throw new InvalidOperationException("Lớp học không tồn tại.") { Data = { ["StatusCode"] = 404 } };
         if (FlowStatuses.IsClosed(entity.Status))
-            throw FlowException.Conflict($"Không thể cập nhật lớp học ở trạng thái '{entity.Status}'.");
+            throw new InvalidOperationException($"Không thể cập nhật lớp học ở trạng thái '{entity.Status}'.") { Data = { ["StatusCode"] = 409 } };
 
         var oldValues = new
         {
@@ -142,8 +144,8 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
                 select new
                 {
                     assignment.IsPrimary,
+                    CoachId = coach.Id,
                     coach.FullName,
-                    coach.Specialization,
                     CoachActive = coach.Status == "Active" && user.Status == "Active"
                         && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
                 }).ToListAsync(cancellationToken);
@@ -151,15 +153,15 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
             if (entity.Status == FlowStatuses.ClassPublished
                 && !assignedCoaches.Any(coach => coach.IsPrimary && coach.CoachActive))
             {
-                throw FlowException.Conflict("Không thể đổi bộ môn của lớp đang mở khi chưa có HLV chính đang hoạt động.");
+                throw new InvalidOperationException("Không thể đổi bộ môn của lớp đang mở khi chưa có HLV chính đang hoạt động.") { Data = { ["StatusCode"] = 409 } };
             }
+            var compatibleCoachIds = await Db.CoachSports.Where(item => item.SportId == request.SportId)
+                .Select(item => item.CoachId).ToListAsync(cancellationToken);
             var incompatibleCoach = assignedCoaches.FirstOrDefault(coach => coach.CoachActive
-                && (string.IsNullOrWhiteSpace(coach.Specialization)
-                    || !coach.Specialization.Contains(newSportName, StringComparison.OrdinalIgnoreCase)));
+                && !compatibleCoachIds.Contains(coach.CoachId));
             if (incompatibleCoach is not null)
             {
-                throw FlowException.Conflict(
-                    $"HLV {incompatibleCoach.FullName} chưa có chuyên môn phù hợp với bộ môn '{newSportName}'.");
+                throw new InvalidOperationException($"HLV {incompatibleCoach.FullName} chưa có chuyên môn phù hợp với bộ môn '{newSportName}'.") { Data = { ["StatusCode"] = 409 } };
             }
         }
 
@@ -179,23 +181,33 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
                 select g.Count()).ToListAsync(cancellationToken);
             var maxBooked = peak.Count == 0 ? 0 : peak.Max();
             if (request.Capacity < maxBooked)
-                throw FlowException.Conflict($"Sức chứa mới ({request.Capacity}) nhỏ hơn số chỗ đã đặt ({maxBooked}) của một buổi sắp tới.");
+                throw new InvalidOperationException($"Sức chứa mới ({request.Capacity}) nhỏ hơn số chỗ đã đặt ({maxBooked}) của một buổi sắp tới.") { Data = { ["StatusCode"] = 409 } };
         }
 
-        // BR-CLASS-03: a room change must not collide with other classes for schedules inheriting the class room.
+        // BR-CLASS-03: a room change must not collide with other classes for schedules
+        // that follow the class default room. The manager UI historically persisted the
+        // current default room as an explicit schedule room, so those schedules must also
+        // follow a later default-room change.
         var roomChanged = request.RoomId != entity.RoomId;
-        List<ClassSchedule> inheriting = [];
+        List<ClassSchedule> schedulesFollowingDefaultRoom = [];
         if (roomChanged)
         {
-            inheriting = await Db.ClassSchedules
-                .Where(s => s.ClassId == classId && s.Status == FlowStatuses.ScheduleActive && s.RoomId == null)
+            schedulesFollowingDefaultRoom = await Db.ClassSchedules
+                .Where(s => s.ClassId == classId && s.Status == FlowStatuses.ScheduleActive
+                    && (s.RoomId == null || s.RoomId == entity.RoomId))
                 .ToListAsync(cancellationToken);
-            foreach (var schedule in inheriting)
+            foreach (var schedule in schedulesFollowingDefaultRoom)
             {
                 await EnsureRoomFreeAsync(request.RoomId, schedule.DayOfWeek, schedule.StartTime, schedule.EndTime,
                     schedule.StartDate, schedule.EndDate, schedule.Id, cancellationToken);
             }
         }
+
+        // A class-level capacity change must be effective for every active schedule.
+        // Without this check the manager can save (for example) 3 seats while a schedule
+        // still runs in a 2-seat override room, and members continue to see the session as full.
+        await EnsureActiveScheduleRoomsCanHostAsync(
+            entity, request.RoomId, request.Capacity, cancellationToken);
 
         entity.SportId = request.SportId;
         entity.RoomId = request.RoomId;
@@ -207,9 +219,14 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         entity.DurationMinutes = request.DurationMinutes;
         entity.UpdatedAt = DateTime.UtcNow;
 
-        if (roomChanged && inheriting.Count > 0)
+        if (roomChanged && schedulesFollowingDefaultRoom.Count > 0)
         {
-            var scheduleIds = inheriting.Select(s => (long?)s.Id).ToList();
+            // Preserve true inheritance (null); update rows that only duplicated the old
+            // default room so future generated sessions use the new default as well.
+            foreach (var schedule in schedulesFollowingDefaultRoom.Where(schedule => schedule.RoomId.HasValue))
+                schedule.RoomId = request.RoomId;
+
+            var scheduleIds = schedulesFollowingDefaultRoom.Select(s => (long?)s.Id).ToList();
             var localToday = ScheduleTime.VietnamToday;
             var localNow = TimeOnly.FromDateTime(ScheduleTime.VietnamNow);
             var upcoming = await Db.ClassSessions
@@ -241,9 +258,9 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
     {
         await using var transaction = await Db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
         var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
-            ?? throw FlowException.NotFound("Lớp học không tồn tại.");
+            ?? throw new InvalidOperationException("Lớp học không tồn tại.") { Data = { ["StatusCode"] = 404 } };
         if (FlowStatuses.IsClosed(entity.Status))
-            throw FlowException.Conflict($"Không thể hủy lớp ở trạng thái '{entity.Status}'.");
+            throw new InvalidOperationException($"Không thể hủy lớp ở trạng thái '{entity.Status}'.") { Data = { ["StatusCode"] = 409 } };
         var previousStatus = entity.Status;
 
         var enrollments = await Db.ClassEnrollments
@@ -289,12 +306,34 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         return new CancelClassResult(classId, entity.Status, enrollments.Count, bookings, sessions);
     }
 
+    public async Task<ClassDetailResponse> RestoreClassAsync(long actorUserId, long classId, CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await Db.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+        var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
+            ?? throw new InvalidOperationException("Lớp học không tồn tại.") { Data = { ["StatusCode"] = 404 } };
+
+        if (!string.Equals(entity.Status, FlowStatuses.ClassCancelled, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Chỉ lớp đã hủy mới có thể mở lại.") { Data = { ["StatusCode"] = 409 } };
+
+        entity.Status = FlowStatuses.ClassDraft;
+        entity.UpdatedAt = DateTime.UtcNow;
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        AuditLogWriter.Add(unitOfWork, actorUserId, entity.CenterId, "class.restored", "Class", entity.Id,
+            new { Status = FlowStatuses.ClassCancelled },
+            new { Status = entity.Status, HistoricalDataRestored = false });
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return ToResponse(entity);
+    }
+
     // ---------------------------------------------------------------- schedules
 
     public async Task<IReadOnlyList<ClassScheduleResponse>> GetSchedulesAsync(long classId, CancellationToken cancellationToken = default)
     {
         if (!await unitOfWork.Repository<ClassEntity>().AnyAsync(c => c.Id == classId, cancellationToken))
-            throw FlowException.NotFound("Lớp học không tồn tại.");
+            throw new InvalidOperationException("Lớp học không tồn tại.") { Data = { ["StatusCode"] = 404 } };
 
         var schedules = await Db.ClassSchedules.Where(s => s.ClassId == classId)
             .OrderBy(s => s.DayOfWeek).ThenBy(s => s.StartTime).ToListAsync(cancellationToken);
@@ -307,6 +346,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
 
         await using var transaction = await Db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
         var entity = await LoadOpenClassAsync(classId, cancellationToken);
+        ValidateScheduleDuration(request.StartTime, request.EndTime, entity.DurationMinutes);
         var roomId = request.RoomId ?? entity.RoomId;
         await EnsureScheduleRoomAsync(entity, request.RoomId, cancellationToken);
 
@@ -349,6 +389,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
 
         await using var transaction = await Db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
         var entity = await LoadOpenClassAsync(classId, cancellationToken);
+        ValidateScheduleDuration(request.StartTime, request.EndTime, entity.DurationMinutes);
         var schedule = await LoadActiveScheduleAsync(classId, scheduleId, cancellationToken);
         var oldValues = new
         {
@@ -373,7 +414,7 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         var activeBookings = await Db.SessionBookings.CountAsync(
             b => upcomingIds.Contains(b.SessionId) && b.Status == FlowStatuses.BookingBooked, cancellationToken);
         if (activeBookings > 0)
-            throw FlowException.Conflict($"Lịch này đang có {activeBookings} chỗ đặt cho các buổi sắp tới. Hãy hủy lịch thay vì sửa.");
+            throw new InvalidOperationException($"Lịch này đang có {activeBookings} chỗ đặt cho các buổi sắp tới. Hãy hủy lịch thay vì sửa.") { Data = { ["StatusCode"] = 409 } };
 
         var waitingEntries = await Db.ClassWaitlists
             .Where(item => upcomingIds.Contains(item.SessionId ?? 0)
@@ -428,42 +469,122 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
 
     private static void ValidateClassInput(string? name, int capacity, int durationMinutes)
     {
-        if (string.IsNullOrWhiteSpace(name)) throw FlowException.BadRequest("Tên lớp không được để trống.");
-        if (name.Trim().Length > 150) throw FlowException.BadRequest("Tên lớp tối đa 150 ký tự.");
-        if (capacity <= 0) throw FlowException.BadRequest("Sức chứa phải lớn hơn 0.");
-        if (durationMinutes <= 0) throw FlowException.BadRequest("Thời lượng phải lớn hơn 0 phút.");
+        if (string.IsNullOrWhiteSpace(name)) throw new InvalidOperationException("Tên lớp không được để trống.") { Data = { ["StatusCode"] = 400 } };
+        if (name.Trim().Length > 150) throw new InvalidOperationException("Tên lớp tối đa 150 ký tự.") { Data = { ["StatusCode"] = 400 } };
+        if (capacity <= 0) throw new InvalidOperationException("Sức chứa phải lớn hơn 0.") { Data = { ["StatusCode"] = 400 } };
+        if (durationMinutes <= 0) throw new InvalidOperationException("Thời lượng phải lớn hơn 0 phút.") { Data = { ["StatusCode"] = 400 } };
     }
 
     private static void ValidateScheduleInput(int dayOfWeek, TimeOnly start, TimeOnly end, DateOnly startDate, DateOnly endDate)
     {
-        if (dayOfWeek is < 0 or > 6) throw FlowException.BadRequest("Thứ trong tuần phải từ 0 (Chủ nhật) đến 6 (Thứ bảy).");
-        if (end <= start) throw FlowException.BadRequest("Giờ kết thúc phải sau giờ bắt đầu.");
-        if (endDate < startDate) throw FlowException.BadRequest("Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.");
+        if (dayOfWeek is < 0 or > 6) throw new InvalidOperationException("Thứ trong tuần phải từ 0 (Chủ nhật) đến 6 (Thứ bảy).") { Data = { ["StatusCode"] = 400 } };
+        if (end <= start) throw new InvalidOperationException("Giờ kết thúc phải sau giờ bắt đầu.") { Data = { ["StatusCode"] = 400 } };
+        if (start < CenterOpeningTime || end > CenterClosingTime)
+            throw new InvalidOperationException("Lịch học phải nằm trong giờ hoạt động của trung tâm, từ 05:00 đến 22:00.") { Data = { ["StatusCode"] = 400 } };
+        if (endDate < startDate) throw new InvalidOperationException("Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.") { Data = { ["StatusCode"] = 400 } };
         if (endDate.DayNumber - startDate.DayNumber > MaxScheduleSpanDays)
-            throw FlowException.BadRequest($"Một lịch lặp tối đa {MaxScheduleSpanDays} ngày.");
+            throw new InvalidOperationException($"Một lịch lặp tối đa {MaxScheduleSpanDays} ngày.") { Data = { ["StatusCode"] = 400 } };
+    }
+
+    private static void ValidateScheduleDuration(TimeOnly start, TimeOnly end, int maximumMinutes)
+    {
+        var scheduledMinutes = (end - start).TotalMinutes;
+        if (scheduledMinutes > maximumMinutes)
+            throw new InvalidOperationException($"Một buổi học không được vượt quá thời lượng {maximumMinutes} phút đã thiết lập cho lớp.") { Data = { ["StatusCode"] = 400 } };
     }
 
     private async Task EnsureSportAndRoomAsync(long centerId, long sportId, long? roomId, int capacity, CancellationToken ct)
     {
         var sport = await unitOfWork.Repository<Sport>().GetByIdAsync(sportId, ct);
         if (sport is null || sport.Status != "Active" || (sport.CenterId.HasValue && sport.CenterId.Value != centerId))
-            throw FlowException.NotFound("Bộ môn không tồn tại.");
+            throw new InvalidOperationException("Bộ môn không tồn tại.") { Data = { ["StatusCode"] = 404 } };
 
         if (roomId is null) return;
         var room = await unitOfWork.Repository<Room>().GetByIdAsync(roomId.Value, ct)
-            ?? throw FlowException.NotFound("Phòng tập không tồn tại.");
+            ?? throw new InvalidOperationException("Phòng tập không tồn tại.") { Data = { ["StatusCode"] = 404 } };
         if (room.CenterId != centerId)
-            throw FlowException.BadRequest("Phòng tập không thuộc cơ sở của lớp học.");
+            throw new InvalidOperationException("Phòng tập không thuộc cơ sở của lớp học.") { Data = { ["StatusCode"] = 400 } };
         if (!string.Equals(room.Status, "Active", StringComparison.OrdinalIgnoreCase))
-            throw FlowException.Conflict("Phòng tập đã ngừng hoạt động.");
+            throw new InvalidOperationException("Phòng tập đang bảo trì hoặc đã ngừng hoạt động.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 409,
+                    ["Code"] = "CM-03",
+                    ["ProposedHandling"] = "Chặn lưu lịch bị xung đột; chỉ rõ lớp/phòng/thời gian liên quan để đổi lịch hoặc phòng."
+                }
+            };
         if (capacity > room.Capacity) // BR-CLASS-01
-            throw FlowException.BadRequest($"Sức chứa lớp ({capacity}) vượt quá sức chứa phòng '{room.Name}' ({room.Capacity}).");
+            throw new InvalidOperationException($"Sức chứa lớp ({capacity}) vượt quá sức chứa phòng '{room.Name}' ({room.Capacity}).") { Data = { ["StatusCode"] = 400 } };
     }
 
     private async Task EnsureScheduleRoomAsync(ClassEntity entity, long? scheduleRoomId, CancellationToken ct)
     {
         if (scheduleRoomId is null) return;
         await EnsureSportAndRoomAsync(entity.CenterId, entity.SportId, scheduleRoomId, entity.Capacity, ct);
+    }
+
+    private async Task EnsureActiveScheduleRoomsCanHostAsync(
+        ClassEntity entity, long? requestedDefaultRoomId, int requestedCapacity, CancellationToken ct)
+    {
+        var defaultRoomChanged = requestedDefaultRoomId != entity.RoomId;
+        var schedules = await Db.ClassSchedules
+            .Where(schedule => schedule.ClassId == entity.Id
+                && schedule.Status == FlowStatuses.ScheduleActive)
+            .Select(schedule => new
+            {
+                schedule.RoomId,
+                schedule.DayOfWeek,
+                schedule.StartTime,
+                schedule.EndTime
+            })
+            .ToListAsync(ct);
+
+        var effectiveRooms = schedules.Select(schedule => new
+        {
+            Schedule = schedule,
+            RoomId = schedule.RoomId is null
+                || (defaultRoomChanged && schedule.RoomId == entity.RoomId)
+                    ? requestedDefaultRoomId
+                    : schedule.RoomId
+        }).ToList();
+        var roomIds = effectiveRooms.Where(item => item.RoomId.HasValue)
+            .Select(item => item.RoomId!.Value).Distinct().ToArray();
+        if (roomIds.Length == 0) return;
+
+        var rooms = await Db.Rooms.Where(room => roomIds.Contains(room.Id))
+            .ToDictionaryAsync(room => room.Id, ct);
+        foreach (var item in effectiveRooms.Where(item => item.RoomId.HasValue))
+        {
+            if (!rooms.TryGetValue(item.RoomId!.Value, out var room)
+                || room.CenterId != entity.CenterId
+                || !string.Equals(room.Status, "Active", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Lịch đang sử dụng phòng không còn hoạt động tại trung tâm.")
+                {
+                    Data =
+                    {
+                        ["StatusCode"] = 409,
+                        ["Code"] = "CM-03",
+                        ["ProposedHandling"] = "Đổi phòng của lịch sang một phòng đang hoạt động trước khi cập nhật lớp."
+                    }
+                };
+            }
+
+            if (requestedCapacity <= room.Capacity) continue;
+            throw new InvalidOperationException(
+                $"Không thể đặt sức chứa lớp là {requestedCapacity}: lịch Thứ {item.Schedule.DayOfWeek} " +
+                $"{item.Schedule.StartTime:HH\\:mm}-{item.Schedule.EndTime:HH\\:mm} đang dùng phòng " +
+                $"'{room.Name}' chỉ có {room.Capacity} chỗ.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 409,
+                    ["Code"] = "CM-04",
+                    ["ProposedHandling"] = "Đổi lịch sang phòng có sức chứa phù hợp rồi cập nhật lại sĩ số lớp."
+                }
+            };
+        }
     }
 
     /// <summary>BR-CLASS-03: no two classes may use the same room at overlapping day/time/date ranges.</summary>
@@ -488,8 +609,15 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
             ScheduleTime.Overlaps(start, end, x.StartTime, x.EndTime) &&
             ScheduleTime.DateRangesOverlap(startDate, endDate, x.StartDate, x.EndDate));
         if (clash is not null)
-            throw FlowException.Conflict(
-                $"Phòng đã được lớp '{clash.ClassName}' sử dụng vào Thứ {dayOfWeek}, {clash.StartTime:HH\\:mm}-{clash.EndTime:HH\\:mm}.");
+            throw new InvalidOperationException($"Phòng đã được lớp '{clash.ClassName}' sử dụng vào Thứ {dayOfWeek}, {clash.StartTime:HH\\:mm}-{clash.EndTime:HH\\:mm}.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 409,
+                    ["Code"] = "CM-03",
+                    ["ProposedHandling"] = "Chặn lưu lịch bị xung đột; chỉ rõ lớp/phòng/thời gian liên quan để đổi lịch hoặc phòng."
+                }
+            };
     }
 
     /// <summary>BR-CLASS-02 when a schedule is added/changed on a class that already has coaches.</summary>
@@ -513,18 +641,114 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
                 && s.Status == FlowStatuses.ScheduleActive
                 && c.Status != FlowStatuses.ClassCancelled && c.Status != FlowStatuses.ClassCompleted
                 && s.DayOfWeek == dayOfWeek
-                && cc.ClassId != classId
-            select new { cc.CoachId, s.StartTime, s.EndTime, s.StartDate, s.EndDate, ClassName = c.Name })
+                && (!excludeScheduleId.HasValue || s.Id != excludeScheduleId.Value)
+            select new { cc.CoachId, Schedule = s, ClassName = c.Name })
             .ToListAsync(ct);
 
         var clash = candidates.FirstOrDefault(x =>
-            ScheduleTime.Overlaps(start, end, x.StartTime, x.EndTime) &&
-            ScheduleTime.DateRangesOverlap(startDate, endDate, x.StartDate, x.EndDate));
+            ScheduleTime.Overlaps(start, end, x.Schedule.StartTime, x.Schedule.EndTime) &&
+            ScheduleTime.DateRangesOverlap(startDate, endDate, x.Schedule.StartDate, x.Schedule.EndDate));
         if (clash is not null)
         {
             var name = coaches.First(c => c.Id == clash.CoachId).FullName;
-            throw FlowException.Conflict($"HLV {name} đã có lịch dạy lớp '{clash.ClassName}' trùng khung giờ này.");
+            throw new InvalidOperationException($"HLV {name} đã có lịch dạy lớp '{clash.ClassName}' trùng khung giờ này.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 409,
+                    ["Code"] = "CM-04",
+                    ["ProposedHandling"] = "Kiểm tra lại khi lưu; từ chối phân công và hiển thị nguyên nhân."
+                }
+            };
         }
+
+        var approvedLeaves = await Db.CoachLeaves
+            .Where(leave => coachIds.Contains(leave.CoachId) && leave.Status.ToLower() == "approved")
+            .ToListAsync(ct);
+        foreach (var coach in coaches)
+        {
+            if (approvedLeaves.Any(leave => leave.CoachId == coach.Id && ProposedScheduleOverlapsLeave(
+                    dayOfWeek, start, end, startDate, endDate, leave)))
+            {
+                throw new InvalidOperationException($"HLV {coach.FullName} đã được duyệt nghỉ trong thời gian của lịch học này.")
+                {
+                    Data =
+                    {
+                        ["StatusCode"] = 409,
+                        ["Code"] = "CM-05",
+                        ["ProposedHandling"] = "Chọn HLV khác hoặc điều chỉnh khoảng ngày/giờ học ngoài thời gian nghỉ đã duyệt."
+                    }
+                };
+            }
+
+            var coachSchedules = candidates.Where(item => item.CoachId == coach.Id)
+                .Select(item => item.Schedule).ToList();
+            EnsureDailyTeachingLimitForProposedSchedule(
+                coach.FullName, dayOfWeek, start, end, startDate, endDate, coachSchedules);
+        }
+    }
+
+    private static void EnsureDailyTeachingLimitForProposedSchedule(
+        string coachName, int dayOfWeek, TimeOnly start, TimeOnly end,
+        DateOnly? startDate, DateOnly? endDate, IReadOnlyCollection<ClassSchedule> existingSchedules)
+    {
+        var today = ScheduleTime.VietnamToday;
+        var candidateDates = new HashSet<DateOnly> { NextOccurrence(today, dayOfWeek) };
+        var boundaries = existingSchedules.Select(schedule => schedule.StartDate)
+            .Append(startDate).Where(date => date.HasValue).Select(date => date!.Value);
+        foreach (var boundary in boundaries)
+            candidateDates.Add(NextOccurrence(boundary > today ? boundary : today, dayOfWeek));
+
+        foreach (var date in candidateDates)
+        {
+            var proposedActive = dayOfWeek == (int)date.DayOfWeek
+                && (!startDate.HasValue || startDate.Value <= date)
+                && (!endDate.HasValue || endDate.Value >= date);
+            var hours = proposedActive ? (end.ToTimeSpan() - start.ToTimeSpan()).TotalHours : 0;
+            hours += existingSchedules.Where(schedule => schedule.DayOfWeek == (int)date.DayOfWeek
+                    && (!schedule.StartDate.HasValue || schedule.StartDate.Value <= date)
+                    && (!schedule.EndDate.HasValue || schedule.EndDate.Value >= date))
+                .Sum(schedule => (schedule.EndTime.ToTimeSpan() - schedule.StartTime.ToTimeSpan()).TotalHours);
+            if (hours > MaxDailyTeachingHours)
+            {
+                throw new InvalidOperationException(
+                    $"Lịch mới làm cho HLV {coachName} dạy {hours:F1} giờ trong ngày, vượt giới hạn {MaxDailyTeachingHours:F1} giờ/ngày.")
+                {
+                    Data =
+                    {
+                        ["StatusCode"] = 409,
+                        ["Code"] = "CM-06",
+                        ["ProposedHandling"] = "Giảm thời lượng hoặc chuyển lịch sang ngày khác."
+                    }
+                };
+            }
+        }
+    }
+
+    private static bool ProposedScheduleOverlapsLeave(
+        int dayOfWeek, TimeOnly start, TimeOnly end, DateOnly? startDate, DateOnly? endDate, CoachLeave leave)
+    {
+        var firstDate = DateOnly.FromDateTime(leave.StartAt);
+        var lastDate = DateOnly.FromDateTime(leave.EndAt);
+        if (startDate.HasValue && startDate.Value > firstDate) firstDate = startDate.Value;
+        if (endDate.HasValue && endDate.Value < lastDate) lastDate = endDate.Value;
+        if (lastDate < firstDate) return false;
+
+        var occurrence = NextOccurrence(firstDate, dayOfWeek);
+        while (occurrence <= lastDate)
+        {
+            var sessionStart = occurrence.ToDateTime(start);
+            var sessionEnd = occurrence.ToDateTime(end);
+            if (sessionStart < leave.EndAt && sessionEnd > leave.StartAt) return true;
+            occurrence = occurrence.AddDays(7);
+        }
+        return false;
+    }
+
+    private static DateOnly NextOccurrence(DateOnly date, int dayOfWeek)
+    {
+        var daysUntil = (dayOfWeek - (int)date.DayOfWeek + 7) % 7;
+        return date.AddDays(daysUntil);
     }
 
     // ------------------------------------------------------------------ helpers
@@ -532,18 +756,18 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
     private async Task<ClassEntity> LoadOpenClassAsync(long classId, CancellationToken ct)
     {
         var entity = await unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, ct)
-            ?? throw FlowException.NotFound("Lớp học không tồn tại.");
+            ?? throw new InvalidOperationException("Lớp học không tồn tại.") { Data = { ["StatusCode"] = 404 } };
         if (FlowStatuses.IsClosed(entity.Status))
-            throw FlowException.Conflict($"Lớp học đang ở trạng thái '{entity.Status}'.");
+            throw new InvalidOperationException($"Lớp học đang ở trạng thái '{entity.Status}'.") { Data = { ["StatusCode"] = 409 } };
         return entity;
     }
 
     private async Task<ClassSchedule> LoadActiveScheduleAsync(long classId, long scheduleId, CancellationToken ct)
     {
         var schedule = await Db.ClassSchedules.SingleOrDefaultAsync(s => s.Id == scheduleId && s.ClassId == classId, ct)
-            ?? throw FlowException.NotFound("Lịch học không tồn tại.");
+            ?? throw new InvalidOperationException("Lịch học không tồn tại.") { Data = { ["StatusCode"] = 404 } };
         if (schedule.Status != FlowStatuses.ScheduleActive)
-            throw FlowException.Conflict("Lịch học đã bị hủy.");
+            throw new InvalidOperationException("Lịch học đã bị hủy.") { Data = { ["StatusCode"] = 409 } };
         return schedule;
     }
 

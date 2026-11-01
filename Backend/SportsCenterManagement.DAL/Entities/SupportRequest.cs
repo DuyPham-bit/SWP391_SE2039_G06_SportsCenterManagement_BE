@@ -9,7 +9,13 @@ namespace SportsCenterManagement.DAL.Entities;
 public class SupportRequest : Common.BaseEntity
 {
     [Column("member_id")]
-    public long MemberId { get; set; }
+    public long? MemberId { get; set; }
+
+    [Column("requester_id")]
+    public long RequesterId { get; set; }
+
+    [Column("center_id")]
+    public long CenterId { get; set; }
 
     [Column("handled_by")]
     public long? HandledBy { get; set; }
@@ -20,10 +26,6 @@ public class SupportRequest : Common.BaseEntity
 
     [Column("description")]
     public string Description { get; set; } = null!;
-
-    [MaxLength(30)]
-    [Column("priority")]
-    public string Priority { get; set; } = null!;
 
     [MaxLength(30)]
     [Column("status")]

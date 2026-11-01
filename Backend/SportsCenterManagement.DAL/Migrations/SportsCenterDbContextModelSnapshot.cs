@@ -826,6 +826,73 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.ToTable("class_waitlist", "dbo");
                 });
 
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachCompensationPolicy", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CoachId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("coach_id");
+
+                    b.Property<decimal>("CommissionPerSession")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("decimal(14,2)")
+                        .HasColumnName("commission_per_session");
+
+                    b.Property<DateOnly>("EffectiveFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_from");
+
+                    b.Property<DateOnly?>("EffectiveTo")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_to");
+
+                    b.Property<decimal>("MonthlyBaseSalary")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("decimal(14,2)")
+                        .HasColumnName("monthly_base_salary");
+
+                    b.Property<decimal>("SalesCommissionPercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)")
+                        .HasColumnName("sales_commission_percent");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("status");
+
+                    b.Property<decimal>("TargetSales")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("decimal(14,2)")
+                        .HasColumnName("target_sales");
+
+                    b.Property<int>("TargetSessions")
+                        .HasColumnType("int")
+                        .HasColumnName("target_sessions");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("updated_at");
+
+                    b.Property<long>("UpdatedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UpdatedBy");
+
+                    b.HasIndex("CoachId", "EffectiveFrom");
+
+                    b.ToTable("coach_compensation_policies", "dbo");
+                });
+
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachLeave", b =>
                 {
                     b.Property<long>("Id")
@@ -842,6 +909,34 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("datetime2")
                         .HasColumnName("end_at");
 
+                    b.Property<string>("LeaveType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("leave_type");
+
+                    b.Property<string>("ManagerNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("manager_note");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("requested_at");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
                     b.Property<DateTime>("StartAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("start_at");
@@ -852,11 +947,64 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("nvarchar(30)")
                         .HasColumnName("status");
 
+                    b.Property<long?>("SwapCoachId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("swap_coach_id");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CoachId");
 
+                    b.HasIndex("ReviewedBy");
+
+                    b.HasIndex("SwapCoachId");
+
                     b.ToTable("coach_leaves", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachMessage", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CoachId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("coach_id");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)")
+                        .HasColumnName("content");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("MemberId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("member_id");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("read_at");
+
+                    b.Property<long>("SenderUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("sender_user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberId");
+
+                    b.HasIndex("SenderUserId");
+
+                    b.HasIndex("CoachId", "MemberId", "CreatedAt");
+
+                    b.ToTable("coach_messages", "dbo");
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachProfile", b =>
@@ -936,7 +1084,259 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.ToTable("coach_profiles", "dbo");
                 });
 
-            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.Exercise", b =>
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachReview", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CoachId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("coach_id");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("comment");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("MemberId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("member_id");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("int")
+                        .HasColumnName("rating");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("updated_at");
+
+                    b.Property<long?>("WorkEventId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("work_event_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberId");
+
+                    b.HasIndex("WorkEventId");
+
+                    b.HasIndex("CoachId", "MemberId", "WorkEventId")
+                        .IsUnique()
+                        .HasFilter("[work_event_id] IS NOT NULL");
+
+                    b.ToTable("coach_reviews", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachSalesCredit", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("decimal(14,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<long>("CoachId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("coach_id");
+
+                    b.Property<long>("CreatedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime>("CreditedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("credited_at");
+
+                    b.Property<long?>("MemberId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("member_id");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("note");
+
+                    b.Property<long?>("SubscriptionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("subscription_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CoachId");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("MemberId");
+
+                    b.HasIndex("SubscriptionId");
+
+                    b.ToTable("coach_sales_credits", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachSport", b =>
+                {
+                    b.Property<long>("CoachId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("coach_id");
+
+                    b.Property<long>("SportId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("sport_id");
+
+                    b.HasKey("CoachId", "SportId");
+
+                    b.HasIndex("SportId");
+
+                    b.ToTable("coach_sports", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachWorkEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CenterId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("center_id");
+
+                    b.Property<long>("CoachId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("coach_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("CreatedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime>("EndAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("end_at");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("event_type");
+
+                    b.Property<long?>("MemberId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("member_id");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("notes");
+
+                    b.Property<long?>("RoomId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("room_id");
+
+                    b.Property<DateTime>("StartAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("start_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("title");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CenterId");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("MemberId");
+
+                    b.HasIndex("RoomId");
+
+                    b.HasIndex("CoachId", "StartAt", "EndAt");
+
+                    b.ToTable("coach_work_events", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CommunicationDelivery", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("channel");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<long?>("NotificationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("notification_id");
+
+                    b.Property<string>("ProviderMessage")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("provider_message");
+
+                    b.Property<long>("RecipientUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("recipient_user_id");
+
+                    b.Property<DateTime?>("SentAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("sent_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NotificationId");
+
+                    b.HasIndex("RecipientUserId");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("communication_deliveries", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.EmailVerificationToken", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -948,6 +1348,135 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("datetime2")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("email");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("expires_at");
+
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("int")
+                        .HasColumnName("failed_attempts");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("token");
+
+                    b.Property<DateTime?>("UsedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("used_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email", "CreatedAt");
+
+                    b.ToTable("email_verification_tokens", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.EquipmentIssue", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CenterId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("center_id");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("PhotoUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("photo_url");
+
+                    b.Property<DateTime>("ReportedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("reported_at");
+
+                    b.Property<long>("ReportedByUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reported_by_user_id");
+
+                    b.Property<string>("ResolutionNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("resolution_note");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("resolved_at");
+
+                    b.Property<long?>("ResolvedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("resolved_by");
+
+                    b.Property<long?>("ResourceId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("resource_id");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("severity");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("title");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReportedByUserId");
+
+                    b.HasIndex("ResolvedBy");
+
+                    b.HasIndex("ResourceId");
+
+                    b.HasIndex("CenterId", "Status", "ReportedAt");
+
+                    b.ToTable("equipment_issues", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.Exercise", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("CenterId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("center_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<long?>("CreatedByCoachId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by_coach_id");
+
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)")
@@ -957,6 +1486,11 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)")
                         .HasColumnName("difficulty_level");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("image_url");
 
                     b.Property<string>("Instructions")
                         .HasColumnType("nvarchar(max)")
@@ -990,9 +1524,127 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CenterId");
+
+                    b.HasIndex("CreatedByCoachId");
+
                     b.HasIndex("SportId");
 
                     b.ToTable("exercises", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.FacilityResource", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int?>("Capacity")
+                        .HasColumnType("int")
+                        .HasColumnName("capacity");
+
+                    b.Property<long>("CenterId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("center_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Location")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("location");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("ResourceType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("resource_type");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CenterId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("facility_resources", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.FoodDiaryEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int?>("Calories")
+                        .HasColumnType("int")
+                        .HasColumnName("calories");
+
+                    b.Property<decimal?>("CarbGrams")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("decimal(8,2)")
+                        .HasColumnName("carb_grams");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateOnly>("EntryDate")
+                        .HasColumnType("date")
+                        .HasColumnName("entry_date");
+
+                    b.Property<decimal?>("FatGrams")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("decimal(8,2)")
+                        .HasColumnName("fat_grams");
+
+                    b.Property<string>("FoodName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("food_name");
+
+                    b.Property<string>("MealType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("meal_type");
+
+                    b.Property<long>("MemberId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("member_id");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("notes");
+
+                    b.Property<decimal?>("ProteinGrams")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("decimal(8,2)")
+                        .HasColumnName("protein_grams");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberId", "EntryDate");
+
+                    b.ToTable("food_diary_entries", "dbo");
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.Invoice", b =>
@@ -1133,6 +1785,62 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.HasIndex("SubscriptionId");
 
                     b.ToTable("invoice_items", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.MemberHealthRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CoachId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("coach_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Details")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("details");
+
+                    b.Property<long>("MemberId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("member_id");
+
+                    b.Property<DateOnly>("OccurredOn")
+                        .HasColumnType("date")
+                        .HasColumnName("occurred_on");
+
+                    b.Property<string>("RecordType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
+                        .HasColumnName("record_type");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("title");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CoachId");
+
+                    b.HasIndex("MemberId", "OccurredOn");
+
+                    b.ToTable("member_health_records", "dbo");
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.MemberProfile", b =>
@@ -1460,6 +2168,11 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("nvarchar(50)")
                         .HasColumnName("notification_type");
 
+                    b.Property<string>("ReminderKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("reminder_key");
+
                     b.Property<DateTime?>("ScheduledAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("scheduled_at");
@@ -1467,6 +2180,11 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.Property<long>("SenderId")
                         .HasColumnType("bigint")
                         .HasColumnName("sender_id");
+
+                    b.Property<string>("TargetClassIds")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("target_class_ids");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -1476,9 +2194,91 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ReminderKey")
+                        .IsUnique()
+                        .HasFilter("[reminder_key] IS NOT NULL");
+
                     b.HasIndex("SenderId");
 
                     b.ToTable("notifications", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.NutritionPlan", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("CarbGrams")
+                        .HasColumnType("int")
+                        .HasColumnName("carb_grams");
+
+                    b.Property<long>("CoachId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("coach_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("DailyCalories")
+                        .HasColumnType("int")
+                        .HasColumnName("daily_calories");
+
+                    b.Property<DateOnly?>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<int>("FatGrams")
+                        .HasColumnType("int")
+                        .HasColumnName("fat_grams");
+
+                    b.Property<string>("MealPlanJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("meal_plan_json");
+
+                    b.Property<long>("MemberId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("member_id");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("notes");
+
+                    b.Property<int>("ProteinGrams")
+                        .HasColumnType("int")
+                        .HasColumnName("protein_grams");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("title");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CoachId");
+
+                    b.HasIndex("MemberId", "Status");
+
+                    b.ToTable("nutrition_plans", "dbo");
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.PasswordResetToken", b =>
@@ -1496,6 +2296,10 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("expires_at");
+
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("int")
+                        .HasColumnName("failed_attempts");
 
                     b.Property<string>("Token")
                         .IsRequired()
@@ -1651,6 +2455,21 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("decimal(12,2)")
                         .HasColumnName("amount");
 
+                    b.Property<string>("BankAccountName")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("bank_account_name");
+
+                    b.Property<string>("BankAccountNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("bank_account_number");
+
+                    b.Property<string>("BankName")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("bank_name");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("created_at");
@@ -1689,11 +2508,25 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("requested_by");
 
+                    b.Property<string>("ReviewNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("review_note");
+
+                    b.Property<long?>("ReviewedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reviewed_by");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(30)
                         .HasColumnType("nvarchar(30)")
                         .HasColumnName("status");
+
+                    b.Property<string>("TransferProofUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("transfer_proof_url");
 
                     b.HasKey("Id");
 
@@ -1707,6 +2540,8 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasFilter("[provider_refund_id] IS NOT NULL");
 
                     b.HasIndex("RequestedBy");
+
+                    b.HasIndex("ReviewedBy");
 
                     b.ToTable("payment_refunds", "dbo");
                 });
@@ -1747,6 +2582,61 @@ namespace SportsCenterManagement.DAL.Migrations
                         .IsUnique();
 
                     b.ToTable("permissions", "dbo");
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.ResourceBooking", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CoachId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("coach_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime>("EndAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("end_at");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("purpose");
+
+                    b.Property<long>("ResourceId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("resource_id");
+
+                    b.Property<DateTime>("StartAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("start_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("status");
+
+                    b.Property<long?>("WorkEventId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("work_event_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CoachId");
+
+                    b.HasIndex("WorkEventId");
+
+                    b.HasIndex("ResourceId", "StartAt", "EndAt");
+
+                    b.ToTable("resource_bookings", "dbo");
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.Role", b =>
@@ -1936,6 +2826,65 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.ToTable("sports", "dbo");
                 });
 
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.StaffCompensationPolicy", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("CenterId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("center_id");
+
+                    b.Property<DateOnly>("EffectiveFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_from");
+
+                    b.Property<DateOnly?>("EffectiveTo")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_to");
+
+                    b.Property<decimal>("MonthlyAllowance")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("decimal(14,2)")
+                        .HasColumnName("monthly_allowance");
+
+                    b.Property<decimal>("MonthlyBaseSalary")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("decimal(14,2)")
+                        .HasColumnName("monthly_base_salary");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("updated_at");
+
+                    b.Property<long>("UpdatedBy")
+                        .HasColumnType("bigint")
+                        .HasColumnName("updated_by");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CenterId");
+
+                    b.HasIndex("UpdatedBy");
+
+                    b.HasIndex("UserId", "Status");
+
+                    b.ToTable("staff_compensation_policies", "dbo");
+                });
+
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.StaffProfile", b =>
                 {
                     b.Property<long>("Id")
@@ -2009,6 +2958,10 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<long>("CenterId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("center_id");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2")
                         .HasColumnName("created_at");
@@ -2022,15 +2975,13 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("handled_by");
 
-                    b.Property<long>("MemberId")
+                    b.Property<long?>("MemberId")
                         .HasColumnType("bigint")
                         .HasColumnName("member_id");
 
-                    b.Property<string>("Priority")
-                        .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
-                        .HasColumnName("priority");
+                    b.Property<long>("RequesterId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("requester_id");
 
                     b.Property<DateTime?>("ResolvedAt")
                         .HasColumnType("datetime2")
@@ -2053,6 +3004,10 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.HasIndex("HandledBy");
 
                     b.HasIndex("MemberId");
+
+                    b.HasIndex("RequesterId", "CreatedAt");
+
+                    b.HasIndex("CenterId", "Status", "CreatedAt");
 
                     b.ToTable("support_requests", "dbo");
                 });
@@ -2390,6 +3345,68 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.ToTable("training_results", "dbo");
                 });
 
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.UploadedMedia", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("CenterId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("center_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DriveFileId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("drive_file_id");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("file_name");
+
+                    b.Property<long?>("FileSize")
+                        .HasColumnType("bigint")
+                        .HasColumnName("file_size");
+
+                    b.Property<string>("FileUrl")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("file_url");
+
+                    b.Property<string>("MimeType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("mime_type");
+
+                    b.Property<long?>("UploadedByUserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("uploaded_by_user_id");
+
+                    b.Property<string>("WebViewLink")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("web_view_link");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CenterId", "CreatedAt");
+
+                    b.HasIndex("DriveFileId");
+
+                    b.ToTable("uploaded_media", "dbo");
+                });
+
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.User", b =>
                 {
                     b.Property<long>("Id")
@@ -2397,6 +3414,15 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("bigint");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("AuthVersion")
+                        .HasColumnType("int")
+                        .HasColumnName("auth_version");
+
+                    b.Property<string>("AvatarKey")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("avatar_key");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2")
@@ -2780,11 +3806,57 @@ namespace SportsCenterManagement.DAL.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachCompensationPolicy", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CoachId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachLeave", b =>
                 {
                     b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
                         .WithMany()
                         .HasForeignKey("CoachId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
+                        .WithMany()
+                        .HasForeignKey("SwapCoachId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachMessage", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CoachId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.MemberProfile", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("SenderUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -2804,12 +3876,170 @@ namespace SportsCenterManagement.DAL.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachReview", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CoachId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.MemberProfile", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachWorkEvent", null)
+                        .WithMany()
+                        .HasForeignKey("WorkEventId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachSalesCredit", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CoachId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.MemberProfile", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.MemberSubscription", null)
+                        .WithMany()
+                        .HasForeignKey("SubscriptionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachSport", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CoachId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.Sport", null)
+                        .WithMany()
+                        .HasForeignKey("SportId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CoachWorkEvent", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.Center", null)
+                        .WithMany()
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CoachId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.MemberProfile", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.Room", null)
+                        .WithMany()
+                        .HasForeignKey("RoomId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CommunicationDelivery", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.Notification", null)
+                        .WithMany()
+                        .HasForeignKey("NotificationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.EquipmentIssue", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.Center", null)
+                        .WithMany()
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReportedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ResolvedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.FacilityResource", null)
+                        .WithMany()
+                        .HasForeignKey("ResourceId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.Exercise", b =>
                 {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.Center", null)
+                        .WithMany()
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByCoachId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("SportsCenterManagement.DAL.Entities.Sport", null)
                         .WithMany()
                         .HasForeignKey("SportId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.FacilityResource", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.Center", null)
+                        .WithMany()
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.FoodDiaryEntry", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.MemberProfile", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.Invoice", b =>
@@ -2854,6 +4084,21 @@ namespace SportsCenterManagement.DAL.Migrations
                         .WithMany()
                         .HasForeignKey("SubscriptionId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.MemberHealthRecord", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CoachId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.MemberProfile", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.MemberProfile", b =>
@@ -2923,6 +4168,21 @@ namespace SportsCenterManagement.DAL.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.NutritionPlan", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CoachId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.MemberProfile", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.PasswordResetToken", b =>
                 {
                     b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
@@ -2970,6 +4230,31 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasForeignKey("RequestedBy")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.ResourceBooking", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CoachId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.FacilityResource", null)
+                        .WithMany()
+                        .HasForeignKey("ResourceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CoachWorkEvent", null)
+                        .WithMany()
+                        .HasForeignKey("WorkEventId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.RolePermission", b =>
@@ -3034,6 +4319,26 @@ namespace SportsCenterManagement.DAL.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.StaffCompensationPolicy", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.Center", null)
+                        .WithMany()
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.StaffProfile", b =>
                 {
                     b.HasOne("SportsCenterManagement.DAL.Entities.Center", null)
@@ -3051,6 +4356,12 @@ namespace SportsCenterManagement.DAL.Migrations
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.SupportRequest", b =>
                 {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.Center", null)
+                        .WithMany()
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
                         .WithMany()
                         .HasForeignKey("HandledBy")
@@ -3059,6 +4370,11 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.HasOne("SportsCenterManagement.DAL.Entities.MemberProfile", null)
                         .WithMany()
                         .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("RequesterId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

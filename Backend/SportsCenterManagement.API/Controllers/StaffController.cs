@@ -22,10 +22,12 @@ public sealed class StaffController(IStaffManagementService staffManagementServi
         [FromQuery] string? query,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
+        [FromQuery] string sortBy = "default",
+        [FromQuery] string sortDirection = "asc",
         CancellationToken cancellationToken = default)
     {
         return await Run(async () => Ok(await staffManagementService.SearchAtCenterAsync(
-            GetUserId(), centerId, query, page, pageSize, cancellationToken)));
+            GetUserId(), centerId, query, page, pageSize, sortBy, sortDirection, cancellationToken)));
     }
 
     [HttpPost]
@@ -69,9 +71,9 @@ public sealed class StaffController(IStaffManagementService staffManagementServi
         {
             return await action();
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException exception)
         {
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = exception.Message });
         }
         catch (KeyNotFoundException)
         {

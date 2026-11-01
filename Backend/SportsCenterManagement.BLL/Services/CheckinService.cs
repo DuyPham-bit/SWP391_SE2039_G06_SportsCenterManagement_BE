@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.BLL.DTOs.Checkins;
-using SportsCenterManagement.BLL.Exceptions;
 using SportsCenterManagement.BLL.Interfaces;
+using SportsCenterManagement.DAL.Authorization;
 using SportsCenterManagement.DAL.Entities;
 using SportsCenterManagement.DAL.Repositories.Interfaces;
 
@@ -25,7 +25,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
 
         if (!searchId.HasValue && string.IsNullOrWhiteSpace(term))
         {
-            throw FlowException.BadRequest("Vui lòng nhập mã thẻ hội viên, số điện thoại hoặc email.");
+            throw new InvalidOperationException("Vui lòng nhập mã thẻ hội viên, số điện thoại hoặc email.") { Data = { ["StatusCode"] = 400 } };
         }
 
         // 1. Tìm hồ sơ hội viên
@@ -53,7 +53,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
 
         if (member == null)
         {
-            throw FlowException.NotFound($"Không tìm thấy hội viên nào có mã/SĐT/Email: \"{term ?? searchId?.ToString()}\".");
+            throw new InvalidOperationException($"Không tìm thấy hội viên nào có mã/SĐT/Email: \"{term ?? searchId?.ToString()}\".") { Data = { ["StatusCode"] = 404 } };
         }
 
         // 2. Kiểm tra tài khoản người dùng có Active không
@@ -61,7 +61,13 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
             .FirstOrDefaultAsync(u => u.Id == member.UserId, cancellationToken);
         if (user == null || user.Status != "Active" || (user.LockedUntil.HasValue && user.LockedUntil.Value > DateTime.UtcNow))
         {
-            throw FlowException.BadRequest($"Tài khoản hội viên {member.FullName} ({member.MemberCode}) đang bị khóa hoặc không hoạt động.");
+            throw new InvalidOperationException($"Tài khoản hội viên {member.FullName} ({member.MemberCode}) đang bị khóa.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 400
+                }
+            };
         }
 
         // 3. Kiểm tra gói tập còn hiệu lực không
@@ -77,11 +83,33 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
 
         if (activeSub == null)
         {
-            throw FlowException.BadRequest($"Hội viên {member.FullName} ({member.MemberCode}) chưa có gói tập hợp lệ hoặc gói đã hết hạn. Vui lòng gia hạn gói tập tại quầy.");
+            throw new InvalidOperationException($"Hội viên {member.FullName} ({member.MemberCode}) chưa có gói tập hợp lệ hoặc gói đã hết hạn.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 400
+                }
+            };
+        }
+
+        // 3.1. Chặn check-in trùng lặp trong vòng 15 phút (RE-05)
+        var now = DateTime.UtcNow;
+        var recentCutoff = now.AddMinutes(-15);
+        var recentCheckin = await unitOfWork.Context.CenterCheckins.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.CenterId == centerId && c.MemberId == member.Id && c.CheckInTime >= recentCutoff, cancellationToken);
+        if (recentCheckin != null)
+        {
+            var localRecentTime = recentCheckin.CheckInTime.AddHours(7).ToString("HH:mm");
+            throw new InvalidOperationException($"Hội viên {member.FullName} ({member.MemberCode}) vừa được check-in lúc {localRecentTime}.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 409
+                }
+            };
         }
 
         // 4. Tạo bản ghi check-in mới
-        var now = DateTime.UtcNow;
         var checkin = new CenterCheckin
         {
             CenterId = centerId,
@@ -192,12 +220,12 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
     private async Task EnsureCenterStaffAsync(long actorUserId, long centerId, CancellationToken cancellationToken)
     {
         var user = await unitOfWork.Repository<User>().GetByIdAsync(actorUserId, cancellationToken)
-            ?? throw FlowException.Forbidden("Tài khoản không tồn tại hoặc phiên đăng nhập hết hạn.");
+            ?? throw new InvalidOperationException("Tài khoản không tồn tại hoặc phiên đăng nhập hết hạn.") { Data = { ["StatusCode"] = 403 } };
         if (user.Status != "Active" || user.LockedUntil > DateTime.UtcNow)
-            throw FlowException.Forbidden("Tài khoản không hoạt động.");
+            throw new InvalidOperationException("Tài khoản không hoạt động.") { Data = { ["StatusCode"] = 403 } };
 
         var role = await unitOfWork.Repository<Role>().GetByIdAsync(user.RoleId, cancellationToken);
-        if (role?.Name is "Admin" or "SystemAdmin")
+        if (role?.Name == RoleNames.Admin)
         {
             return;
         }
@@ -206,7 +234,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
             .AnyAsync(center => center.Id == centerId && center.Status == "Active", cancellationToken);
         if (!centerIsActive)
         {
-            throw FlowException.BadRequest("Cơ sở trung tâm thể thao không hoạt động.");
+            throw new InvalidOperationException("Cơ sở trung tâm thể thao không hoạt động.") { Data = { ["StatusCode"] = 400 } };
         }
 
         var assigned = await unitOfWork.Repository<StaffProfile>()
@@ -215,7 +243,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
                                  && profile.Status == "Active", cancellationToken);
         if (!assigned)
         {
-            throw FlowException.Forbidden("Tài khoản nhân sự không được phân công tại cơ sở này.");
+            throw new InvalidOperationException("Tài khoản nhân sự không được phân công tại cơ sở này.") { Data = { ["StatusCode"] = 403 } };
         }
     }
 }

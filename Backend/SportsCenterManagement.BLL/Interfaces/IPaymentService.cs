@@ -12,6 +12,14 @@ public interface IPaymentService
         string idempotencyKey,
         CancellationToken cancellationToken = default);
 
+    Task<string> CreateCounterVnPayPaymentUrlAsync(
+        long staffUserId,
+        long? staffCenterId,
+        CounterOnlinePaymentRequest request,
+        string ipAddress,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
+
     Task<PaymentResultResponse> ProcessPaymentCallbackAsync(
         IDictionary<string, string> queryParams,
         CancellationToken cancellationToken = default);
@@ -24,16 +32,6 @@ public interface IPaymentService
 
     Task<PaymentResultResponse> ProcessMomoCallbackAsync(
         IDictionary<string, string> queryParams,
-        CancellationToken cancellationToken = default);
-
-    Task<PaymentResultResponse> ProcessPayOsWebhookAsync(
-        PayOsWebhookRequest webhookRequest,
-        CancellationToken cancellationToken = default);
-
-    Task<string> CreatePayOsPaymentUrlAsync(
-        long memberId,
-        CreatePaymentRequest request,
-        string idempotencyKey,
         CancellationToken cancellationToken = default);
 
     Task<PaymentResultResponse> ReconcilePendingPaymentAsync(
@@ -86,6 +84,33 @@ public interface IPaymentService
         long? managerCenterId,
         long refundId,
         ReconcileRefundRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<RefundEligiblePaymentResponse>> GetMyRefundEligiblePaymentsAsync(
+        long memberUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ManualRefundRequestResponse>> GetMyManualRefundRequestsAsync(
+        long memberUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ManualRefundRequestResponse>> GetManualRefundRequestsAsync(
+        long? managerCenterId,
+        string? status,
+        CancellationToken cancellationToken = default);
+
+    Task<ManualRefundRequestResponse> SubmitManualRefundRequestAsync(
+        long memberUserId,
+        long paymentId,
+        string idempotencyKey,
+        SubmitManualRefundRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<ManualRefundRequestResponse> ReviewManualRefundRequestAsync(
+        long managerUserId,
+        long? managerCenterId,
+        long refundId,
+        ReviewManualRefundRequest request,
         CancellationToken cancellationToken = default);
 
     Task<RevenueReportResponse> GetRevenueReportAsync(

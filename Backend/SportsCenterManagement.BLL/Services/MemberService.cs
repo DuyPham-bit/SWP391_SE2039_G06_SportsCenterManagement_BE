@@ -1,3 +1,4 @@
+using SportsCenterManagement.BLL.Common;
 using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 using System.Text.RegularExpressions;
@@ -7,6 +8,7 @@ using MembersRequests = SportsCenterManagement.BLL.DTOs.Members.Requests;
 using MembersResponses = SportsCenterManagement.BLL.DTOs.Members.Responses;
 using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.Interfaces;
+using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
 using SportsCenterManagement.DAL.Repositories.Interfaces;
 
@@ -32,14 +34,22 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         return await UpdateProfileAsync(userId, profile.CenterId, profile.Id, request, "member.profile.updated", cancellationToken);
     }
 
-    public Task<MembersResponses.MemberProfileResponse> UpdateAtCenterAsync(
+    public async Task<MembersResponses.MemberProfileResponse> UpdateAtCenterAsync(
         long actorUserId,
         long centerId,
         long memberId,
-        MembersRequests.UpdateMemberProfileRequest request,
+        MembersRequests.UpdateMemberAtCenterRequest request,
         CancellationToken cancellationToken = default)
     {
-        return UpdateProfileAsync(actorUserId, centerId, memberId, request, "member.profile.updated.by_staff", cancellationToken);
+        await EnsureCenterManagerAsync(actorUserId, centerId, cancellationToken);
+        var profileRequest = new MembersRequests.UpdateMemberProfileRequest(
+            request.FullName,
+            Email: null,
+            request.Phone,
+            request.DateOfBirth,
+            request.Gender,
+            request.Address);
+        return await UpdateProfileAsync(actorUserId, centerId, memberId, profileRequest, "member.profile.updated.by_staff", cancellationToken);
     }
 
     private async Task<MembersResponses.MemberProfileResponse> UpdateProfileAsync(
@@ -54,7 +64,7 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         {
             throw new ValidationException("Họ tên không được để trống.");
         }
-        if (request.DateOfBirth > DateOnly.FromDateTime(DateTime.UtcNow))
+        if (request.DateOfBirth > VietnamTime.Today)
         {
             throw new ValidationException("Ngày sinh không được ở tương lai.");
         }
@@ -85,10 +95,6 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             if (profile.CenterId != requiredCenterId)
             {
                 throw new KeyNotFoundException("Không tìm thấy thành viên tại trung tâm này.");
-            }
-            if (profile.UserId != actorUserId)
-            {
-                await EnsureCenterManagerAsync(actorUserId, requiredCenterId.Value, cancellationToken);
             }
         }
         var user = await unitOfWork.Repository<User>().GetByIdAsync(profile.UserId, cancellationToken)
@@ -186,13 +192,19 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         string query,
         int page,
         int pageSize,
+        string sortBy,
+        string sortDirection,
         CancellationToken cancellationToken = default)
     {
         var term = query.Trim();
+        var normalizedSort = sortBy.Trim().ToLowerInvariant();
+        var normalizedDirection = sortDirection.Trim().ToLowerInvariant();
         if (centerId <= 0 || (term.Length > 0 && term.Length < 2) || query.Length > 100
-            || page is < 1 or > 1_000_000 || pageSize is < 1 or > 50)
+            || page is < 1 or > 1_000_000 || pageSize is < 1 or > 50
+            || normalizedSort is not ("default" or "givenname")
+            || normalizedDirection is not ("asc" or "desc"))
         {
-            throw new ValidationException("Từ khóa cần từ 2 đến 100 ký tự; page từ 1 và pageSize từ 1 đến 50.");
+            throw new ValidationException("Từ khóa cần từ 2 đến 100 ký tự; page từ 1, pageSize từ 1 đến 50; kiểu sắp xếp không hợp lệ.");
         }
         if (term.Length == 0)
             await EnsureCenterManagerAsync(actorUserId, centerId, cancellationToken);
@@ -202,17 +214,36 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         var matches =
             from profile in unitOfWork.Context.MemberProfiles.AsNoTracking()
             join user in unitOfWork.Context.Users.AsNoTracking() on profile.UserId equals user.Id
-            where profile.CenterId == centerId
+            where (profile.CenterId == centerId || (term != "" && profile.CenterId == null))
+                  && user.Status != "Deleted"
                   && (term == "" || profile.MemberCode.Contains(term)
                       || profile.FullName.Contains(term)
                       || user.Email.Contains(term)
                       || (user.Phone != null && user.Phone.Contains(term)))
-            orderby profile.FullName, profile.Id
-            select new MembersResponses.MemberProfileResponse(profile.Id, user.Id, profile.MemberCode, user.Username,
-                user.Email, user.Phone, profile.FullName, profile.DateOfBirth, profile.Gender,
-                profile.Address, profile.CreatedAt, user.Status);
+            let normalizedName = profile.FullName.Trim()
+            let reversedName = SportsCenterDbContext.Reverse(normalizedName)
+            let separatorIndex = reversedName.IndexOf(" ")
+            let givenName = separatorIndex < 0
+                ? normalizedName
+                : SportsCenterDbContext.Reverse(reversedName.Substring(0, separatorIndex))
+            select new
+            {
+                StatusOrder = user.Status == "Active" ? 0 : 1,
+                GivenName = givenName,
+                FullName = profile.FullName,
+                ProfileId = profile.Id,
+                Response = new MembersResponses.MemberProfileResponse(profile.Id, user.Id, profile.MemberCode, user.Username,
+                    user.Email, user.Phone, profile.FullName, profile.DateOfBirth, profile.Gender,
+                    profile.Address, profile.CreatedAt, user.Status)
+            };
         var totalCount = await matches.CountAsync(cancellationToken);
-        var items = await matches.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
+        var ordered = normalizedSort == "givenname"
+            ? normalizedDirection == "desc"
+                ? matches.OrderBy(item => item.StatusOrder).ThenByDescending(item => item.GivenName).ThenByDescending(item => item.FullName).ThenBy(item => item.ProfileId)
+                : matches.OrderBy(item => item.StatusOrder).ThenBy(item => item.GivenName).ThenBy(item => item.FullName).ThenBy(item => item.ProfileId)
+            : matches.OrderBy(item => item.StatusOrder).ThenBy(item => item.FullName).ThenBy(item => item.ProfileId);
+        var items = await ordered.Select(item => item.Response)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
         var enriched = await EnrichMemberSubscriptionsAsync(items, cancellationToken);
         return new MembersResponses.PagedResponse<MembersResponses.MemberProfileResponse>(enriched, page, pageSize, totalCount);
     }
@@ -243,6 +274,7 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             await EnsureCenterStaffAsync(actorUserId, member.CenterId.Value, cancellationToken);
         }
 
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
         return await (
             from subscription in unitOfWork.Context.MemberSubscriptions.AsNoTracking()
             join package in unitOfWork.Context.MembershipPackages.AsNoTracking() on subscription.PackageId equals package.Id
@@ -250,7 +282,11 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             orderby subscription.CreatedAt descending
             select new MembersResponses.MemberSubscriptionResponse(subscription.Id, package.Id, package.Name,
                 subscription.Price, subscription.DurationDays, subscription.StartDate,
-                subscription.EndDate, subscription.Status, subscription.CreatedAt))
+                subscription.EndDate, subscription.Status, subscription.CreatedAt,
+                subscription.Status != "Active" ? subscription.Status.ToUpper()
+                    : !subscription.StartDate.HasValue || !subscription.EndDate.HasValue ? "INACTIVE"
+                    : subscription.StartDate > today ? "SCHEDULED"
+                    : subscription.EndDate < today ? "EXPIRED" : "ACTIVE"))
             .ToListAsync(cancellationToken);
     }
 
@@ -265,7 +301,13 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         var package = await unitOfWork.Repository<MembershipPackage>().GetByIdAsync(packageId, cancellationToken)
             ?? throw new KeyNotFoundException("Không tìm thấy gói tập.");
 
-        if (!target.CenterId.HasValue || target.CenterId.Value != package.CenterId)
+        if (!target.CenterId.HasValue)
+        {
+            target.CenterId = package.CenterId;
+            target.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        else if (target.CenterId.Value != package.CenterId)
         {
             throw new UnauthorizedAccessException("Thành viên và gói tập không thuộc cùng trung tâm.");
         }
@@ -293,7 +335,13 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             throw new KeyNotFoundException("Không tìm thấy trung tâm đang hoạt động.");
         }
 
-        if (member.CenterId.HasValue && member.CenterId.Value != package.CenterId)
+        if (!member.CenterId.HasValue)
+        {
+            member.CenterId = package.CenterId;
+            member.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        else if (member.CenterId.Value != package.CenterId)
         {
             throw new UnauthorizedAccessException("Gói tập không thuộc trung tâm của thành viên.");
         }

@@ -67,27 +67,21 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
             throw new InvalidOperationException("Huấn luyện viên không thuộc cùng cơ sở với lớp học.");
         }
 
-        // Kiểm tra chuyên môn của HLV có phù hợp với bộ môn của lớp học
+        // Chuyên môn là quan hệ Coach-Sport được Manager chọn từ catalog, không so khớp chuỗi tự do.
         var sport = await unitOfWork.Repository<Sport>().GetByIdAsync(classEntity.SportId, cancellationToken);
-        if (sport is not null)
-        {
-            if (string.IsNullOrWhiteSpace(coachProfile.Specialization) ||
-                !coachProfile.Specialization.Contains(sport.Name, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException(
-                    $"Huấn luyện viên {coachProfile.FullName} (Chuyên môn: '{coachProfile.Specialization}') " +
-                    $"không có chứng chỉ/chuyên môn phù hợp với môn học '{sport.Name}' của lớp.");
-            }
-        }
+        var hasSpecialization = await unitOfWork.Context.CoachSports.AnyAsync(
+            item => item.CoachId == coachProfile.Id && item.SportId == classEntity.SportId, cancellationToken);
+        if (!hasSpecialization)
+            throw new InvalidOperationException(
+                $"Huấn luyện viên {coachProfile.FullName} không có chuyên môn '{sport?.Name ?? "không xác định"}' của lớp.")
+            { Data = { ["StatusCode"] = 409, ["Code"] = "COACH_SPECIALIZATION_MISMATCH" } };
 
-        // Lấy danh sách lịch học tươi từ DB cho lớp cần phân công
+        // A draft class may be assigned a coach before its first schedule is created.
+        // When schedules are later added/changed, ClassManagementService performs the
+        // same conflict/leave checks against every coach already assigned to the class.
         var targetSchedules = await unitOfWork.Repository<ClassSchedule>()
             .Find(s => s.ClassId == classId && s.Status == "Active")
             .ToListAsync(cancellationToken);
-        if (targetSchedules.Count == 0)
-        {
-            throw new InvalidOperationException("Lớp học cần có lịch dạy đang hoạt động trước khi phân công HLV.");
-        }
 
         // Lấy danh sách các lớp khác mà HLV này đang phụ trách
         var otherClassIds = await unitOfWork.Repository<ClassCoach>()
@@ -115,6 +109,27 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
 
         // 1. Kiểm tra tổng giờ dạy theo từng ngày trong mọi khoảng ngày lịch lặp có hiệu lực.
         EnsureDailyTeachingLimit(targetSchedules, existingSchedules, coachProfile.FullName);
+
+        // Schedules created before a coach was assigned may overlap each other (for example,
+        // when they use different rooms). A coach still cannot teach both at the same time.
+        for (var leftIndex = 0; leftIndex < targetSchedules.Count; leftIndex++)
+        {
+            for (var rightIndex = leftIndex + 1; rightIndex < targetSchedules.Count; rightIndex++)
+            {
+                var left = targetSchedules[leftIndex];
+                var right = targetSchedules[rightIndex];
+                if (left.DayOfWeek == right.DayOfWeek
+                    && left.StartTime < right.EndTime && left.EndTime > right.StartTime
+                    && DateRangesOverlap(left.StartDate, left.EndDate, right.StartDate, right.EndDate))
+                {
+                    throw new InvalidOperationException(
+                        $"Không thể phân công HLV {coachProfile.FullName}: lớp đang có hai lịch học trùng nhau.")
+                    {
+                        Data = { ["StatusCode"] = 409, ["Code"] = "CM-04" }
+                    };
+                }
+            }
+        }
 
         // 2. Kiểm tra xung đột trùng lịch dạy (Schedule Overlap Check)
         if (targetSchedules.Count > 0 && existingSchedules.Count > 0)
@@ -159,6 +174,15 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
                 assignment.IsPrimary = false;
         }
 
+        if (request.IsPrimary && request.ReplacePrimary)
+        {
+            foreach (var formerPrimary in assignments.Where(cc => cc.CoachId != request.CoachId &&
+                         previousAssignments.Any(previous => previous.CoachId == cc.CoachId && previous.IsPrimary)))
+            {
+                unitOfWork.Repository<ClassCoach>().Remove(formerPrimary);
+            }
+        }
+
         var today = ScheduleTime.VietnamToday;
         if (existingClassCoach is null)
         {
@@ -190,7 +214,7 @@ public sealed class ClassService(IUnitOfWork unitOfWork) : IClassService
             session.CoachId = primaryCoachId;
 
         AuditLogWriter.Add(unitOfWork, actorUserId, classEntity.CenterId, "CLASS_COACH.ASSIGNED", "Class", classId,
-            previousAssignments, new { CoachId = coachProfile.Id, coachProfile.FullName, request.IsPrimary });
+            previousAssignments, new { CoachId = coachProfile.Id, coachProfile.FullName, request.IsPrimary, request.ReplacePrimary });
         await unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 

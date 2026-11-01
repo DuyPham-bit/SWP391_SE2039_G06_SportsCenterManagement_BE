@@ -47,6 +47,23 @@ public sealed record RevenuePeriod(
     decimal Gross,
     decimal Refunds,
     decimal Net);
+
+public sealed record SportRevenueReportResponse(
+    long CenterId,
+    DateOnly From,
+    DateOnly To,
+    decimal Net,
+    decimal AllocatedNet,
+    decimal UnallocatedNet,
+    IReadOnlyList<SportRevenueItem> Sports);
+
+public sealed record SportRevenueItem(
+    long? SportId,
+    string SportName,
+    decimal Gross,
+    decimal Refunds,
+    decimal Net,
+    decimal Share);
 }
 
 namespace SportsCenterManagement.BLL.DTOs.CoreFlows
@@ -68,9 +85,23 @@ public sealed record MembershipReportResponse(
     int TotalMembers,
     int ActiveMembers,
     int NewMembers,
-    IReadOnlyList<MembershipReportPeriod> Periods);
+    IReadOnlyList<MembershipReportPeriod> Periods,
+    int ExpiredMembers = 0,
+    int InactiveMembers = 0,
+    IReadOnlyList<MembershipPackageStatsItem>? Packages = null,
+    int MembersWithPackage = 0,
+    int MembersWithoutPackage = 0);
 
 public sealed record MembershipReportPeriod(DateOnly PeriodStart, int NewMembers);
+
+public sealed record MembershipPackageStatsItem(
+    long Id,
+    string Name,
+    decimal Price,
+    int DurationDays,
+    int ActiveSubscribers,
+    int SoldInPeriod,
+    decimal RevenueInPeriod);
 }
 
 namespace SportsCenterManagement.BLL.DTOs.CoreFlows
@@ -87,4 +118,72 @@ public sealed record ClassEnrollmentReportResponse(
 public sealed record ClassEnrollmentReportPeriod(
     DateOnly PeriodStart,
     IReadOnlyDictionary<string, int> StatusCounts);
+
+public sealed record OperationsReportResponse(
+    long CenterId,
+    DateOnly From,
+    DateOnly To,
+    int TotalStaff,
+    int ActiveStaff,
+    int ManagerCount,
+    int CoachCount,
+    int ReceptionistCount,
+    int TotalClasses,
+    int ActiveClasses,
+    int TotalRooms,
+    int ActiveRooms,
+    int SessionsCount,
+    int BookedSeats,
+    int CapacitySeats,
+    decimal OccupancyRate,
+    IReadOnlyList<OperationalClassItem> Classes,
+    IReadOnlyList<OperationalSportItem> Sports,
+    IReadOnlyList<OperationalRoomItem> Rooms,
+    IReadOnlyList<OperationalCoachItem>? Coaches = null);
+
+public sealed record OperationalCoachItem(
+    long Id,
+    string FullName,
+    string? CoachCode,
+    string? Specialization,
+    string Status,
+    int ClassesCount,
+    int SessionsCount,
+    int Booked,
+    int Capacity,
+    decimal OccupancyRate);
+
+public sealed record OperationalClassItem(
+    long Id,
+    string Name,
+    string SportName,
+    string? CoachName,
+    string? RoomName,
+    int SessionsCount,
+    int Booked,
+    int Capacity,
+    decimal OccupancyRate);
+
+public sealed record OperationalSportItem(
+    long Id,
+    string Name,
+    int SessionsCount,
+    int ClassesCount,
+    int Booked,
+    int Capacity,
+    decimal OccupancyRate,
+    decimal BookingShare);
+
+public sealed record OperationalRoomItem(
+    long Id,
+    string Name,
+    string? Type,
+    string? Location,
+    int UnitCapacity,
+    int SessionsCount,
+    int ClassesCount,
+    int Booked,
+    int Capacity,
+    decimal OccupancyRate,
+    IReadOnlyList<string> ClassNames);
 }

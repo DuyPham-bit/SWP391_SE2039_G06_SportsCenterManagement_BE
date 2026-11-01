@@ -3,11 +3,13 @@ using Microsoft.AspNetCore.Mvc;
 using SportsCenterManagement.API.Authorization;
 using SportsCenterManagement.BLL.DTOs.Support;
 using SportsCenterManagement.BLL.Services;
+using SportsCenterManagement.API.Filters;
 
 namespace SportsCenterManagement.API.Controllers;
 
 [Authorize(Roles = "RECEPTIONIST,MANAGER")]
 [CenterCapability("lookup_member")]
+[FlowExceptionFilter]
 public sealed class SupportRequestsController(SupportRequestService service) : FlowControllerBase
 {
     [HttpGet("centers/{centerId:long}/support-requests")]
@@ -20,10 +22,12 @@ public sealed class SupportRequestsController(SupportRequestService service) : F
         Ok(await service.Get(CurrentUserId, centerId, id, ct));
 
     [HttpPost("centers/{centerId:long}/support-requests")]
+    [Authorize(Roles = "RECEPTIONIST")]
     public async Task<ActionResult<SupportDetails>> Create(long centerId, CreateSupportRequest body, CancellationToken ct) =>
         Ok(await service.Create(CurrentUserId, centerId, body, ct));
 
     [HttpPatch("centers/{centerId:long}/support-requests/{id:long}")]
     public async Task<ActionResult<SupportDetails>> Update(long centerId, long id, UpdateSupportRequest body, CancellationToken ct) =>
         Ok(await service.Update(CurrentUserId, centerId, id, body, ct));
+
 }

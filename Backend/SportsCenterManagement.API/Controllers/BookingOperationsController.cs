@@ -2,15 +2,15 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.API.Authorization;
-using SportsCenterManagement.BLL.Exceptions;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
+using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace SportsCenterManagement.API.Controllers;
 
 [Authorize]
-public sealed class BookingOperationsController(SportsCenterDbContext db, ISessionBookingService bookings) : FlowControllerBase
+public sealed class BookingOperationsController(SportsCenterDbContext db, ISessionBookingService bookings) : FlowControllerBase, IAsyncActionFilter
 {
     [Authorize(Roles = "RECEPTIONIST,MANAGER,ADMIN")]
     [HttpGet("members/{memberId:long}/session-bookings")]
@@ -25,7 +25,7 @@ public sealed class BookingOperationsController(SportsCenterDbContext db, ISessi
     {
         var userId = await MemberUser(memberId, ct);
         var classId = await db.ClassSessions.Where(s => s.Id == sessionId).Select(s => (long?)s.ClassId).SingleOrDefaultAsync(ct)
-            ?? throw FlowException.NotFound("Không tìm thấy buổi học.");
+            ?? throw new InvalidOperationException("Không tìm thấy buổi học.") { Data = { ["StatusCode"] = 404 } };
         await CenterScope.EnsureClassAccessAsync(db, User, classId, ct);
         var result = await bookings.BookSessionAsync(userId, sessionId, ct, CurrentUserId);
         return StatusCode(result.Booked ? 201 : 202, result);
@@ -39,7 +39,7 @@ public sealed class BookingOperationsController(SportsCenterDbContext db, ISessi
         var userId = await MemberUser(memberId, ct);
         var classId = await (from b in db.SessionBookings join s in db.ClassSessions on b.SessionId equals s.Id
             where b.Id == bookingId && b.MemberId == memberId select (long?)s.ClassId).SingleOrDefaultAsync(ct)
-            ?? throw FlowException.NotFound("Không tìm thấy lượt đặt của hội viên.");
+            ?? throw new InvalidOperationException("Không tìm thấy lượt đặt của hội viên.") { Data = { ["StatusCode"] = 404 } };
         await CenterScope.EnsureClassAccessAsync(db, User, classId, ct);
         return Ok(await bookings.CancelBookingAsync(userId, bookingId, ct, CurrentUserId));
     }
@@ -62,8 +62,8 @@ public sealed class BookingOperationsController(SportsCenterDbContext db, ISessi
         await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
         var memberId = await db.MemberProfiles.Where(m => m.UserId == CurrentUserId).Select(m => m.Id).SingleAsync(ct);
         var entry = await db.ClassWaitlists.SingleOrDefaultAsync(w => w.Id == waitlistId && w.MemberId == memberId, ct)
-            ?? throw FlowException.NotFound("Không tìm thấy lượt chờ.");
-        if (entry.Status != "Waiting") throw FlowException.Conflict("Lượt chờ đã được xử lý, vui lòng tải lại lịch.");
+            ?? throw new InvalidOperationException("Không tìm thấy lượt chờ.") { Data = { ["StatusCode"] = 404 } };
+        if (entry.Status != "Waiting") throw new InvalidOperationException("Lượt chờ đã được xử lý, vui lòng tải lại lịch.") { Data = { ["StatusCode"] = 409 } };
         entry.Status = "Cancelled";
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
@@ -76,11 +76,18 @@ public sealed class BookingOperationsController(SportsCenterDbContext db, ISessi
     public async Task<IActionResult> Roster(long sessionId, CancellationToken ct)
     {
         await EnsureCoach(sessionId, ct);
-        return Ok(await (from b in db.SessionBookings join m in db.MemberProfiles on b.MemberId equals m.Id
+        var classId = await db.ClassSessions.Where(s => s.Id == sessionId).Select(s => s.ClassId).SingleAsync(ct);
+        return Ok(await (from m in db.MemberProfiles
             join u in db.Users on m.UserId equals u.Id
-            where b.SessionId == sessionId && b.Status == "Booked"
+            where u.Status == "Active" &&
+                (db.SessionBookings.Any(b => b.SessionId == sessionId && b.MemberId == m.Id && b.Status == "Booked") ||
+                 db.ClassEnrollments.Any(e => e.ClassId == classId && e.MemberId == m.Id &&
+                    (e.Status == "Active" || e.Status == "Confirmed" || e.Status == "Enrolled")))
             orderby m.FullName
-            select new { BookingId = b.Id, MemberId = m.Id, MemberName = m.FullName, m.MemberCode,
+            select new {
+                BookingId = db.SessionBookings.Where(b => b.SessionId == sessionId && b.MemberId == m.Id && b.Status == "Booked")
+                    .Select(b => (long?)b.Id).FirstOrDefault(),
+                MemberId = m.Id, MemberName = m.FullName, m.MemberCode,
                 u.Email, u.Phone, m.FitnessGoal, m.FitnessLevel,
                 AttendanceStatus = db.Attendances.Where(a => a.SessionId == sessionId && a.MemberId == m.Id).Select(a => a.AttendanceStatus).FirstOrDefault(),
                 Note = db.Attendances.Where(a => a.SessionId == sessionId && a.MemberId == m.Id).Select(a => a.Note).FirstOrDefault()
@@ -96,15 +103,25 @@ public sealed class BookingOperationsController(SportsCenterDbContext db, ISessi
     {
         if (records.Length == 0 || records.Length > 1000 || records.Select(r => r.MemberId).Distinct().Count() != records.Length
             || records.Any(r => r.Status is not ("PRESENT" or "ABSENT" or "LATE" or "EXCUSED") || r.Note?.Length > 500))
-            throw FlowException.BadRequest("Danh sách điểm danh không hợp lệ.");
+            throw new InvalidOperationException("Danh sách điểm danh không hợp lệ.") { Data = { ["StatusCode"] = 400 } };
         await using var tx = await db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
         await EnsureCoach(sessionId, ct);
         var session = await db.ClassSessions.SingleAsync(s => s.Id == sessionId, ct);
-        if (session.SessionStatus == "Cancelled" || session.SessionDate.ToDateTime(session.StartTime) > DateTime.UtcNow.AddHours(7))
-            throw FlowException.Conflict("Chỉ điểm danh khi buổi học đã bắt đầu và không bị hủy.");
+        var vietnamNow = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).DateTime;
+        if (string.Equals(session.SessionStatus, "Cancelled", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Chỉ điểm danh khi buổi học đã bắt đầu và không bị hủy.") { Data = { ["StatusCode"] = 409 } };
+        if (session.SessionDate < DateOnly.FromDateTime(vietnamNow))
+            throw new InvalidOperationException("Buổi học đã qua ngày nên không thể sửa điểm danh.") { Data = { ["StatusCode"] = 409 } };
+        if (session.SessionDate.ToDateTime(session.StartTime) > vietnamNow)
+            throw new InvalidOperationException("Chỉ điểm danh khi buổi học đã bắt đầu và không bị hủy.") { Data = { ["StatusCode"] = 409 } };
         var ids = records.Select(r => r.MemberId).ToArray();
-        var eligible = await db.SessionBookings.Where(b => b.SessionId == sessionId && b.Status == "Booked" && ids.Contains(b.MemberId)).Select(b => b.MemberId).ToListAsync(ct);
-        if (eligible.Count != records.Length) throw FlowException.BadRequest("Có học viên không đăng ký buổi học này.");
+        var eligible = await db.MemberProfiles.Where(m => ids.Contains(m.Id) &&
+            db.Users.Any(u => u.Id == m.UserId && u.Status == "Active") &&
+            (db.SessionBookings.Any(b => b.SessionId == sessionId && b.MemberId == m.Id && b.Status == "Booked") ||
+             db.ClassEnrollments.Any(e => e.ClassId == session.ClassId && e.MemberId == m.Id &&
+                (e.Status == "Active" || e.Status == "Confirmed" || e.Status == "Enrolled"))))
+            .Select(m => m.Id).ToListAsync(ct);
+        if (eligible.Count != records.Length) throw new InvalidOperationException("Có học viên không đăng ký buổi học này.") { Data = { ["StatusCode"] = 400 } };
         var existing = await db.Attendances.Where(a => a.SessionId == sessionId && ids.Contains(a.MemberId)).ToDictionaryAsync(a => a.MemberId, ct);
         foreach (var r in records)
         {
@@ -125,18 +142,40 @@ public sealed class BookingOperationsController(SportsCenterDbContext db, ISessi
     private async Task<long> MemberUser(long memberId, CancellationToken ct)
     {
         var member = await db.MemberProfiles.SingleOrDefaultAsync(m => m.Id == memberId, ct)
-            ?? throw FlowException.NotFound("Không tìm thấy hội viên.");
-        if (member.CenterId is not { } centerId) throw FlowException.Forbidden("Hội viên chưa được gán trung tâm.");
+            ?? throw new InvalidOperationException("Không tìm thấy hội viên.") { Data = { ["StatusCode"] = 404 } };
+        if (member.CenterId is not { } centerId) throw new InvalidOperationException("Hội viên chưa được gán trung tâm.") { Data = { ["StatusCode"] = 403 } };
         await CenterScope.EnsureCenterAccessAsync(db, User, centerId, ct);
         return member.UserId;
     }
 
     private async Task EnsureCoach(long sessionId, CancellationToken ct)
     {
-        if (!await (from s in db.ClassSessions join c in db.Classes on s.ClassId equals c.Id
-            join a in db.ClassCoaches on c.Id equals a.ClassId join coach in db.CoachProfiles on a.CoachId equals coach.Id
-            where s.Id == sessionId && coach.UserId == CurrentUserId && coach.Status == "Active" && coach.CenterId == c.CenterId
+        if (!await (from s in db.ClassSessions
+            join c in db.Classes on s.ClassId equals c.Id
+            join coach in db.CoachProfiles on c.CenterId equals coach.CenterId
+            where s.Id == sessionId && coach.UserId == CurrentUserId && coach.Status == "Active" &&
+                (s.CoachId == coach.Id || (s.CoachId == null &&
+                    db.ClassCoaches.Any(a => a.ClassId == c.Id && a.CoachId == coach.Id)))
             select s.Id).AnyAsync(ct))
-            throw FlowException.Forbidden("Bạn không được phân công phụ trách buổi học này.");
+            throw new InvalidOperationException("Bạn không được phân công phụ trách buổi học này.") { Data = { ["StatusCode"] = 403 } };
+    }
+
+    [NonAction]
+    public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
+    {
+        var executed = await next();
+        // Only tagged business failures are mapped here; unexpected errors remain available to the middleware.
+        if (executed.ExceptionHandled || executed.Exception is not InvalidOperationException exception ||
+            exception.Data["StatusCode"] is not int statusCode) return;
+
+        executed.Result = new ObjectResult(new
+        {
+            code = exception.Data["Code"] as string,
+            message = exception.Message,
+            detail = exception.Message,
+            proposedHandling = exception.Data["ProposedHandling"] as string,
+            isDraftPolicy = exception.Data["IsDraftPolicy"] is true
+        }) { StatusCode = statusCode };
+        executed.ExceptionHandled = true;
     }
 }

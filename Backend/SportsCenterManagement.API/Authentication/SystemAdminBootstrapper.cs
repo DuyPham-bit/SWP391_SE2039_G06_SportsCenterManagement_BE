@@ -10,16 +10,22 @@ using SportsCenterManagement.DAL.Entities;
 
 namespace SportsCenterManagement.API.Authentication;
 
-public static class SystemAdminBootstrapper
+public static class AdminBootstrapper
 {
     public static async Task SeedAsync(SportsCenterDbContext db, IConfiguration configuration)
     {
-        var usernameSetting = configuration["Bootstrap:SystemAdmin:Username"];
-        var emailSetting = configuration["Bootstrap:SystemAdmin:Email"];
-        var password = configuration["Bootstrap:SystemAdmin:Password"];
+        // SystemAdmin keys are accepted only as a one-release migration path for existing deployments.
+        var usernameSetting = configuration["Bootstrap:Admin:Username"] ?? configuration["Bootstrap:SystemAdmin:Username"];
+        var emailSetting = configuration["Bootstrap:Admin:Email"] ?? configuration["Bootstrap:SystemAdmin:Email"];
+        var password = configuration["Bootstrap:Admin:Password"] ?? configuration["Bootstrap:SystemAdmin:Password"];
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
-        var adminRole = await db.Roles.SingleAsync(role => role.Name == RoleNames.SystemAdmin);
-        if (await db.Users.AnyAsync(user => user.RoleId == adminRole.Id))
+        var adminRole = await db.Roles.SingleAsync(role => role.Name == RoleNames.Admin);
+        var adminCount = await db.Users.CountAsync(user => user.RoleId == adminRole.Id);
+        if (adminCount > 1)
+        {
+            throw new InvalidOperationException("Hệ thống chỉ cho phép đúng một tài khoản Admin. Hãy vô hiệu hóa hoặc chuyển vai trò các tài khoản dư thừa.");
+        }
+        if (adminCount == 1)
         {
             await transaction.CommitAsync();
             return;
@@ -27,14 +33,14 @@ public static class SystemAdminBootstrapper
         if (usernameSetting is null && emailSetting is null && password is null)
         {
             throw new InvalidOperationException(
-                "No SystemAdmin account exists. Configure Bootstrap:SystemAdmin:Username, Email, and Password for first startup.");
+                "No Admin account exists. Configure Bootstrap:Admin:Username, Email, and Password for first startup.");
         }
         if (string.IsNullOrWhiteSpace(usernameSetting)
             || string.IsNullOrWhiteSpace(emailSetting)
             || string.IsNullOrWhiteSpace(password))
         {
             throw new InvalidOperationException(
-                "Configure Bootstrap:SystemAdmin:Username, Email, and Password together to create the first SystemAdmin.");
+                "Configure Bootstrap:Admin:Username, Email, and Password together to create the first Admin.");
         }
 
         var username = usernameSetting.Trim().ToLowerInvariant();
@@ -43,12 +49,12 @@ public static class SystemAdminBootstrapper
         if (!Regex.IsMatch(username, @"^[a-z0-9._-]{3,100}$")
             || !new EmailAddressAttribute().IsValid(email))
         {
-            throw new InvalidOperationException("The bootstrap SystemAdmin username or email is invalid.");
+            throw new InvalidOperationException("The bootstrap Admin username or email is invalid.");
         }
 
         if (await db.Users.AnyAsync(user => user.Username == username || user.Email == email))
         {
-            throw new InvalidOperationException("The bootstrap SystemAdmin username or email is already in use.");
+            throw new InvalidOperationException("The bootstrap Admin username or email is already in use.");
         }
 
         var admin = new User
@@ -64,10 +70,10 @@ public static class SystemAdminBootstrapper
         await db.SaveChangesAsync();
         db.AuditLogs.Add(new AuditLog
         {
-            Action = "system-admin.bootstrapped",
+            Action = "admin.bootstrapped",
             EntityType = "User",
             EntityId = admin.Id,
-            NewValues = JsonSerializer.Serialize(new { Role = RoleNames.SystemAdmin }),
+            NewValues = JsonSerializer.Serialize(new { Role = RoleNames.Admin }),
             CreatedAt = DateTime.UtcNow
         });
         await db.SaveChangesAsync();
@@ -76,14 +82,14 @@ public static class SystemAdminBootstrapper
 
     private static void ValidatePassword(string password)
     {
-        if (password.Length < 6
+        if (password.Length < 12
             || !Regex.IsMatch(password, "[A-Z]")
             || !Regex.IsMatch(password, "[a-z]")
             || !Regex.IsMatch(password, "[0-9]")
             || !Regex.IsMatch(password, "[^a-zA-Z0-9]"))
         {
             throw new InvalidOperationException(
-                "The bootstrap SystemAdmin password must be at least 6 characters and contain upper/lowercase letters, a number, and a symbol.");
+                "The bootstrap Admin password must be at least 12 characters and contain upper/lowercase letters, a number, and a symbol.");
         }
     }
 }

@@ -10,6 +10,8 @@ public static class PasswordPolicy
             return "Mật khẩu phải có từ 6 đến 128 ký tự.";
         if (password.Any(char.IsWhiteSpace))
             return "Mật khẩu không được chứa khoảng trắng.";
+        if (password.Any(character => character < 0x20 || character > 0x7E))
+            return "Mật khẩu chỉ nhận chữ không dấu, số và ký hiệu ASCII. Không dùng tiếng Việt có dấu hoặc emoji.";
         if (!password.Any(char.IsUpper) || !password.Any(char.IsLower)
             || !password.Any(char.IsDigit) || password.All(char.IsLetterOrDigit))
             return "Mật khẩu phải gồm chữ hoa, chữ thường, số và ký tự đặc biệt.";

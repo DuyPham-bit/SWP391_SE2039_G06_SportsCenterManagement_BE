@@ -23,10 +23,18 @@ public sealed class JwtAccountValidator(SportsCenterDbContext db)
         var account = await (from user in db.Users.AsNoTracking()
             join role in db.Roles on user.RoleId equals role.Id
             where user.Id == userId
-            select new { user.Status, user.LockedUntil, Role = role.Name }).SingleOrDefaultAsync(ct);
+            select new { user.Status, user.LockedUntil, user.AuthVersion, Role = role.Name }).SingleOrDefaultAsync(ct);
         if (account is null || account.Status != "Active" || account.LockedUntil > DateTime.UtcNow)
         {
             context.Fail("Tài khoản không hoạt động.");
+            return;
+        }
+
+        // Legacy tokens represent version zero; password changes revoke every older login.
+        if (!int.TryParse(principal.FindFirstValue("auth_version") ?? "0", out var version)
+            || version != account.AuthVersion)
+        {
+            context.Fail("Phiên đăng nhập đã bị thu hồi.");
             return;
         }
 

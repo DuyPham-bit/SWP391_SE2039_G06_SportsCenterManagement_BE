@@ -49,8 +49,8 @@ npm test
 npm run build
 
 # Từ workspace root; output riêng tránh khóa executable của API đang chạy.
-dotnet build Backend/Backend/SportsCenterManagement.API/SportsCenterManagement.API.csproj --no-restore -o .validation/backend
-dotnet run --project Backend/Backend/tests/Flow2.Regression/Flow2.Regression.csproj
+dotnet build Backend/SportsCenterManagement.API/SportsCenterManagement.API.csproj --no-restore -o .validation/backend
+dotnet run --project Backend/tests/Flow2.Regression/Flow2.Regression.csproj
 ```
 
 FE tests dùng HTTP mock để kiểm tra hợp đồng request/response, phân trang, ID, waitlist, hủy muộn và route phân quyền trung tâm. BE regression kiểm tra validation ngày/pagination và ranh giới capability. Đây không phải bằng chứng transaction/concurrency hay E2E với SQL Server.

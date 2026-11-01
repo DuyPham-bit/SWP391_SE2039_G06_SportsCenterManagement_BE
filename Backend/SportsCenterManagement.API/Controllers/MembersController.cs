@@ -39,10 +39,12 @@ public sealed class MembersController(IMemberService memberService, ICoreFlowSer
         [FromQuery] string? query,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
+        [FromQuery] string sortBy = "default",
+        [FromQuery] string sortDirection = "asc",
         CancellationToken cancellationToken = default)
     {
         return await Run(async () => Ok(await memberService.SearchAtCenterAsync(
-            GetUserId(), centerId, query ?? string.Empty, page, pageSize, cancellationToken)));
+            GetUserId(), centerId, query ?? string.Empty, page, pageSize, sortBy, sortDirection, cancellationToken)));
     }
 
     [HttpPost("centers/{centerId:long}/members")]
@@ -62,7 +64,7 @@ public sealed class MembersController(IMemberService memberService, ICoreFlowSer
     public async Task<IActionResult> UpdateAtCenter(
         long centerId,
         long memberId,
-        MembersRequests.UpdateMemberProfileRequest request,
+        MembersRequests.UpdateMemberAtCenterRequest request,
         CancellationToken cancellationToken)
     {
         return await Run(async () => Ok(await memberService.UpdateAtCenterAsync(
@@ -130,13 +132,13 @@ public sealed class MembersController(IMemberService memberService, ICoreFlowSer
         {
             return await action();
         }
-        catch (UnauthorizedAccessException)
+        catch (UnauthorizedAccessException exception)
         {
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = exception.Message });
         }
-        catch (KeyNotFoundException)
+        catch (KeyNotFoundException exception)
         {
-            return NotFound();
+            return NotFound(new { message = exception.Message });
         }
         catch (ValidationException exception)
         {

@@ -9,10 +9,65 @@ Dự án dùng Google Identity Services để đăng nhập và Gemini 3.5 Flash
 3. Từ workspace root, lưu key ở backend:
 
 ```powershell
-dotnet user-secrets set "AI:ApiKey" "DAN_API_KEY_CUA_BAN" --project Backend/Backend/SportsCenterManagement.API
+dotnet user-secrets set "AI:ApiKey" "DAN_API_KEY_CUA_BAN" --project Backend/SportsCenterManagement.API
 ```
 
-Model mặc định là `gemini-3.5-flash-lite`; có thể đổi `AI:Model` qua User Secrets khi model thay đổi. Kiểm tra ngày 11/10/2026: `gemini-2.5-flash-lite` trả 404 cho tài khoản mới; `gemini-3.5-flash-lite` có Free Tier và đã trả lời thành công qua API `generateContent`. Không đặt key vào `VITE_*`, frontend hoặc Git. Free Tier có thể dùng dữ liệu gửi lên để cải thiện sản phẩm; dùng dữ liệu giả cho môn học, không gửi hồ sơ sức khỏe thật.
+Model đang được backend sử dụng là `gemini-3.5-flash-lite`. Nếu cần đổi model, cập nhật hằng `GeminiService.ModelName` và kiểm thử lại API; cấu hình `AI:Model` hiện chưa được mã nguồn đọc. Kiểm tra ngày 23/10/2026: `gemini-3.5-flash-lite` đã trả lời thành công qua API `generateContent`. Không đặt key vào `VITE_*`, frontend hoặc Git. Free Tier có thể dùng dữ liệu gửi lên để cải thiện sản phẩm; dùng dữ liệu giả cho môn học, không gửi hồ sơ sức khỏe thật.
+
+### Cấu hình lại sau khi clone trên máy khác
+
+User Secrets không được lưu trong repository và không tự đi theo lệnh `git clone`. Mỗi máy phát triển cần có .NET SDK 10 và tự lưu API key của mình từ thư mục gốc repository:
+
+```powershell
+dotnet user-secrets set "AI:ApiKey" "DAN_API_KEY_CUA_BAN" --project Backend/SportsCenterManagement.API/SportsCenterManagement.API.csproj
+dotnet user-secrets list --project Backend/SportsCenterManagement.API/SportsCenterManagement.API.csproj
+dotnet run --project Backend/SportsCenterManagement.API/SportsCenterManagement.API.csproj
+```
+
+Lệnh `list` chỉ dùng để kiểm tra trên máy cá nhân; không chụp màn hình, gửi log hoặc dán kết quả có key vào issue/chat. Sau khi backend khởi động, kiểm tra `http://localhost:54162/api/health` hoặc cổng được in trong terminal. Frontend chạy riêng bằng `npm.cmd run dev -- --host 127.0.0.1` trong thư mục `Frontend`.
+
+### Chạy bằng Docker Compose
+
+Sao chép `docker/.env.example` thành `docker/.env`, sau đó điền key thật vào file local:
+
+```dotenv
+AI_API_KEY=DAN_API_KEY_CUA_BAN
+```
+
+`docker/.env` khớp quy tắc `*.env` trong `.gitignore`, còn `docker/.env.example` chỉ chứa tên biến và được phép commit. Compose chuyển biến này vào ASP.NET Core dưới tên `AI__ApiKey`; dấu `__` được .NET ánh xạ thành `AI:ApiKey`.
+
+```powershell
+docker compose -f docker/docker-compose.yml --env-file docker/.env up -d --build
+```
+
+### GitHub Actions hoặc máy chủ triển khai
+
+Tạo GitHub Actions repository secret tên `AI_API_KEY` tại **Settings → Secrets and variables → Actions**. Trong workflow, truyền secret vào tiến trình backend bằng biến môi trường:
+
+```yaml
+env:
+  AI__ApiKey: ${{ secrets.AI_API_KEY }}
+```
+
+Nếu triển khai trực tiếp lên Render, Railway, Azure, VPS hoặc dịch vụ tương tự, đặt biến môi trường `AI__ApiKey` trong phần cấu hình của dịch vụ. Không tạo key trong file `appsettings.json`, không ghi key thật vào `.env.example`, và không đưa key vào image Docker hoặc biến `VITE_*` vì các biến frontend sẽ bị công khai trong bundle trình duyệt.
+
+### Credential Google Drive cho thư viện media
+
+`GoogleDrive:ClientSecret` và `GoogleDrive:RefreshToken` cũng không được lưu trong Git. Máy cần dùng upload Google Drive phải cấu hình riêng:
+
+```powershell
+dotnet user-secrets set "GoogleDrive:ClientSecret" "CLIENT_SECRET_CUA_BAN" --project Backend/SportsCenterManagement.API/SportsCenterManagement.API.csproj
+dotnet user-secrets set "GoogleDrive:RefreshToken" "REFRESH_TOKEN_CUA_BAN" --project Backend/SportsCenterManagement.API/SportsCenterManagement.API.csproj
+```
+
+Với Docker, đặt hai giá trị tương ứng trong `docker/.env`:
+
+```dotenv
+GOOGLE_DRIVE_CLIENT_SECRET=CLIENT_SECRET_CUA_BAN
+GOOGLE_DRIVE_REFRESH_TOKEN=REFRESH_TOKEN_CUA_BAN
+```
+
+Trên máy chủ có thể đặt trực tiếp `GoogleDrive__ClientSecret` và `GoogleDrive__RefreshToken`. Nếu credential từng xuất hiện trong commit hoặc nơi công khai, phải thu hồi/tạo lại tại Google Cloud trước khi sử dụng.
 
 Nguồn: [bảng giá Gemini](https://ai.google.dev/gemini-api/docs/pricing), [quản lý API key](https://ai.google.dev/gemini-api/docs/api-key). Giá/quota có thể thay đổi.
 
@@ -28,7 +83,7 @@ $googleClientId = (Read-Host 'Dán OAuth Web Client ID thực tế từ Google C
 if ($googleClientId -notmatch '^\d+-[a-zA-Z0-9_-]+\.apps\.googleusercontent\.com$') {
     throw 'Client ID chưa hợp lệ. Không nhập giá trị mẫu CLIENT_ID.apps.googleusercontent.com.'
 }
-dotnet user-secrets set "Google:ClientId" $googleClientId --project Backend/Backend/SportsCenterManagement.API
+dotnet user-secrets set "Google:ClientId" $googleClientId --project Backend/SportsCenterManagement.API
 ```
 
 Trong `Frontend/.env.local`:

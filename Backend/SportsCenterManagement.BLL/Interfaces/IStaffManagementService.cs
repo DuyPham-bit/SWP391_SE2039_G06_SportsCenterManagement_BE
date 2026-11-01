@@ -11,6 +11,8 @@ public interface IStaffManagementService
         string? query,
         int page,
         int pageSize,
+        string sortBy,
+        string sortDirection,
         CancellationToken cancellationToken = default);
 
     Task<StaffResponses.CenterStaffResponse> CreateAtCenterAsync(

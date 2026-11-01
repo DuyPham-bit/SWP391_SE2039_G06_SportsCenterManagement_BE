@@ -35,8 +35,31 @@ public sealed class PaymentRefund : BaseEntity
     [Column("reason")]
     public string Reason { get; set; } = null!;
 
+    [MaxLength(100)]
+    [Column("bank_name")]
+    public string? BankName { get; set; }
+
+    [MaxLength(50)]
+    [Column("bank_account_number")]
+    public string? BankAccountNumber { get; set; }
+
+    [MaxLength(150)]
+    [Column("bank_account_name")]
+    public string? BankAccountName { get; set; }
+
     [Column("requested_by")]
     public long RequestedBy { get; set; }
+
+    [Column("reviewed_by")]
+    public long? ReviewedBy { get; set; }
+
+    [MaxLength(1000)]
+    [Column("review_note")]
+    public string? ReviewNote { get; set; }
+
+    [MaxLength(1000)]
+    [Column("transfer_proof_url")]
+    public string? TransferProofUrl { get; set; }
 
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }

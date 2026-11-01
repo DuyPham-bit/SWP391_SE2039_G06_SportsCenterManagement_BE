@@ -36,6 +36,16 @@ public sealed class ReportsController(IReportService reportService) : Controller
         return Ok(report);
     }
 
+    [HttpGet("revenue-by-sport")]
+    public async Task<ActionResult<SportRevenueReportResponse>> GetRevenueBySport(
+        [FromQuery] DateOnly from, [FromQuery] DateOnly to,
+        [FromQuery] long? centerId = null, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCenterScope(centerId, out var scopedCenterId)) return CenterScopeFailure();
+        return Ok(await reportService.GetSportRevenueReportAsync(
+            scopedCenterId, from, to, cancellationToken));
+    }
+
     [HttpGet("membership")]
     [ProducesResponseType(typeof(MembershipReportResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MembershipReportResponse>> GetMembership(
@@ -60,6 +70,18 @@ public sealed class ReportsController(IReportService reportService) : Controller
     {
         if (!TryGetCenterScope(centerId, out var scopedCenterId)) return CenterScopeFailure();
         return Ok(await reportService.GetClassEnrollmentReportAsync(scopedCenterId, from, to, groupBy, cancellationToken));
+    }
+
+    [HttpGet("operations")]
+    [ProducesResponseType(typeof(OperationsReportResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<OperationsReportResponse>> GetOperations(
+        [FromQuery] DateOnly from,
+        [FromQuery] DateOnly to,
+        [FromQuery] long? centerId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCenterScope(centerId, out var scopedCenterId)) return CenterScopeFailure();
+        return Ok(await reportService.GetOperationsReportAsync(scopedCenterId, from, to, cancellationToken));
     }
 
     private bool TryGetCenterScope(long? requestedCenterId, out long scopedCenterId)

@@ -70,7 +70,6 @@
 
 ### 🟡 ĐANG LÀM / CHỜ GHÉP (IN PROGRESS)
 - [ ] **Ghép nối Frontend `CounterMembership.jsx`:** Kết nối API `counter-checkout` và in hóa đơn `window.print()`.
-- [ ] **Đăng ký tài khoản PayOS (my.payos.vn) & Điền API Keys thực tế:** Cập nhật `ClientId`, `ApiKey`, `ChecksumKey` vào `appsettings.json`.
 - [ ] **Kết nối Frontend `MemberPackages.jsx` ➔ Backend:**
   - Ghép API `paymentApi.createVnpayUrl` / `paymentApi.createMomoUrl` / `paymentApi.createVietQr` và điều hướng sang `paymentUrl` / hiển thị QR modal.
   - Trang nhận kết quả `PaymentResult.jsx` gọi callback API.

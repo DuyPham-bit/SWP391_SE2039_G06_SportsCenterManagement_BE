@@ -447,26 +447,23 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
                 {
                     continue;
                 }
+                var package = await _unitOfWork.Repository<MembershipPackage>().Find(item => item.Id == subscription.PackageId)
+                    .SingleAsync(cancellationToken);
                 var durationDays = subscription.DurationDays;
                 if (durationDays <= 0)
                 {
-                    var package = await _unitOfWork.Repository<MembershipPackage>().Find(
-                        item => item.Id == subscription.PackageId)
-                        .SingleOrDefaultAsync(cancellationToken);
-                    durationDays = package?.DurationDays ?? 30;
+                    durationDays = package.DurationDays;
                 }
                 var today = ToBusinessDate(now);
                 var currentEnd = await _unitOfWork.Repository<MemberSubscription>()
-                    .Find(item => item.MemberId == subscription.MemberId && item.Status == "Active" && item.EndDate >= today)
+                    .Find(item => item.MemberId == subscription.MemberId && item.PackageId == subscription.PackageId && item.Status == "Active" && item.EndDate >= today)
                     .MaxAsync(item => (DateOnly?)item.EndDate, cancellationToken);
                 subscription.StartDate = currentEnd.HasValue ? currentEnd.Value.AddDays(1) : today;
                 subscription.EndDate = subscription.StartDate.Value.AddDays(durationDays - 1);
                 subscription.Status = "Active";
                 subscription.UpdatedAt = now;
-                await FlowNotificationWriter.CreateForMemberAsync(db, processedBy, subscription.MemberId,
-                    "Thanh toán thành công - Gói tập đã kích hoạt",
-                    $"Gói tập đã được thanh toán và kích hoạt từ {subscription.StartDate:dd/MM/yyyy} đến {subscription.EndDate:dd/MM/yyyy}.",
-                    "MembershipActivated", cancellationToken);
+                await FlowNotificationWriter.MembershipPaidAsync(db, processedBy, subscription,
+                    package.Name, today, cancellationToken);
             }
         }
 

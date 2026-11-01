@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.API.DTOs.Auth;
+using SportsCenterManagement.API.Models;
+using SportsCenterManagement.API.Services;
 using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
@@ -15,7 +17,11 @@ namespace SportsCenterManagement.API.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/profile")]
-public sealed class ProfileController(SportsCenterDbContext dbContext) : ControllerBase
+public sealed class ProfileController(
+    SportsCenterDbContext dbContext,
+    IR2StorageService storageService,
+    Microsoft.Extensions.Options.IOptions<R2StorageOptions> r2Options,
+    ILogger<ProfileController> logger) : ControllerBase
 {
     [HttpGet("me")]
     [ProducesResponseType(typeof(ProfileResponse), StatusCodes.Status200OK)]
@@ -45,12 +51,14 @@ public sealed class ProfileController(SportsCenterDbContext dbContext) : Control
             .SingleOrDefaultAsync(profile => profile.UserId == user.Id, cancellationToken);
         var staffProfile = await dbContext.StaffProfiles
             .SingleOrDefaultAsync(profile => profile.UserId == user.Id, cancellationToken);
-        if (memberProfile is null && coachProfile is null && staffProfile is null)
-        {
-            return NotFound(new { message = "Hồ sơ chưa được cấp phát cho tài khoản này." });
-        }
-
         var fullName = request.FullName.Trim();
+        var avatarKey = request.AvatarKey?.Trim();
+        if (avatarKey is not null &&
+            (!avatarKey.StartsWith($"avatars/{user.Id}/", StringComparison.Ordinal) ||
+             avatarKey.Contains("../", StringComparison.Ordinal)))
+        {
+            return BadRequest(new { message = "Đường dẫn ảnh đại diện không hợp lệ." });
+        }
         var phone = request.Phone is null
             ? user.Phone
             : PhoneNumberNormalization.Normalize(request.Phone);
@@ -76,11 +84,13 @@ public sealed class ProfileController(SportsCenterDbContext dbContext) : Control
         var previousPhone = PhoneNumberNormalization.Normalize(user.Phone);
         var previousPhonePresent = user.Phone is not null;
         var previousFullName = memberProfile?.FullName ?? coachProfile?.FullName ?? staffProfile?.FullName;
+        var previousAvatarKey = user.AvatarKey;
         var fullNameChanged = previousFullName != fullName;
         var now = DateTime.UtcNow;
         var centerId = staffProfile?.CenterId ?? coachProfile?.CenterId ?? memberProfile?.CenterId;
 
         user.Phone = phone;
+        user.AvatarKey = avatarKey;
         if (memberProfile is not null)
         {
             memberProfile.FullName = fullName;
@@ -122,6 +132,18 @@ public sealed class ProfileController(SportsCenterDbContext dbContext) : Control
         });
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(previousAvatarKey) &&
+            !string.Equals(previousAvatarKey, avatarKey, StringComparison.Ordinal))
+        {
+            try
+            {
+                await storageService.DeleteAsync(previousAvatarKey, cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(exception, "Could not delete replaced avatar {AvatarKey}.", previousAvatarKey);
+            }
+        }
         return Ok(await BuildResponseAsync(user, cancellationToken));
     }
 
@@ -158,6 +180,10 @@ public sealed class ProfileController(SportsCenterDbContext dbContext) : Control
             user.Status,
             memberProfile?.MemberCode,
             new DateTimeOffset(user.CreatedAt, TimeSpan.Zero),
-            centerId);
+            centerId,
+            string.IsNullOrWhiteSpace(user.AvatarKey)
+                ? null
+                : $"{r2Options.Value.PublicDomain.TrimEnd('/')}/{user.AvatarKey}",
+            user.AvatarKey);
     }
 }

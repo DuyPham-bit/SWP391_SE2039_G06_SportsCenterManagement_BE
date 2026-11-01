@@ -1802,49 +1802,6 @@
           ]
         },
         {
-          "name": "POST /api/payments/create-payos-url",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "value": "application/json",
-                "key": "Accept",
-                "type": "text"
-              },
-              {
-                "value": "application/json",
-                "key": "Content-Type",
-                "type": "text"
-              }
-            ],
-            "url": "{{baseUrl}}/api/payments/create-payos-url",
-            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
-            "body": {
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              },
-              "raw": "{}",
-              "mode": "raw"
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Route does not return a server error', function () {",
-                  "    pm.expect(pm.response.code).to.be.below(500);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
           "name": "GET /api/payments/momo-callback",
           "request": {
             "method": "GET",
@@ -1890,49 +1847,6 @@
               }
             ],
             "url": "{{baseUrl}}/api/payments/momo-ipn",
-            "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
-            "body": {
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              },
-              "raw": "{}",
-              "mode": "raw"
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Route does not return a server error', function () {",
-                  "    pm.expect(pm.response.code).to.be.below(500);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "POST /api/payments/payos-ipn",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "value": "application/json",
-                "key": "Accept",
-                "type": "text"
-              },
-              {
-                "value": "application/json",
-                "key": "Content-Type",
-                "type": "text"
-              }
-            ],
-            "url": "{{baseUrl}}/api/payments/payos-ipn",
             "description": "Generated from the API OpenAPI document. Empty or safe placeholder values are used; 4xx responses are expected for missing authentication, invalid IDs, or incomplete payloads. Add a Bearer token for protected routes.",
             "body": {
               "options": {

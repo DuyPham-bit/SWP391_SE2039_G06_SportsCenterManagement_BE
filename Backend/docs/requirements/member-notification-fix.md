@@ -32,9 +32,9 @@ Thông báo và quan hệ người nhận lưu trong transaction nghiệp vụ h
 Lệnh từ workspace root:
 
 ```powershell
-dotnet build Backend/Backend/tests/ApiIntegration.Regression/ApiIntegration.Regression.csproj --no-restore
-dotnet run --no-restore --project Backend/Backend/tests/Flow2.Regression/Flow2.Regression.csproj
-dotnet run --no-build --no-restore --project Backend/Backend/tests/ApiIntegration.Regression/ApiIntegration.Regression.csproj -- --sql --browser
+dotnet build Backend/tests/ApiIntegration.Regression/ApiIntegration.Regression.csproj --no-restore
+dotnet run --no-restore --project Backend/tests/Flow2.Regression/Flow2.Regression.csproj
+dotnet run --no-build --no-restore --project Backend/tests/ApiIntegration.Regression/ApiIntegration.Regression.csproj -- --sql --browser
 ```
 
 Lệnh từ `Frontend/`: `npm.cmd test`, `npm.cmd run build`, `node --check tests/browser-smoke.cjs`.

@@ -13,10 +13,31 @@ public interface IClassManagementService
     /// <summary>"Delete" = soft cancel. Never hard-deletes a class with enrollments/bookings.</summary>
     Task<CancelClassResult> CancelClassAsync(long actorUserId, long classId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Reopens a cancelled class as Draft. Cancelled schedules, sessions, enrollments and bookings stay cancelled.
+    /// </summary>
+    Task<ClassDetailResponse> RestoreClassAsync(long actorUserId, long classId, CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ClassScheduleResponse>> GetSchedulesAsync(long classId, CancellationToken cancellationToken = default);
     Task<ClassScheduleResponse> CreateScheduleAsync(long actorUserId, long classId, CreateClassScheduleRequest request, CancellationToken cancellationToken = default);
     Task<ClassScheduleResponse> UpdateScheduleAsync(long actorUserId, long classId, long scheduleId, UpdateClassScheduleRequest request, CancellationToken cancellationToken = default);
     Task<ClassScheduleResponse> CancelScheduleAsync(long actorUserId, long classId, long scheduleId, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Manages the sport catalog used by classes and coach specialties at a center.</summary>
+public interface ISportManagementService
+{
+    Task<IReadOnlyList<ManagedSportResponse>> GetActiveAsync(long centerId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ManagedSportResponse>> GetAllAsync(long centerId, CancellationToken cancellationToken = default);
+    Task<ManagedSportResponse> CreateAsync(long actorUserId, long centerId, SaveSportRequest request, CancellationToken cancellationToken = default);
+    Task<ManagedSportResponse> UpdateAsync(long actorUserId, long centerId, long sportId, SaveSportRequest request, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Provides active coaches and their current teaching slots for manager assignment decisions.</summary>
+public interface ICoachAssignmentQueryService
+{
+    Task<IReadOnlyList<CoachAssignmentCandidateResponse>> GetCandidatesAsync(
+        long centerId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>UC-42 View Class Schedules (member) and UC-30 View Teaching Schedule (coach).</summary>

@@ -15,6 +15,7 @@ using SportsCenterManagement.DAL.Authorization;
 namespace SportsCenterManagement.API.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/payments")]
 public sealed class PaymentsController : ControllerBase
 {
@@ -93,6 +94,32 @@ public sealed class PaymentsController : ControllerBase
     }
 
     /// <summary>
+    /// Khởi tạo giao dịch VNPay Sandbox tại quầy cho hội viên được nhân viên chọn.
+    /// </summary>
+    [Authorize(Roles = "RECEPTIONIST,MANAGER,ADMIN")]
+    [HttpPost("counter-vnpay-url")]
+    [SportsCenterManagement.API.Authorization.CenterCapability("register_counter_package")]
+    public async Task<IActionResult> CreateCounterVnPayPaymentUrl(
+        [FromBody] CounterOnlinePaymentRequest request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            return BadRequest(new { success = false, message = "Header Idempotency-Key là bắt buộc." });
+        }
+
+        var paymentUrl = await _paymentService.CreateCounterVnPayPaymentUrlAsync(
+            GetRequiredUserId(),
+            GetCenterScope(),
+            request,
+            HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+            idempotencyKey.Trim(),
+            cancellationToken);
+        return Ok(new { success = true, paymentUrl });
+    }
+
+    /// <summary>
     /// API 2: Nhận kết quả thanh toán khi VNPay gọi về (Return URL / Callback).
     /// </summary>
     [AllowAnonymous]
@@ -147,38 +174,6 @@ public sealed class PaymentsController : ControllerBase
         return Ok(new { success = true, paymentUrl });
     }
 
-    [Authorize]
-    [HttpPost("create-payos-url")]
-    public async Task<IActionResult> CreatePayOsPaymentUrl(
-        [FromBody] CreatePaymentRequest request,
-        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
-        CancellationToken cancellationToken)
-    {
-        _logger.LogInformation(
-            "Payment debug: PayOS action entered. TraceId={TraceId}",
-            HttpContext.TraceIdentifier);
-        if (string.IsNullOrWhiteSpace(idempotencyKey))
-        {
-            return BadRequest(new { success = false, message = "Header Idempotency-Key là bắt buộc." });
-        }
-
-        var userId = GetRequiredUserId();
-        var memberId = await GetCurrentMemberIdAsync(userId, cancellationToken);
-        if (request.PackageId > 0)
-        {
-            await _memberService.EnsureCanBuyPackageAsync(userId, request.PackageId, cancellationToken);
-        }
-
-        _logger.LogInformation(
-            "Payment debug: PayOS checks passed; calling payment service. TraceId={TraceId}",
-            HttpContext.TraceIdentifier);
-        var paymentUrl = await _paymentService.CreatePayOsPaymentUrlAsync(
-            memberId, request, idempotencyKey.Trim(), cancellationToken);
-        _logger.LogInformation(
-            "Payment debug: PayOS link created. TraceId={TraceId}",
-            HttpContext.TraceIdentifier);
-        return Ok(new { success = true, paymentUrl });
-    }
 
     [AllowAnonymous]
     [HttpGet("momo-callback")]
@@ -209,24 +204,6 @@ public sealed class PaymentsController : ControllerBase
         return Ok(new { resultCode = result.Processed ? 0 : 1, message = result.Processed ? "Success" : "Not confirmed" });
     }
 
-    [AllowAnonymous]
-    [HttpPost("payos-ipn")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> PayOsPaymentIpn(
-        [FromBody] PayOsWebhookRequest webhookRequest,
-        CancellationToken cancellationToken)
-    {
-        var result = await _paymentService.ProcessPayOsWebhookAsync(webhookRequest, cancellationToken);
-        if (!result.Success)
-        {
-            _logger.LogWarning("PayOS webhook was acknowledged without confirming payment. TraceId: {TraceId}",
-                HttpContext.TraceIdentifier);
-        }
-
-        // payOS retries deliveries that do not receive a 2xx response; signed events are always acknowledged.
-        return Ok(new { code = 0, message = "Success", data = result });
-    }
 
     [Authorize(Roles = "RECEPTIONIST,MANAGER,ADMIN")]
     [HttpPost("counter-checkout")]
@@ -293,6 +270,49 @@ public sealed class PaymentsController : ControllerBase
         return Ok(result);
     }
 
+    [Authorize(Roles = "MEMBER")]
+    [HttpGet("refund-requests/me/eligible-payments")]
+    public async Task<ActionResult<IReadOnlyList<RefundEligiblePaymentResponse>>> RefundEligiblePayments(
+        CancellationToken cancellationToken) =>
+        Ok(await _paymentService.GetMyRefundEligiblePaymentsAsync(GetRequiredUserId(), cancellationToken));
+
+    [Authorize(Roles = "MEMBER")]
+    [HttpGet("refund-requests/me")]
+    public async Task<ActionResult<IReadOnlyList<ManualRefundRequestResponse>>> MyRefundRequests(
+        CancellationToken cancellationToken) =>
+        Ok(await _paymentService.GetMyManualRefundRequestsAsync(GetRequiredUserId(), cancellationToken));
+
+    [Authorize(Roles = "MEMBER")]
+    [HttpPost("{paymentId:long}/refund-requests")]
+    public async Task<ActionResult<ManualRefundRequestResponse>> SubmitRefundRequest(
+        [FromRoute] long paymentId,
+        [FromBody] SubmitManualRefundRequest request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+            throw BusinessException.BadRequest("Header Idempotency-Key là bắt buộc.");
+        var result = await _paymentService.SubmitManualRefundRequestAsync(
+            GetRequiredUserId(), paymentId, idempotencyKey.Trim(), request, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, result);
+    }
+
+    [Authorize(Roles = "MANAGER,ADMIN")]
+    [HttpGet("/api/refund-requests")]
+    public async Task<ActionResult<IReadOnlyList<ManualRefundRequestResponse>>> RefundRequests(
+        [FromQuery] string? status,
+        CancellationToken cancellationToken) =>
+        Ok(await _paymentService.GetManualRefundRequestsAsync(GetCenterScope(), status, cancellationToken));
+
+    [Authorize(Roles = "MANAGER,ADMIN")]
+    [HttpPatch("/api/refund-requests/{refundId:long}")]
+    public async Task<ActionResult<ManualRefundRequestResponse>> ReviewRefundRequest(
+        [FromRoute] long refundId,
+        [FromBody] ReviewManualRefundRequest request,
+        CancellationToken cancellationToken) =>
+        Ok(await _paymentService.ReviewManualRefundRequestAsync(
+            GetRequiredUserId(), GetCenterScope(), refundId, request, cancellationToken));
+
     [HttpPost("/api/invoices/{invoiceId:long}/payments")]
     [RequirePermission(PermissionCodes.PaymentCenterCash)]
     public async Task<IActionResult> RecordCashPayment(
@@ -342,14 +362,14 @@ public sealed class PaymentsController : ControllerBase
         var value = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
         if (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0)
         {
-            throw new InvalidOperationException("JWT is missing a valid user id claim.");
+            throw new BusinessException(System.Net.HttpStatusCode.Unauthorized, "JWT is missing a valid user id claim.");
         }
         return id;
     }
 
     private long? GetCenterScope()
     {
-        if (User.IsInRole("Admin"))
+        if (User.IsInRole("ADMIN") || User.IsInRole("Admin"))
         {
             return null;
         }

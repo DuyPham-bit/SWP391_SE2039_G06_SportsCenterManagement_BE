@@ -29,5 +29,8 @@ public sealed record MembershipPackageResponse(
     string Status,
     int AllowedSports = 1,
     string? Badge = null,
-    IReadOnlyList<string>? Features = null);
+    IReadOnlyList<string>? Features = null,
+    int SubscriberCount = 0,
+    bool HasOrders = false,
+    bool IsEditable = true);
 }

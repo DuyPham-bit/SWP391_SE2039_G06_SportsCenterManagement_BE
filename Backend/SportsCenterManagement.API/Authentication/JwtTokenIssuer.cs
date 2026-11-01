@@ -51,7 +51,8 @@ public sealed class JwtTokenIssuer
             new(JwtRegisteredClaimNames.Name, user.Username),
             new(ClaimTypes.Role, user.Role.ToUpperInvariant()),
             new(JwtRegisteredClaimNames.Email, user.Email),
-            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N"))
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N")),
+            new("auth_version", user.AuthVersion.ToString(System.Globalization.CultureInfo.InvariantCulture))
         };
         if (user.CenterId.HasValue) claims.Add(new Claim("centerId", user.CenterId.Value.ToString()));
         var token = new JwtSecurityToken(_issuer, _audience, claims,

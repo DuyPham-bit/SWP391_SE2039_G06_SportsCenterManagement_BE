@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.DTOs.Classes;
-using SportsCenterManagement.BLL.Exceptions;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
@@ -31,7 +30,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
         await using var transaction = await Db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
 
         var session = await Db.ClassSessions.SingleOrDefaultAsync(s => s.Id == sessionId, cancellationToken)
-            ?? throw FlowException.NotFound("Buổi học không tồn tại."); // UH06
+            ?? throw new InvalidOperationException("Buổi học không tồn tại.") { Data = { ["StatusCode"] = 404 } }; // UH06
         var cls = await Db.Classes.SingleAsync(c => c.Id == session.ClassId, cancellationToken);
         var now = ScheduleTime.VietnamNow;
 
@@ -59,7 +58,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
         if (booked >= capacity)
         {
             if (!cls.AllowWaitlist)
-                throw FlowException.Conflict("Buổi học đã đủ chỗ và không nhận danh sách chờ.");
+                throw new InvalidOperationException("Buổi học đã đủ chỗ và không nhận danh sách chờ.") { Data = { ["StatusCode"] = 409 } };
 
             // Waitlist belongs to a concrete session; a queue for another date must not consume this seat.
             var entry = await Db.ClassWaitlists.FirstOrDefaultAsync(
@@ -91,6 +90,8 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
         AuditLogWriter.Add(unitOfWork, actorUserId ?? currentUserId, cls.CenterId, "BOOK_SESSION", "ClassSession", sessionId);
         await NotifyMemberAsync(actorUserId ?? currentUserId, member.Id, session, cls,
             "Đặt lớp thành công", "Bạn đã được xác nhận chỗ học", "BookingConfirmed", cancellationToken);
+        await NotifyCoachesAsync(actorUserId ?? currentUserId, member.FullName, session, cls,
+            "Học viên đặt lịch", "đã đặt buổi học", "CoachBookingCreated", cancellationToken);
         await SaveAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return new BookSessionResult(true, false, ToResponse(booking, session, cls), null, "Đặt lịch thành công.");
@@ -105,11 +106,11 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
         await using var transaction = await Db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, cancellationToken);
 
         var booking = await Db.SessionBookings.SingleOrDefaultAsync(b => b.Id == bookingId, cancellationToken)
-            ?? throw FlowException.NotFound("Không tìm thấy lượt đặt chỗ.");
+            ?? throw new InvalidOperationException("Không tìm thấy lượt đặt chỗ.") { Data = { ["StatusCode"] = 404 } };
         if (booking.MemberId != member.Id) // UH02
-            throw FlowException.Forbidden("Bạn không thể hủy lượt đặt của người khác.");
+            throw new InvalidOperationException("Bạn không thể hủy lượt đặt của người khác.") { Data = { ["StatusCode"] = 403 } };
         if (booking.Status != FlowStatuses.BookingBooked) // UH03
-            throw FlowException.Conflict("Lượt đặt chỗ này đã được hủy trước đó.");
+            throw new InvalidOperationException("Lượt đặt chỗ này đã được hủy trước đó.") { Data = { ["StatusCode"] = 409 } };
 
         var session = await Db.ClassSessions.SingleAsync(s => s.Id == booking.SessionId, cancellationToken);
         var cls = await Db.Classes.SingleAsync(c => c.Id == session.ClassId, cancellationToken);
@@ -117,28 +118,32 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
         var start = session.SessionDate.ToDateTime(session.StartTime);
 
         if (start <= now) // UH04
-            throw FlowException.BadRequest("Không thể hủy buổi đã qua.");
+            throw new InvalidOperationException("Không thể hủy buổi đã qua.") { Data = { ["StatusCode"] = 400 } };
 
         var late = start - now < CancelCutoff; // BR-BOOK-02
         booking.Status = late ? FlowStatuses.BookingCancelledLate : FlowStatuses.BookingCancelled;
         AuditLogWriter.Add(unitOfWork, actorUserId ?? currentUserId, cls.CenterId, "CANCEL_SESSION_BOOKING", "SessionBooking", bookingId, newValues: new { IsLateCancellation = late });
 
-        long? promotedMemberId = null;
-        if (!late)
-        {
-            await SaveAsync(cancellationToken); // free the seat before promoting
-            promotedMemberId = await PromoteNextWaitlistAsync(session, cls, now, actorUserId ?? currentUserId, cancellationToken);
-        }
+        // A late cancellation still carries the member penalty, but the physical seat
+        // is free and must be offered fairly to the waitlist before direct booking.
+        await SaveAsync(cancellationToken);
+        var promotedMemberId = await PromoteNextWaitlistAsync(
+            session, cls, now, actorUserId ?? currentUserId, cancellationToken);
 
         await NotifyMemberAsync(actorUserId ?? currentUserId, member.Id, session, cls,
-            "Đã hủy đặt lớp", late ? "Bạn đã hủy muộn; buổi học vẫn được tính là đã tham gia" : "Chỗ học của bạn đã được hủy",
+            "Đã hủy đặt lớp", late ? "Bạn đã hủy muộn; lượt tập vẫn bị tính nhưng bạn không được ghi nhận có mặt" : "Chỗ học của bạn đã được hủy",
             "BookingCancelled", cancellationToken);
+        await NotifyCoachesAsync(actorUserId ?? currentUserId, member.FullName, session, cls,
+            "Học viên hủy lịch", late ? "đã hủy muộn buổi học" : "đã hủy buổi học",
+            "CoachBookingCancelled", cancellationToken);
         await SaveAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         var message = late
-            ? "Hủy muộn (dưới 2 giờ trước giờ học): buổi này vẫn được tính là đã tham gia."
+            ? "Hủy muộn (dưới 2 giờ trước giờ học): lượt tập vẫn bị tính nhưng không được ghi nhận có mặt."
             : "Hủy đặt chỗ thành công.";
+        if (promotedMemberId.HasValue)
+            message += " Chỗ trống đã được tự động chuyển cho hội viên đầu tiên đủ điều kiện trong danh sách chờ.";
         return new CancelBookingResult(ToResponse(booking, session, cls), late, promotedMemberId, message);
     }
 
@@ -171,32 +176,33 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
 
     /// <summary>Throws when the member may not take a seat in the session right now.</summary>
     private async Task<MemberSubscription> EnsureEligibleAsync(
-        MemberProfile member, ClassSession session, ClassEntity cls, DateTime now, CancellationToken ct)
+        MemberProfile member, ClassSession session, ClassEntity cls, DateTime now, CancellationToken ct,
+        bool enforceMinimumLeadTime = true)
     {
         var activeUser = await Db.Users.AnyAsync(user => user.Id == member.UserId && user.Status == "Active"
             && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow), ct);
         if (!activeUser)
-            throw FlowException.Forbidden("Tài khoản hội viên không hoạt động.");
+            throw new InvalidOperationException("Tài khoản hội viên không hoạt động.") { Data = { ["StatusCode"] = 403 } };
         if (member.CenterId.HasValue && member.CenterId.Value != cls.CenterId)
-            throw FlowException.Forbidden("Lớp học không thuộc trung tâm của hội viên.");
+            throw new InvalidOperationException("Lớp học không thuộc trung tâm của hội viên.") { Data = { ["StatusCode"] = 403 } };
 
         if (member.BookingSuspendedUntil is { } until && until > DateTime.UtcNow)
-            throw FlowException.Forbidden($"Bạn đang bị tạm khóa đặt lịch đến {until:dd/MM/yyyy HH:mm}.");
+            throw new InvalidOperationException($"Bạn đang bị tạm khóa đặt lịch đến {until:dd/MM/yyyy HH:mm}.") { Data = { ["StatusCode"] = 403 } };
 
         if (session.SessionStatus != FlowStatuses.SessionScheduled) // UH06
-            throw FlowException.Conflict("Buổi học đã bị hủy hoặc không còn nhận đặt chỗ.");
+            throw new InvalidOperationException("Buổi học đã bị hủy hoặc không còn nhận đặt chỗ.") { Data = { ["StatusCode"] = 409 } };
         if (cls.Status != FlowStatuses.ClassPublished)
-            throw FlowException.Conflict("Lớp học chưa được mở đăng ký hoặc đã đóng.");
+            throw new InvalidOperationException("Lớp học chưa được mở đăng ký hoặc đã đóng.") { Data = { ["StatusCode"] = 409 } };
         if (!await Db.Centers.AnyAsync(center => center.Id == cls.CenterId && center.Status == "Active", ct))
-            throw FlowException.Conflict("Trung tâm của lớp hiện không nhận đặt lịch.");
+            throw new InvalidOperationException("Trung tâm của lớp hiện không nhận đặt lịch.") { Data = { ["StatusCode"] = 409 } };
         if (!await Db.Sports.AnyAsync(sport => sport.Id == cls.SportId && sport.Status == "Active"
             && (!sport.CenterId.HasValue || sport.CenterId.Value == cls.CenterId), ct))
-            throw FlowException.Conflict("Bộ môn của lớp hiện không hoạt động tại trung tâm.");
+            throw new InvalidOperationException("Bộ môn của lớp hiện không hoạt động tại trung tâm.") { Data = { ["StatusCode"] = 409 } };
 
         var roomId = session.RoomId ?? cls.RoomId;
         if (roomId.HasValue && !await Db.Rooms.AnyAsync(room => room.Id == roomId.Value
                 && room.CenterId == cls.CenterId && room.Status == "Active", ct))
-            throw FlowException.Conflict("Phòng học đã ngừng hoạt động hoặc không còn thuộc trung tâm của lớp.");
+            throw new InvalidOperationException("Phòng học đã ngừng hoạt động hoặc không còn thuộc trung tâm của lớp.") { Data = { ["StatusCode"] = 409 } };
 
         var hasActivePrimaryCoach = await (
             from assignment in Db.ClassCoaches
@@ -207,7 +213,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
                 && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
             select assignment.CoachId).AnyAsync(ct);
         if (!hasActivePrimaryCoach)
-            throw FlowException.Conflict("Lớp chưa có huấn luyện viên chính đang hoạt động; hãy liên hệ trung tâm.");
+            throw new InvalidOperationException("Lớp chưa có huấn luyện viên chính đang hoạt động; hãy liên hệ trung tâm.") { Data = { ["StatusCode"] = 409 } };
 
         // BR-MEM-01
         var eligibleSubscriptions = await (
@@ -216,10 +222,18 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
             where subscription.MemberId == member.Id && subscription.Status == "Active"
                 && subscription.StartDate <= session.SessionDate && subscription.EndDate >= session.SessionDate
                 && package.CenterId == cls.CenterId
-            orderby subscription.EndDate descending
+            orderby package.AllowedSports descending, subscription.EndDate descending
             select new { Subscription = subscription, package.MaxClasses, package.AllowedSports }).ToListAsync(ct);
         if (eligibleSubscriptions.Count == 0)
-            throw FlowException.Forbidden("Bạn cần có gói tập còn hiệu lực để đặt lịch.");
+            throw new InvalidOperationException("Bạn cần có gói tập còn hiệu lực tại trung tâm để đặt lịch buổi học này.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 403,
+                    ["Code"] = "ME-05",
+                    ["ProposedHandling"] = "Kiểm tra quyền sử dụng tại thời điểm buổi học; thông báo điều kiện chưa đáp ứng và hướng dẫn chọn gói/lớp phù hợp."
+                }
+            };
 
         var enrollmentEntitlements = await (
             from enrollment in Db.ClassEnrollments
@@ -256,19 +270,43 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
             }
         }
         if (selectedSubscription is null)
-            throw FlowException.Forbidden("Gói tập đã sử dụng hết số lớp được phép.");
+            throw new InvalidOperationException("Gói tập đã sử dụng hết số lớp hoặc môn thể thao được phép.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 403,
+                    ["Code"] = "ME-05",
+                    ["ProposedHandling"] = "Kiểm tra quyền sử dụng tại thời điểm buổi học; thông báo điều kiện chưa đáp ứng và hướng dẫn chọn gói/lớp phù hợp."
+                }
+            };
 
         // BR-BOOK-01
         var start = session.SessionDate.ToDateTime(session.StartTime);
         var lead = start - now;
-        if (lead < MinLeadTime || lead > MaxLeadTime)
-            throw FlowException.BadRequest("Chỉ được đặt lịch trước giờ học tối thiểu 30 phút và tối đa 7 ngày.");
+        if (lead <= TimeSpan.Zero || lead > MaxLeadTime || (enforceMinimumLeadTime && lead < MinLeadTime))
+            throw new InvalidOperationException("Chỉ được đặt lịch trước giờ học tối thiểu 30 phút và tối đa 7 ngày.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 400,
+                    ["Code"] = "ME-04",
+                    ["ProposedHandling"] = "Kiểm tra tại thời điểm xác nhận; từ chối với lý do cụ thể."
+                }
+            };
 
         // UH05
         var alreadyBooked = await Db.SessionBookings.AnyAsync(
             b => b.SessionId == session.Id && b.MemberId == member.Id && b.Status == FlowStatuses.BookingBooked, ct);
         if (alreadyBooked)
-            throw FlowException.Conflict("Bạn đã đặt buổi học này rồi.");
+            throw new InvalidOperationException("Bạn đã đặt buổi học này rồi.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 409,
+                    ["Code"] = "ME-04",
+                    ["ProposedHandling"] = "Kiểm tra tại thời điểm xác nhận; từ chối với lý do cụ thể."
+                }
+            };
 
         // BR-BOOK-03
         var sameDay = await (
@@ -281,8 +319,15 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
             select new { s.StartTime, s.EndTime, ClassName = c.Name }).ToListAsync(ct);
         var clash = sameDay.FirstOrDefault(x => ScheduleTime.Overlaps(session.StartTime, session.EndTime, x.StartTime, x.EndTime));
         if (clash is not null)
-            throw FlowException.Conflict(
-                $"Bạn đã có buổi '{clash.ClassName}' ({clash.StartTime:HH\\:mm}-{clash.EndTime:HH\\:mm}) trùng giờ trong ngày này.");
+            throw new InvalidOperationException($"Bạn đã có buổi '{clash.ClassName}' ({clash.StartTime:HH\\:mm}-{clash.EndTime:HH\\:mm}) trùng giờ trong ngày này.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 409,
+                    ["Code"] = "ME-04",
+                    ["ProposedHandling"] = "Kiểm tra tại thời điểm xác nhận; từ chối với lý do cụ thể. Hai người tranh suất cuối chỉ một người được xác nhận."
+                }
+            };
 
         return selectedSubscription;
     }
@@ -322,7 +367,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
 
     /// <summary>
     /// BR-BOOK-04. Promotes the earliest waiting member of the class who is still eligible for the freed session.
-    /// Ineligible members (no active package, clash, ...) stay in the waitlist.
+    /// Ineligible members (no active package, clash, ...) are closed and the next FIFO entry is evaluated.
     /// </summary>
     private async Task<long?> PromoteNextWaitlistAsync(ClassSession session, ClassEntity cls, DateTime now, long actorUserId, CancellationToken ct)
     {
@@ -350,17 +395,25 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
             if (candidate is null) continue;
             try
             {
-                var subscription = await EnsureEligibleAsync(candidate, session, cls, now, ct);
+                // The member explicitly opted into auto-promotion when joining the waitlist.
+                // Direct bookings keep the 30-minute lead-time rule; a waiting member may
+                // receive a newly freed seat until the session actually starts.
+                var subscription = await EnsureEligibleAsync(
+                    candidate, session, cls, now, ct, enforceMinimumLeadTime: false);
                 await CreateOrReactivateBookingAsync(candidate.Id, session.Id, subscription.Id, ct);
             }
-            catch (FlowException)
+            catch (InvalidOperationException failure) when (failure.Data["StatusCode"] is int)
             {
+                entry.Status = FlowStatuses.WaitlistCancelled;
                 continue;
             }
 
             entry.Status = FlowStatuses.WaitlistPromoted;
             await NotifyMemberAsync(actorUserId, candidate.Id, session, cls, "Đã có chỗ học từ danh sách chờ",
                 "Bạn đã được tự động xác nhận chỗ học từ danh sách chờ", "WaitlistPromoted", ct);
+            await NotifyCoachesAsync(actorUserId, candidate.FullName, session, cls,
+                "Học viên được nhận từ danh sách chờ", "đã được tự động xác nhận chỗ học",
+                "CoachWaitlistPromoted", ct);
             return candidate.Id;
         }
 
@@ -374,9 +427,55 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
         FlowNotificationWriter.CreateForMemberAsync(Db, actorUserId, memberId, title,
             $"{message}: {cls.Name}, ngày {session.SessionDate:dd/MM/yyyy} lúc {session.StartTime:HH:mm}.", type, ct);
 
+    private async Task NotifyCoachesAsync(long actorUserId, string memberName, ClassSession session, ClassEntity cls,
+        string title, string action, string type, CancellationToken ct)
+    {
+        var coachUserIds = await Db.CoachProfiles
+            .Where(coach => coach.Status == "Active" &&
+                (coach.Id == session.CoachId || Db.ClassCoaches.Any(link =>
+                    link.ClassId == session.ClassId && link.CoachId == coach.Id)))
+            .Select(coach => coach.UserId).Distinct().ToArrayAsync(ct);
+        if (coachUserIds.Length == 0) return;
+
+        var now = DateTime.UtcNow;
+        var notification = new Notification
+        {
+            SenderId = actorUserId,
+            Title = title,
+            Message = $"{memberName} {action}: {cls.Name}, ngày {session.SessionDate:dd/MM/yyyy} lúc {session.StartTime:HH:mm}.",
+            NotificationType = type,
+            CreatedAt = now
+        };
+        await Db.Notifications.AddAsync(notification, ct);
+        await SaveAsync(ct);
+
+        Db.UserNotifications.AddRange(coachUserIds.Select(userId => new UserNotification
+        {
+            NotificationId = notification.Id,
+            UserId = userId,
+            IsRead = false,
+            CreatedAt = now
+        }));
+        var channels = new[] { "InApp", "Email" };
+        Db.CommunicationDeliveries.AddRange(coachUserIds.SelectMany(userId => channels.Select(channel =>
+            new CommunicationDelivery
+            {
+                NotificationId = notification.Id,
+                RecipientUserId = userId,
+                Channel = channel,
+                Status = channel == "InApp" ? "Delivered" : "Queued",
+                ProviderMessage = channel == "InApp"
+                    ? "Đã giao trong ứng dụng"
+                    : "Đang chờ cấu hình cổng gửi bên ngoài",
+                CreatedAt = now,
+                SentAt = channel == "InApp" ? now : null
+            })));
+        await SaveAsync(ct);
+    }
+
     private async Task<MemberProfile> GetMemberAsync(long userId, CancellationToken ct) =>
         await Db.MemberProfiles.SingleOrDefaultAsync(m => m.UserId == userId, ct)
-        ?? throw FlowException.Forbidden("Tài khoản hiện tại chưa có hồ sơ hội viên.");
+        ?? throw new InvalidOperationException("Tài khoản hiện tại chưa có hồ sơ hội viên.") { Data = { ["StatusCode"] = 403 } };
 
     private async Task CancelWaitingEntriesAsync(long sessionId, long memberId, CancellationToken ct)
     {
@@ -397,7 +496,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
         catch (DbUpdateException)
         {
             // Unique (session_id, member_id) or serialization conflict under concurrent requests.
-            throw FlowException.Conflict("Yêu cầu bị xung đột với một thao tác khác, vui lòng thử lại.");
+            throw new InvalidOperationException("Yêu cầu bị xung đột với một thao tác khác, vui lòng thử lại.") { Data = { ["StatusCode"] = 409 } };
         }
     }
 

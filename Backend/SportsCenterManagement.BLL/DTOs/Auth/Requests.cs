@@ -15,6 +15,7 @@ namespace SportsCenterManagement.BLL.DTOs.Auth
             [param: Required, StringLength(150, MinimumLength = 1)] string FullName,
             [param: StringLength(20)] string? Phone,
             DateOnly? DateOfBirth,
-            [param: Range(1, long.MaxValue)] long? CenterId = null);
+            [param: Range(1, long.MaxValue)] long? CenterId = null,
+            [param: RegularExpression("^[0-9]{6}$")] string? EmailOtp = null);
     }
 }

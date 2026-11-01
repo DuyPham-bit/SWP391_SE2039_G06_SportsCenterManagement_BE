@@ -31,7 +31,8 @@ public static class Responses
         DateOnly? StartDate,
         DateOnly? EndDate,
         string Status,
-        DateTime CreatedAt);
+        DateTime CreatedAt,
+        string? EffectiveStatus = null);
 
     public sealed record PagedResponse<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
 }

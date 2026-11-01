@@ -9,8 +9,6 @@ public static class Responses
         string Action,
         string EntityType,
         long? EntityId,
-        string? OldValues,
-        string? NewValues,
         DateTime CreatedAt);
 
     public sealed record AuditLogPageResponse(

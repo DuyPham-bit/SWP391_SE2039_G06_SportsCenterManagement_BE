@@ -12,6 +12,14 @@ public interface IPaymentService
         string idempotencyKey,
         CancellationToken cancellationToken = default);
 
+    Task<string> CreateCounterVnPayPaymentUrlAsync(
+        long staffUserId,
+        long? staffCenterId,
+        CounterOnlinePaymentRequest request,
+        string ipAddress,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
+
     Task<PaymentResultResponse> ProcessPaymentCallbackAsync(
         IDictionary<string, string> queryParams,
         CancellationToken cancellationToken = default);
@@ -24,16 +32,6 @@ public interface IPaymentService
 
     Task<PaymentResultResponse> ProcessMomoCallbackAsync(
         IDictionary<string, string> queryParams,
-        CancellationToken cancellationToken = default);
-
-    Task<PaymentResultResponse> ProcessPayOsWebhookAsync(
-        PayOsWebhookRequest webhookRequest,
-        CancellationToken cancellationToken = default);
-
-    Task<string> CreatePayOsPaymentUrlAsync(
-        long memberId,
-        CreatePaymentRequest request,
-        string idempotencyKey,
         CancellationToken cancellationToken = default);
 
     Task<PaymentResultResponse> ReconcilePendingPaymentAsync(
@@ -88,10 +86,62 @@ public interface IPaymentService
         ReconcileRefundRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<RefundEligiblePaymentResponse>> GetMyRefundEligiblePaymentsAsync(
+        long memberUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ManualRefundRequestResponse>> GetMyManualRefundRequestsAsync(
+        long memberUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ManualRefundRequestResponse>> GetManualRefundRequestsAsync(
+        long? managerCenterId,
+        string? status,
+        CancellationToken cancellationToken = default);
+
+    Task<ManualRefundRequestResponse> SubmitManualRefundRequestAsync(
+        long memberUserId,
+        long paymentId,
+        string idempotencyKey,
+        SubmitManualRefundRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<ManualRefundRequestResponse> ReviewManualRefundRequestAsync(
+        long managerUserId,
+        long? managerCenterId,
+        long refundId,
+        ReviewManualRefundRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<RevenueReportResponse> GetRevenueReportAsync(
         long centerId,
         DateOnly from,
         DateOnly to,
         string groupBy,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Hủy hóa đơn đang chờ thanh toán (chưa thu tiền) do member chủ động yêu cầu.
+    /// Chỉ hủy được hóa đơn của chính member đó và chưa có payment Succeeded.
+    /// </summary>
+    Task<PaymentResultResponse> CancelPendingInvoiceAsync(
+        long memberUserId,
+        string invoiceNumber,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Hủy hóa đơn chờ thanh toán của gói tập do member chủ động yêu cầu.
+    /// </summary>
+    Task<PaymentResultResponse> CancelPendingPackageAsync(
+        long memberUserId,
+        long packageId,
+        long? targetMemberId = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lấy danh sách hóa đơn đang chờ thanh toán của member.
+    /// </summary>
+    Task<List<PendingInvoiceDto>> GetMyPendingInvoicesAsync(
+        long memberUserId,
         CancellationToken cancellationToken = default);
 }

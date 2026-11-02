@@ -1,61 +1,62 @@
-using System.Text;
-using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi;
+using System.Security.Claims;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.AspNetCore.StaticFiles;
 using SportsCenterManagement.API.Authentication;
 using SportsCenterManagement.API.Authorization;
+using SportsCenterManagement.API.BackgroundServices;
 using SportsCenterManagement.BLL.Common;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.BLL.Services;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Repositories.Implementations;
 using SportsCenterManagement.DAL.Repositories.Interfaces;
+using SportsCenterManagement.API.Models;
+using SportsCenterManagement.API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("SportsCenter")
     ?? throw new InvalidOperationException("Connection string 'SportsCenter' is not configured.");
-var jwtKey = builder.Configuration["Jwt:Key"]
-    ?? builder.Configuration["Jwt:SecretKey"]
-    ?? throw new InvalidOperationException("Jwt:Key is not configured.");
+var jwtIssuer = new JwtTokenIssuer(builder.Configuration);
 
-if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
-{
-    throw new InvalidOperationException("Jwt:Key must be at least 256 bits.");
-}
-
-// Cấu hình HttpClient để gọi API ngoài (MoMo Sandbox, PayOS...)
+// Cấu hình HttpClient để gọi API ngoài (MoMo Sandbox...)
 builder.Services.AddHttpClient();
 
 // Layer 3: DAL (DbContext & Repository / Unit of Work Pattern)
 builder.Services.AddDbContext<SportsCenterDbContext>(options =>
-    options.UseSqlServer(connectionString));
+    options.UseSqlServer(connectionString)
+           .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 
-builder.Services.AddDataProtection().SetApplicationName("SportsCenterManagement");
-builder.Services.AddSingleton<BearerTokenIssuer>();
-builder.Services.AddAuthentication("Bearer")
-    .AddScheme<AuthenticationSchemeOptions, ProtectedBearerHandler>("Bearer", _ => { });
+builder.Services.AddSingleton(jwtIssuer);
+builder.Services.AddScoped<JwtAccountValidator>();
+builder.Services.AddScoped<PasswordResetEmailSender>();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
+{
+    options.MapInboundClaims = false;
+    options.TokenValidationParameters = jwtIssuer.ValidationParameters();
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = BrowserSessionCookie.ReadAsync,
+        OnTokenValidated = context => context.HttpContext.RequestServices
+            .GetRequiredService<JwtAccountValidator>().ValidateAsync(context)
+    };
+});
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options => options.FallbackPolicy =
+    new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
+{
+    if (allowedOrigins.Length > 0)
+        policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials().WithExposedHeaders("Retry-After");
+}));
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
-
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("Frontend", policy =>
-    {
-        if (allowedOrigins != null && allowedOrigins.Length > 0)
-        {
-            policy.WithOrigins(allowedOrigins);
-        }
-        else
-        {
-            policy.WithOrigins("http://127.0.0.1:3003", "http://localhost:3003", "http://localhost:5173");
-        }
-        policy.AllowAnyHeader().AllowAnyMethod();
-    });
-});
 
 builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -68,11 +69,15 @@ builder.Services.AddScoped<ICoreFlowService, CoreFlowService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IMemberService, MemberService>();
 builder.Services.AddScoped<IAccessControlService, AccessControlService>();
+builder.Services.AddScoped<ICenterAccessService, CenterAccessService>();
 builder.Services.AddScoped<IStaffManagementService, StaffManagementService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+builder.Services.AddScoped<ICenterNotificationService, CenterNotificationService>();
 
 // Flow 2 Services
 builder.Services.AddScoped<IClassManagementService, ClassManagementService>();
+builder.Services.AddScoped<ISportManagementService, SportManagementService>();
+builder.Services.AddScoped<ICoachAssignmentQueryService, CoachAssignmentQueryService>();
 builder.Services.AddScoped<IClassScheduleQueryService, ClassScheduleQueryService>();
 builder.Services.AddScoped<ISessionBookingService, SessionBookingService>();
 builder.Services.AddScoped<IRolePermissionService, RolePermissionService>();
@@ -81,23 +86,63 @@ builder.Services.AddScoped<IRolePermissionService, RolePermissionService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddHttpClient<IVnPayService, VnPayService>();
 builder.Services.AddHttpClient<IMoMoService, MoMoService>();
-builder.Services.AddHttpClient<IPayOsService, PayOsService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<ICheckinService, CheckinService>();
+builder.Services.AddScoped<SupportRequestService>();
+builder.Services.AddScoped<TrainingService>();
+builder.Services.AddScoped<CoachProfessionalService>();
+builder.Services.AddScoped<PayrollService>();
+builder.Services.AddScoped<MemberAiContextService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ClassReminderService>();
+builder.Services.AddHostedService<ClassReminderWorker>();
+builder.Services.AddHostedService<CommunicationDeliveryWorker>();
+builder.Services.AddScoped<LandingContentService>();
+
+// MailKit SendMailService
+builder.Services.Configure<MailSettings>(builder.Configuration.GetSection("MailSettings"));
+builder.Services.AddTransient<ISendMailService, SendMailService>();
+
+builder.Services.Configure<R2StorageOptions>(builder.Configuration.GetSection(R2StorageOptions.SectionName));
+builder.Services.AddScoped<IR2StorageService, R2StorageService>();
+builder.Services.AddSingleton<GoogleTokenValidator>();
+builder.Services.AddHttpClient<GeminiService>(client => client.Timeout = TimeSpan.FromSeconds(45));
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    PasswordResetRateLimiting.Configure(options);
+    MailSendRateLimiting.Configure(options);
+    options.AddPolicy("ai", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    options.AddPolicy("admin-management", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 30, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+});
 
 // Layer 1: Presentation (API Controllers & Swagger UI)
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "JWT",
+        Description = "Nhập accessToken trả về từ POST /api/auth/login hoặc /api/auth/google."
+    });
+    options.OperationFilter<SportsCenterManagement.API.Authentication.JwtSecurityOperationFilter>();
+});
 
 var app = builder.Build();
 
-// Khởi tạo Database và nạp dữ liệu mẫu nếu chưa có
+// Đồng bộ schema/quyền; Admin đầu tiên chỉ được tạo từ cấu hình riêng của môi trường.
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<SportsCenterDbContext>();
     var baselineLegacySchema = app.Configuration.GetValue<bool>("Database:BaselineLegacySchema");
-    await DbInitializer.SeedAsync(dbContext, baselineLegacySchema, app.Environment.IsDevelopment());
-    await SystemAdminBootstrapper.SeedAsync(dbContext, app.Configuration);
+    await DbInitializer.SeedAsync(dbContext, baselineLegacySchema);
+    await AdminBootstrapper.SeedAsync(dbContext, app.Configuration);
 }
 
 if (app.Environment.IsDevelopment())
@@ -127,7 +172,11 @@ app.Use(async (context, next) =>
             type = "about:blank",
             title = exception.StatusCode.ToString(),
             status = (int)exception.StatusCode,
+            code = exception.Code,
             detail = exception.Message,
+            message = exception.Message,
+            proposedHandling = exception.ProposedHandling,
+            isDraftPolicy = exception.IsDraftPolicy,
             traceId = context.TraceIdentifier
         });
     }
@@ -148,7 +197,10 @@ app.Use(async (context, next) =>
             type = "about:blank",
             title = "Conflict",
             status = StatusCodes.Status409Conflict,
-            detail = "Dữ liệu trùng với giao dịch đã ghi nhận. Kiểm tra trạng thái và gửi lại cùng Idempotency-Key nếu cần retry.",
+            code = "COMMON-03",
+            detail = "Dữ liệu trùng với giao dịch đã ghi nhận hoặc vừa bị thay đổi. Kiểm tra trạng thái và tải lại nếu cần.",
+            message = "Dữ liệu trùng với giao dịch đã ghi nhận hoặc vừa bị thay đổi.",
+            proposedHandling = "Phát hiện dữ liệu đã thay đổi; yêu cầu tải bản mới để đối chiếu, tránh âm thầm ghi đè.",
             traceId = context.TraceIdentifier
         });
     }
@@ -170,7 +222,10 @@ app.Use(async (context, next) =>
             type = "about:blank",
             title = "Service Unavailable",
             status = StatusCodes.Status503ServiceUnavailable,
+            code = "COMMON-01",
             detail = "Giao dịch bị cạnh tranh trong cơ sở dữ liệu. Hãy retry với cùng Idempotency-Key.",
+            message = "Chưa xác định kết quả; kiểm tra trạng thái trước khi thử lại.",
+            proposedHandling = "Chưa xác định kết quả; kiểm tra trạng thái trước khi thử lại. Tránh tạo hai đăng ký hoặc hai khoản thu.",
             traceId = context.TraceIdentifier
         });
     }
@@ -199,9 +254,60 @@ app.Use(async (context, next) =>
     }
 });
 
+var mediaContentTypes = new FileExtensionContentTypeProvider();
+mediaContentTypes.Mappings[".avif"] = "image/avif";
+app.UseDefaultFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    ContentTypeProvider = mediaContentTypes,
+    OnPrepareResponse = context => context.Context.Response.Headers["X-Content-Type-Options"] = "nosniff"
+});
 app.UseRouting();
-app.UseCors("Frontend");
+app.UseCors();
+app.Use(async (context, next) =>
+{
+    var isPaymentCreateRequest = context.Request.Method == HttpMethods.Post &&
+        context.Request.Path.Value is "/api/payments/create-vnpay-url"
+            or "/api/payments/create-momo-url";
+
+    if (isPaymentCreateRequest)
+    {
+        app.Logger.LogInformation(
+            "Payment debug: request reached backend. Path={Path} TraceId={TraceId}",
+            context.Request.Path,
+            context.TraceIdentifier);
+    }
+
+    try
+    {
+        await next();
+    }
+    finally
+    {
+        if (isPaymentCreateRequest)
+        {
+            app.Logger.LogInformation(
+                "Payment debug: backend response sent. Path={Path} StatusCode={StatusCode} TraceId={TraceId}",
+                context.Request.Path,
+                context.Response.StatusCode,
+                context.TraceIdentifier);
+        }
+    }
+});
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.MapControllers();
+app.MapGet("/payment-result", async context =>
+{
+    var frontendIndex = Path.Combine(app.Environment.ContentRootPath, "wwwroot", "index.html");
+    if (!File.Exists(frontendIndex))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    context.Response.ContentType = "text/html; charset=utf-8";
+    await context.Response.SendFileAsync(frontendIndex);
+}).AllowAnonymous();
 app.Run();

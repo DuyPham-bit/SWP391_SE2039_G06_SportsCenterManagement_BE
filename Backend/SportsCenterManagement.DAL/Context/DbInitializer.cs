@@ -1,287 +1,30 @@
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.EntityFrameworkCore;
-using BCrypt.Net;
 using SportsCenterManagement.DAL.Authorization;
 using SportsCenterManagement.DAL.Entities;
 
 namespace SportsCenterManagement.DAL.Context;
 
-/// <summary>
-/// Khởi tạo và đồng bộ dữ liệu mẫu cho Database theo đúng nghiệp vụ hệ thống.
-/// </summary>
+/// <summary>Initializes schema and required authorization data only.</summary>
 public static class DbInitializer
 {
-    public static async Task SeedAsync(SportsCenterDbContext context, bool baselineLegacySchema = false, bool seedDemoData = true)
+    public static async Task SeedAsync(SportsCenterDbContext context, bool baselineLegacySchema = false)
     {
-        if (baselineLegacySchema)
-        {
-            await BaselineLegacySchemaAsync(context);
-        }
+        if (baselineLegacySchema) await BaselineLegacySchemaAsync(context);
+        if (context.Database.IsRelational()) await context.Database.MigrateAsync();
+        else await context.Database.EnsureCreatedAsync();
+        await EnsureRolesAndPermissionsAsync(context);
+        await EnsureAuthAndReceptionPermissionsAsync(context);
+        await EnsureCompleteSportsCatalogAsync(context);
+        await EnsureMembershipPackageSportsAsync(context);
+    }
 
-        if (context.Database.IsRelational())
-        {
-            await context.Database.MigrateAsync();
-        }
-        else
-        {
-            await context.Database.EnsureCreatedAsync();
-        }
-
-        Center? center = null;
-        if (seedDemoData)
-        {
-            // Chỉ tạo dữ liệu trung tâm và tài khoản mẫu trong Development.
-            center = await context.Centers.FirstOrDefaultAsync();
-            if (center == null)
-            {
-                center = new Center
-                {
-                    Name = "Sports Center Quận 1",
-                    Address = "123 Nguyễn Thị Minh Khai, Quận 1, TP.HCM",
-                    Phone = "0901234567",
-                    Email = "center.q1@sportscenter.vn",
-                    Status = "Active",
-                    CreatedAt = DateTime.UtcNow
-                };
-                await context.Centers.AddAsync(center);
-                await context.SaveChangesAsync();
-            }
-
-            // Gói tập mẫu chỉ được đồng bộ trong Development.
-            var packagesToSync = new List<MembershipPackage>
-            {
-                new()
-                {
-                    CenterId = center.Id,
-                    Name = "Gói Basic Thể Thao",
-                    Description = "Rèn luyện 1 bộ môn tự chọn, phù hợp cho người mới bắt đầu hoặc lịch tập cố định.",
-                    DurationDays = 30,
-                    Price = 650000,
-                    MaxClasses = 1,
-                    AccessType = "1 môn tự chọn",
-                    Status = "Active",
-                    CreatedAt = DateTime.UtcNow
-                },
-                new()
-                {
-                    CenterId = center.Id,
-                    Name = "Gói Pro Bứt Phá",
-                    Description = "Lựa chọn 3 bộ môn kết hợp (ví dụ: Gym + Bơi lội + Cầu lông), kèm 1 buổi kiểm tra InBody.",
-                    DurationDays = 90,
-                    Price = 1800000,
-                    MaxClasses = 3,
-                    AccessType = "3 môn tự chọn",
-                    Status = "Active",
-                    CreatedAt = DateTime.UtcNow
-                },
-                new()
-                {
-                    CenterId = center.Id,
-                    Name = "Gói Elite Chuyên Nghiệp",
-                    Description = "Trải nghiệm thể thao đa năng toàn diện, hỗ trợ đặt sân ưu tiên và quyền vào phòng xông hơi Sauna.",
-                    DurationDays = 180,
-                    Price = 3200000,
-                    MaxClasses = 6,
-                    AccessType = "6 môn tự chọn",
-                    Status = "Active",
-                    CreatedAt = DateTime.UtcNow
-                },
-                new()
-                {
-                    CenterId = center.Id,
-                    Name = "Gói All-Access Olympic Pass",
-                    Description = "Toàn quyền sử dụng 15 bộ môn và 9 sân thi đấu đẳng cấp quốc tế 365 ngày.",
-                    DurationDays = 365,
-                    Price = 5800000,
-                    MaxClasses = 15,
-                    AccessType = "Toàn quyền 15 môn",
-                    Status = "Active",
-                    CreatedAt = DateTime.UtcNow
-                }
-            };
-
-            var existingPackages = await context.MembershipPackages.ToListAsync();
-            foreach (var pkg in packagesToSync)
-            {
-                var existing = existingPackages.FirstOrDefault(p => p.Name == pkg.Name);
-                if (existing != null)
-                {
-                    existing.Description = pkg.Description;
-                    existing.DurationDays = pkg.DurationDays;
-                    existing.Price = pkg.Price;
-                    existing.MaxClasses = pkg.MaxClasses;
-                    existing.AccessType = pkg.AccessType;
-                    existing.Status = "Active";
-                    existing.UpdatedAt = DateTime.UtcNow;
-                }
-                else
-                {
-                    await context.MembershipPackages.AddAsync(pkg);
-                }
-            }
-            await context.SaveChangesAsync();
-        }
-
-        // Vai trò là dữ liệu nền cần có ở mọi môi trường.
-        var defaultRoles = new List<Role>
-        {
-            new() { Name = "Admin", Description = "Quản trị viên toàn hệ thống", CreatedAt = DateTime.UtcNow },
-            new() { Name = "Manager", Description = "Quản lý cơ sở trung tâm", CreatedAt = DateTime.UtcNow },
-            new() { Name = "Receptionist", Description = "Nhân viên lễ tân tiếp đón & thanh toán", CreatedAt = DateTime.UtcNow },
-            new() { Name = "Coach", Description = "Huấn luyện viên thể thao", CreatedAt = DateTime.UtcNow },
-            new() { Name = "Member", Description = "Khách hàng hội viên", CreatedAt = DateTime.UtcNow }
-        };
-
-        foreach (var role in defaultRoles)
-        {
-            if (!await context.Roles.AnyAsync(r => r.Name == role.Name))
-            {
-                await context.Roles.AddAsync(role);
-            }
-        }
-        await context.SaveChangesAsync();
-
-        if (!seedDemoData)
-        {
-            return;
-        }
-
-        var adminRole = await context.Roles.FirstAsync(r => r.Name == "Admin");
-        var managerRole = await context.Roles.FirstAsync(r => r.Name == "Manager");
-        var receptionistRole = await context.Roles.FirstAsync(r => r.Name == "Receptionist");
-        var memberRole = await context.Roles.FirstAsync(r => r.Name == "Member");
-        var demoCenter = center ?? throw new InvalidOperationException("Development demo center was not initialized.");
-
-        // 4. Tạo tài khoản Admin mặc định nếu chưa có
-        if (!await context.Users.AnyAsync(u => u.Username == "admin"))
-        {
-            var adminUser = new User
-            {
-                RoleId = adminRole.Id,
-                Username = "admin",
-                Email = "admin@sportscenter.vn",
-                PasswordHash = HashPassword("Admin@123456"),
-                Phone = "0900000001",
-                Status = "Active",
-                CreatedAt = DateTime.UtcNow
-            };
-            await context.Users.AddAsync(adminUser);
-            await context.SaveChangesAsync();
-        }
-
-        if (!await context.Users.AnyAsync(u => u.Username == "manager01"))
-        {
-            var managerUser = new User
-            {
-                RoleId = managerRole.Id,
-                Username = "manager01",
-                Email = "manager01@sportscenter.vn",
-                PasswordHash = HashPassword("Manager@123456"),
-                Phone = "0900000003",
-                Status = "Active",
-                CreatedAt = DateTime.UtcNow
-            };
-            await context.Users.AddAsync(managerUser);
-            await context.SaveChangesAsync();
-        }
-
-        var managerUserId = await context.Users
-            .Where(user => user.Username == "manager01")
-            .Select(user => user.Id)
-            .SingleAsync();
-        if (!await context.StaffProfiles.AnyAsync(profile => profile.UserId == managerUserId))
-        {
-            await context.StaffProfiles.AddAsync(new StaffProfile
-            {
-                UserId = managerUserId,
-                CenterId = demoCenter.Id,
-                StaffCode = $"STF-MANAGER-{managerUserId}",
-                FullName = "Quản lý trung tâm",
-                Position = "Manager",
-                Status = "Active",
-                CreatedAt = DateTime.UtcNow
-            });
-            await context.SaveChangesAsync();
-        }
-
-        // 5. Tạo tài khoản Lễ tân mặc định nếu chưa có
-        if (!await context.Users.AnyAsync(u => u.Username == "reception01"))
-        {
-            var receptionUser = new User
-            {
-                RoleId = receptionistRole.Id,
-                Username = "reception01",
-                Email = "reception01@sportscenter.vn",
-                PasswordHash = HashPassword("Reception@123456"),
-                Phone = "0900000002",
-                Status = "Active",
-                CreatedAt = DateTime.UtcNow
-            };
-            await context.Users.AddAsync(receptionUser);
-            await context.SaveChangesAsync();
-        }
-
-        var receptionUserId = await context.Users
-            .Where(user => user.Username == "reception01")
-            .Select(user => user.Id)
-            .SingleAsync();
-        if (!await context.StaffProfiles.AnyAsync(profile => profile.UserId == receptionUserId))
-        {
-            await context.StaffProfiles.AddAsync(new StaffProfile
-            {
-                UserId = receptionUserId,
-                CenterId = demoCenter.Id,
-                StaffCode = $"STF-RECEPTION-{receptionUserId}",
-                FullName = "Nhân viên Lễ tân",
-                Position = "Receptionist",
-                Status = "Active",
-                CreatedAt = DateTime.UtcNow
-            });
-            await context.SaveChangesAsync();
-        }
-
-        // 6. Tạo tài khoản Member mẫu và MemberProfile nếu chưa có
-        var memberUser = await context.Users.FirstOrDefaultAsync(u => u.Username == "member01" || u.Email == "member@scms.vn");
-        if (memberUser == null)
-        {
-            memberUser = new User
-            {
-                RoleId = memberRole.Id,
-                Username = "member01",
-                Email = "member@scms.vn",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("password123"),
-                Phone = "0912345678",
-                Status = "Active",
-                CreatedAt = DateTime.UtcNow
-            };
-            await context.Users.AddAsync(memberUser);
-            await context.SaveChangesAsync();
-
-            var memberProfile = new MemberProfile
-            {
-                UserId = memberUser.Id,
-                CenterId = demoCenter.Id,
-                MemberCode = "MB00001",
-                FullName = "Nguyễn Văn A",
-                Gender = "Nam",
-                DateOfBirth = new DateOnly(1995, 5, 20),
-                Address = "Quận 1, TP.HCM",
-                FitnessGoal = "Tăng cơ, giảm mỡ, cải thiện sức bền",
-                FitnessLevel = "Intermediate",
-                HeightCm = 175,
-                WeightKg = 70,
-                CreatedAt = DateTime.UtcNow
-            };
-            await context.MemberProfiles.AddAsync(memberProfile);
-            await context.SaveChangesAsync();
-        }
-
+    private static async Task EnsureRolesAndPermissionsAsync(SportsCenterDbContext context)
+    {
         // Roles
         foreach (var roleName in new[]
                  {
                      RoleNames.Member, RoleNames.Coach, RoleNames.Manager,
-                     RoleNames.Receptionist, RoleNames.SystemAdmin, "Admin"
+                     RoleNames.Receptionist, RoleNames.Admin
                  })
         {
             if (await context.Roles.AnyAsync(role => role.Name == roleName))
@@ -295,8 +38,7 @@ public static class DbInitializer
                 Description = roleName switch
                 {
                     RoleNames.Member => "Khách hàng hội viên",
-                    RoleNames.SystemAdmin => "Quản trị viên toàn hệ thống",
-                    "Admin" => "Quản trị viên hệ thống",
+                    RoleNames.Admin => "Quản trị viên toàn hệ thống",
                     _ => "Nhân sự trung tâm"
                 },
                 CreatedAt = DateTime.UtcNow
@@ -405,8 +147,7 @@ public static class DbInitializer
                 ["Manager"] = managerCodes,
                 [RoleNames.Receptionist] = receptionistCodes,
                 ["Receptionist"] = receptionistCodes,
-                [RoleNames.SystemAdmin] = [PermissionCodes.RolePermissionManage, "ROLE_MANAGE"],
-                ["Admin"] = managerCodes.Concat(new[] { "ROLE_MANAGE" }).Distinct().ToArray()
+                [RoleNames.Admin] = [PermissionCodes.RolePermissionManage, "ROLE_MANAGE"]
             };
 
             foreach (var (roleName, codes) in grants)
@@ -431,53 +172,31 @@ public static class DbInitializer
             await context.SaveChangesAsync();
         }
 
-        // Admin User seed
-        adminRole = await context.Roles.FirstOrDefaultAsync(role => role.Name == "Admin" || role.Name == RoleNames.SystemAdmin);
-        if (adminRole is not null && !await context.Users.AnyAsync(user => user.Email == "admin@sportscenter.vn"))
-        {
-            await context.Users.AddAsync(new User
-            {
-                RoleId = adminRole.Id,
-                Username = "admin",
-                Email = "admin@sportscenter.vn",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@123456"),
-                Status = "Active",
-                CreatedAt = DateTime.UtcNow
-            });
-            await context.SaveChangesAsync();
-        }
+        await ConsolidateLegacySystemAdminAsync(context);
 
-        var seededMemberUser = await context.Users.SingleOrDefaultAsync(user => user.Username == "member01");
-        if (seededMemberUser is not null && !seededMemberUser.PasswordHash.StartsWith("$2", StringComparison.Ordinal))
-        {
-            seededMemberUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword("password123");
-            seededMemberUser.UpdatedAt = DateTime.UtcNow;
-            await context.SaveChangesAsync();
-        }
-
-        var systemAdminRole = await context.Roles.FirstOrDefaultAsync(role => role.Name == RoleNames.SystemAdmin);
+        var adminRole = await context.Roles.SingleAsync(role => role.Name == RoleNames.Admin);
         var permManage = await context.Permissions.FirstOrDefaultAsync(
             permission => permission.Code == PermissionCodes.RolePermissionManage);
-        if (systemAdminRole is not null && permManage is not null)
+        if (permManage is not null)
         {
             if (!await context.RolePermissions.AnyAsync(link =>
-                    link.RoleId == systemAdminRole.Id && link.PermissionId == permManage.Id))
+                    link.RoleId == adminRole.Id && link.PermissionId == permManage.Id))
             {
                 context.RolePermissions.Add(new RolePermission
                 {
-                    RoleId = systemAdminRole.Id,
+                    RoleId = adminRole.Id,
                     PermissionId = permManage.Id
                 });
                 await context.SaveChangesAsync();
             }
 
-            // Legacy seed data granted this permission to Admin/custom roles; the current policy reserves it for SystemAdmin.
-            var nonSystemAdminRoleIds = await context.Roles
-                .Where(role => role.Id != systemAdminRole.Id)
+            // Role-management belongs to the single Admin role only. This also removes grants left by legacy seeds.
+            var nonAdminRoleIds = await context.Roles
+                .Where(role => role.Id != adminRole.Id)
                 .Select(role => role.Id)
                 .ToListAsync();
             var invalidGrants = await context.RolePermissions
-                .Where(link => nonSystemAdminRoleIds.Contains(link.RoleId) && link.PermissionId == permManage.Id)
+                .Where(link => nonAdminRoleIds.Contains(link.RoleId) && link.PermissionId == permManage.Id)
                 .ToListAsync();
             if (invalidGrants.Count > 0)
             {
@@ -485,6 +204,136 @@ public static class DbInitializer
                 await context.SaveChangesAsync();
             }
         }
+
+    }
+
+    /// <summary>
+    /// Upgrades installations that still have the legacy SystemAdmin role. The upgrade is intentionally
+    /// fail-closed: an ambiguous installation with more than one privileged account must be resolved by
+    /// an operator instead of silently choosing an Admin account.
+    /// </summary>
+    private static async Task ConsolidateLegacySystemAdminAsync(SportsCenterDbContext context)
+    {
+        const string legacyRoleName = "SystemAdmin";
+        var adminRole = await context.Roles.SingleAsync(role => role.Name == RoleNames.Admin);
+        var legacyRole = await context.Roles.SingleOrDefaultAsync(role => role.Name == legacyRoleName);
+        if (legacyRole is null)
+        {
+            return;
+        }
+
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        var privilegedUserIds = await context.Users
+            .Where(user => user.RoleId == adminRole.Id || user.RoleId == legacyRole.Id)
+            .Select(user => user.Id)
+            .ToArrayAsync();
+        if (privilegedUserIds.Length > 1)
+        {
+            throw new InvalidOperationException(
+                "Phát hiện nhiều tài khoản Admin/SystemAdmin cũ. Hãy giữ lại đúng một tài khoản trước khi khởi động lại hệ thống.");
+        }
+
+        if (privilegedUserIds.Length == 1)
+        {
+            var legacyUsers = await context.Users.Where(user => user.RoleId == legacyRole.Id).ToListAsync();
+            foreach (var user in legacyUsers)
+            {
+                user.RoleId = adminRole.Id;
+                user.AuthVersion++;
+                user.UpdatedAt = DateTime.UtcNow;
+            }
+        }
+
+        var legacyPermissions = await context.RolePermissions
+            .Where(link => link.RoleId == legacyRole.Id)
+            .ToListAsync();
+        var adminPermissionIds = await context.RolePermissions
+            .Where(link => link.RoleId == adminRole.Id)
+            .Select(link => link.PermissionId)
+            .ToListAsync();
+        foreach (var legacyPermission in legacyPermissions.Where(link => !adminPermissionIds.Contains(link.PermissionId)))
+        {
+            context.RolePermissions.Add(new RolePermission
+            {
+                RoleId = adminRole.Id,
+                PermissionId = legacyPermission.PermissionId
+            });
+        }
+        context.RolePermissions.RemoveRange(legacyPermissions);
+        context.Roles.Remove(legacyRole);
+        await context.SaveChangesAsync();
+        await transaction.CommitAsync();
+    }
+
+    private static async Task EnsureAuthAndReceptionPermissionsAsync(SportsCenterDbContext context)
+    {
+        const string seedMarker = "seed.rbac.auth-and-reception-search.v2";
+        if (await context.SystemSettings.AnyAsync(setting => setting.SettingKey == seedMarker))
+        {
+            return;
+        }
+
+        var grantSpecs = new (string RoleName, string PermissionCode, string Name, string Description)[]
+        {
+            (RoleNames.Receptionist, PermissionCodes.MemberCenterRead,
+                "View center members", "Search and view members assigned to a center."),
+            (RoleNames.Member, PermissionCodes.MemberSelfRead,
+                "View own profile", "View the authenticated member's own profile."),
+            (RoleNames.Member, PermissionCodes.SubscriptionRead,
+                "View subscriptions", "View subscriptions owned by the authenticated member.")
+        };
+
+        var roleNames = grantSpecs.Select(spec => spec.RoleName).Distinct().ToArray();
+        var roles = await context.Roles
+            .Where(role => roleNames.Contains(role.Name))
+            .ToDictionaryAsync(role => role.Name);
+        var missingRoles = roleNames.Where(roleName => !roles.ContainsKey(roleName)).ToArray();
+        if (missingRoles.Length > 0)
+        {
+            throw new InvalidOperationException($"Role chưa được khởi tạo: {string.Join(", ", missingRoles)}.");
+        }
+
+        var permissionCodes = grantSpecs.Select(spec => spec.PermissionCode).Distinct().ToArray();
+        var permissions = await context.Permissions
+            .Where(permission => permissionCodes.Contains(permission.Code))
+            .ToDictionaryAsync(permission => permission.Code);
+        foreach (var spec in grantSpecs)
+        {
+            if (!permissions.ContainsKey(spec.PermissionCode))
+            {
+                var permission = new Permission
+                {
+                    Code = spec.PermissionCode,
+                    Name = spec.Name,
+                    Description = spec.Description,
+                    Module = "MEMBERS"
+                };
+                context.Permissions.Add(permission);
+                permissions.Add(spec.PermissionCode, permission);
+            }
+        }
+        await context.SaveChangesAsync();
+
+        foreach (var spec in grantSpecs)
+        {
+            var roleId = roles[spec.RoleName].Id;
+            var permissionId = permissions[spec.PermissionCode].Id;
+            if (await context.RolePermissions.AnyAsync(link =>
+                    link.RoleId == roleId && link.PermissionId == permissionId))
+            {
+                continue;
+            }
+
+            context.RolePermissions.Add(new RolePermission { RoleId = roleId, PermissionId = permissionId });
+        }
+
+        context.SystemSettings.Add(new SystemSetting
+        {
+            SettingKey = seedMarker,
+            SettingValue = "applied",
+            Description = "One-time backfill for member sign-in profile access and receptionist member search."
+        });
+        await context.SaveChangesAsync();
     }
 
     private static async Task BaselineLegacySchemaAsync(SportsCenterDbContext context)
@@ -493,21 +342,20 @@ public static class DbInitializer
         await connection.OpenAsync();
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT CASE
-                WHEN OBJECT_ID(N'[dbo].[centers]', N'U') IS NULL THEN 0
-                WHEN OBJECT_ID(N'[dbo].[__EFMigrationsHistory]', N'U') IS NULL THEN 1
-                WHEN NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory]) THEN 2
-                ELSE 0
-            END
+            SELECT CASE WHEN OBJECT_ID(N'[dbo].[centers]', N'U') IS NULL THEN 0 ELSE 1 END
             """;
 
-        var state = Convert.ToInt32(await command.ExecuteScalarAsync());
-        if (state == 0)
+        var hasLegacySchema = Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
+        if (!hasLegacySchema)
         {
             return;
         }
 
-        if (state == 1)
+        command.CommandText = """
+            SELECT CASE WHEN OBJECT_ID(N'[dbo].[__EFMigrationsHistory]', N'U') IS NULL THEN 0 ELSE 1 END
+            """;
+        var hasMigrationHistory = Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
+        if (!hasMigrationHistory)
         {
             await context.Database.ExecuteSqlRawAsync("""
             CREATE TABLE [dbo].[__EFMigrationsHistory] (
@@ -518,6 +366,7 @@ public static class DbInitializer
             """);
         }
 
+        // A legacy database can have a partially populated history table; restore both baseline markers before applying later migrations.
         await context.Database.ExecuteSqlRawAsync("""
             IF NOT EXISTS (
                 SELECT 1 FROM [dbo].[__EFMigrationsHistory]
@@ -536,17 +385,182 @@ public static class DbInitializer
             END
             """);
     }
-
-    private static string HashPassword(string password)
+    private static async Task EnsureCompleteSportsCatalogAsync(SportsCenterDbContext context)
     {
-        var salt = RandomNumberGenerator.GetBytes(16);
-        var hash = Rfc2898DeriveBytes.Pbkdf2(
-            Encoding.UTF8.GetBytes(password),
-            salt,
-            100_000,
-            HashAlgorithmName.SHA256,
-            32
-        );
-        return $"{Convert.ToBase64String(salt)}:100000:{Convert.ToBase64String(hash)}";
+        var center = await context.Centers.FirstOrDefaultAsync(c => c.Id == 15)
+                     ?? await context.Centers.FirstOrDefaultAsync();
+        if (center == null) return;
+
+        // Definition of all 10 sports and corresponding facilities matching site.landing-content
+        var catalog = new (string SportName, string SportDesc, string RoomName, string RoomType, int RoomCapacity, string RoomLocation)[]
+        {
+            ("Bơi lội", "Bơi lội thể thao, cải thiện thể lực và sức bền toàn diện", "Bể bơi Olympic 50m", "Swimming Pool", 30, "Khu Thể Thao Dưới Nước • Tầng 1"),
+            ("Gym & Fitness", "Rèn luyện thể hình, tăng cơ giảm mỡ và tăng cường sức mạnh", "Phòng Gym High-Performance", "Gym", 45, "Khu A • Tầng 2"),
+            ("Yoga & Pilates", "Phục hồi chức năng, tăng độ dẻo dai và tĩnh tâm", "Phòng Yoga & Pilates Reformer", "Studio", 20, "Khu C • Tầng 3"),
+            ("Cầu lông", "Tập luyện phản xạ nhanh, di chuyển linh hoạt và đối kháng", "Sân Cầu lông Tiêu chuẩn #1", "Badminton Court", 24, "Khu B • Tầng 2"),
+            ("Boxing & Võ thuật", "Đốt cháy calo, rèn luyện kỹ năng tự vệ và phản xạ chiến đấu", "Võ đài Boxing & Kickfit", "Combat Ring", 25, "Khu C • Tầng 1"),
+            ("Golf", "Học viện đào tạo Golf chuẩn quốc tế, driving range 18 làn và phòng mô phỏng 3D TrackMan 4K", "Tổ Hợp Sân Tập Golf & 3D Simulator", "Golf Complex", 30, "Khu Ngoài Trời & Khu C • Tầng 2"),
+            ("Bóng đá", "Sân cỏ nhân tạo 5 người tiêu chuẩn, mặt cỏ êm ái chống chấn thương, hệ thống thoát nước và dàn đèn LED cao áp ban đêm.", "Sân Bóng Đá Cỏ Nhân Tạo (Sân 5)", "Outdoor Field", 14, "Khu Ngoài Trời"),
+            ("Bóng rổ", "Sân bóng rổ tiêu chuẩn thi đấu phong trào, mặt sân sơn acrylic chống trượt, trụ rổ kính cường lực độ nảy tốt và mái che mát.", "Sân Bóng Rổ Tiêu Chuẩn Phong Trào", "Basketball Court", 25, "Khu B • Tầng 1"),
+            ("Bóng bàn", "Khu bóng bàn trong nhà trang bị bàn thi đấu đạt chuẩn quốc tế, ánh sáng đều chống lóa và không gian di chuyển an toàn.", "Khu Bóng Bàn Trong Nhà", "Table Tennis Area", 20, "Khu B • Tầng 3"),
+            ("Pickleball", "Cụm sân Pickleball ngoài trời hiện đại, mặt sân acrylic chuyên dụng, vạch bếp chuẩn thi đấu và rào chắn bóng kiên cố.", "Cụm Sân Pickleball Ngoài Trời", "Pickleball Complex", 20, "Khu Ngoài Trời")
+        };
+
+        var sportsDict = new Dictionary<string, Sport>(StringComparer.OrdinalIgnoreCase);
+        var roomsDict = new Dictionary<string, Room>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var item in catalog)
+        {
+            var sport = await context.Sports.FirstOrDefaultAsync(s => s.Name == item.SportName);
+            if (sport == null)
+            {
+                sport = new Sport
+                {
+                    CenterId = center.Id,
+                    Name = item.SportName,
+                    Description = item.SportDesc,
+                    Status = "Active"
+                };
+                await context.Sports.AddAsync(sport);
+                await context.SaveChangesAsync();
+            }
+            else if (sport.Status != "Active")
+            {
+                sport.Status = "Active";
+                await context.SaveChangesAsync();
+            }
+            sportsDict[item.SportName] = sport;
+
+            var room = await context.Rooms.FirstOrDefaultAsync(r => r.Name == item.RoomName);
+            if (room == null)
+            {
+                room = new Room
+                {
+                    CenterId = center.Id,
+                    Name = item.RoomName,
+                    RoomType = item.RoomType,
+                    Capacity = item.RoomCapacity,
+                    LocationDescription = item.RoomLocation,
+                    Status = "Active",
+                    CreatedAt = DateTime.UtcNow
+                };
+                await context.Rooms.AddAsync(room);
+                await context.SaveChangesAsync();
+            }
+            else if (room.Status != "Active")
+            {
+                room.Status = "Active";
+                await context.SaveChangesAsync();
+            }
+            roomsDict[item.RoomName] = room;
+        }
+
+        // Coach sports assignment
+        var coaches = await context.CoachProfiles.ToListAsync();
+        if (coaches.Count > 0)
+        {
+            var coachList = coaches.OrderBy(c => c.Id).ToList();
+            var assignments = new (int CoachIndex, string SportName)[]
+            {
+                (0, "Golf"),
+                (1, "Golf"),
+                (2, "Bóng đá"),
+                (3, "Bóng rổ"),
+                (4, "Bóng bàn"),
+                (4, "Pickleball")
+            };
+
+            foreach (var a in assignments)
+            {
+                var c = coachList.Count > a.CoachIndex ? coachList[a.CoachIndex] : coachList[0];
+                if (sportsDict.TryGetValue(a.SportName, out var sp))
+                {
+                    if (!await context.CoachSports.AnyAsync(cs => cs.CoachId == c.Id && cs.SportId == sp.Id))
+                    {
+                        context.CoachSports.Add(new CoachSport { CoachId = c.Id, SportId = sp.Id });
+                        await context.SaveChangesAsync();
+                    }
+                }
+            }
+        }
+
+        // Ensure Golf Exercises
+        if (sportsDict.TryGetValue("Golf", out var golfSport) && !await context.Exercises.AnyAsync(e => e.SportId == golfSport.Id))
+        {
+            context.Exercises.AddRange(
+                new Exercise
+                {
+                    SportId = golfSport.Id,
+                    CenterId = center.Id,
+                    Name = "Golf Grip & Stance Chuẩn Quốc Tế",
+                    Description = "Kỹ thuật cầm gậy Overlapping/Interlocking và thế đứng căn chỉnh trọng tâm.",
+                    MuscleGroup = "Core & Full Body",
+                    DifficultyLevel = "Beginner",
+                    Status = "Active",
+                    CreatedAt = DateTime.UtcNow
+                },
+                new Exercise
+                {
+                    SportId = golfSport.Id,
+                    CenterId = center.Id,
+                    Name = "Kỹ Thuật Full Swing Gậy Sắt 7 (Iron 7)",
+                    Description = "Chuyển giao lực hông, giữ góc xoay vai và điểm tiếp xúc bóng lý tưởng.",
+                    MuscleGroup = "Vai, Lưng, Hông",
+                    DifficultyLevel = "Intermediate",
+                    Status = "Active",
+                    CreatedAt = DateTime.UtcNow
+                },
+                new Exercise
+                {
+                    SportId = golfSport.Id,
+                    CenterId = center.Id,
+                    Name = "Putting & Chipping Cảm Biến 3D TrackMan",
+                    Description = "Luyện cảm giác gạt bóng trên green và cú chip tầm ngắn tiếp cận cờ hiệu quả.",
+                    MuscleGroup = "Cổ tay & Thăng bằng",
+                    DifficultyLevel = "All Levels",
+                    Status = "Active",
+                    CreatedAt = DateTime.UtcNow
+                }
+            );
+            await context.SaveChangesAsync();
+        }
+    }
+
+    private static async Task EnsureMembershipPackageSportsAsync(SportsCenterDbContext context)
+    {
+        var packages = await context.MembershipPackages.ToListAsync();
+        bool changed = false;
+        foreach (var pkg in packages)
+        {
+            var name = (pkg.Name ?? string.Empty).ToLowerInvariant();
+            var access = (pkg.AccessType ?? string.Empty).ToLowerInvariant();
+            int targetSports = pkg.AllowedSports;
+
+            if (access.Contains("10") || access.Contains("15") || access.Contains("toàn quyền") || name.Contains("all-access") || name.Contains("olympic") || pkg.DurationDays >= 365)
+            {
+                targetSports = 10;
+                if (pkg.AccessType != "Toàn quyền 10 môn")
+                {
+                    pkg.AccessType = "Toàn quyền 10 môn";
+                    changed = true;
+                }
+            }
+            else if (access.Contains("6") || name.Contains("elite") || pkg.DurationDays >= 180)
+                targetSports = 6;
+            else if (access.Contains("3") || name.Contains("pro") || pkg.DurationDays >= 90)
+                targetSports = 3;
+            else if (pkg.AllowedSports < 1)
+                targetSports = 1;
+
+            if (targetSports != pkg.AllowedSports)
+            {
+                pkg.AllowedSports = targetSports;
+                changed = true;
+            }
+        }
+        if (changed)
+        {
+            await context.SaveChangesAsync();
+        }
     }
 }

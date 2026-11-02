@@ -4,12 +4,13 @@ using SportsCenterManagement.BLL.DTOs.Classes;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.API.Authorization;
 using SportsCenterManagement.DAL.Context;
+using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace SportsCenterManagement.API.Controllers;
 
 /// <summary>UC-12 Manage Classes &amp; Rooms (Manager/Admin only).</summary>
 [Authorize(Roles = "MANAGER,ADMIN")]
-public sealed class ClassManagementController(IClassManagementService service, SportsCenterDbContext db) : FlowControllerBase
+public sealed class ClassManagementController(IClassManagementService service, SportsCenterDbContext db) : FlowControllerBase, IAsyncActionFilter
 {
     [HttpPost("classes")]
     public async Task<IActionResult> Create([FromBody] CreateClassRequest request, CancellationToken ct)
@@ -48,6 +49,16 @@ public sealed class ClassManagementController(IClassManagementService service, S
         return Ok(await service.CancelClassAsync(CurrentUserId, classId, ct));
     }
 
+    /// <summary>
+    /// Reopens a cancelled class as a draft. Historical cancellations are deliberately not reversed.
+    /// </summary>
+    [HttpPost("classes/{classId:long}/restore")]
+    public async Task<IActionResult> Restore(long classId, CancellationToken ct)
+    {
+        await CenterScope.EnsureClassAccessAsync(db, User, classId, ct);
+        return Ok(await service.RestoreClassAsync(CurrentUserId, classId, ct));
+    }
+
     [HttpGet("classes/{classId:long}/schedules")]
     public async Task<IActionResult> GetSchedules(long classId, CancellationToken ct)
     {
@@ -74,5 +85,24 @@ public sealed class ClassManagementController(IClassManagementService service, S
     {
         await CenterScope.EnsureClassAccessAsync(db, User, classId, ct);
         return Ok(await service.CancelScheduleAsync(CurrentUserId, classId, scheduleId, ct));
+    }
+
+    [NonAction]
+    public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
+    {
+        var executed = await next();
+        // Only tagged business failures are mapped here; unexpected errors remain available to the middleware.
+        if (executed.ExceptionHandled || executed.Exception is not InvalidOperationException exception ||
+            exception.Data["StatusCode"] is not int statusCode) return;
+
+        executed.Result = new ObjectResult(new
+        {
+            code = exception.Data["Code"] as string,
+            message = exception.Message,
+            detail = exception.Message,
+            proposedHandling = exception.Data["ProposedHandling"] as string,
+            isDraftPolicy = exception.Data["IsDraftPolicy"] is true
+        }) { StatusCode = statusCode };
+        executed.ExceptionHandled = true;
     }
 }

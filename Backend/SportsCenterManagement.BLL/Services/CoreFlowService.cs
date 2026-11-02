@@ -314,6 +314,8 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         existing.CancelledAt = null;
         existing.CancellationReason = null;
         existing.Status = "Confirmed";
+        await FlowNotificationWriter.CreateForMemberAsync(_unitOfWork.Context, registeredBy, memberId,
+            "Ghi danh lớp thành công", "Bạn đã được xác nhận ghi danh lớp. Xem lịch học để biết chi tiết.", "BookingConfirmed", cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return existing;
@@ -340,6 +342,8 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         enrollment.Status = "Cancelled";
         enrollment.CancelledAt = DateTime.UtcNow;
         enrollment.CancellationReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim()[..Math.Min(reason.Trim().Length, 500)];
+        await FlowNotificationWriter.CreateForMemberAsync(_unitOfWork.Context, null, memberId,
+            "Đã hủy ghi danh lớp", "Ghi danh lớp của bạn đã được hủy.", "BookingCancelled", cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return enrollment;
@@ -443,22 +447,23 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
                 {
                     continue;
                 }
+                var package = await _unitOfWork.Repository<MembershipPackage>().Find(item => item.Id == subscription.PackageId)
+                    .SingleAsync(cancellationToken);
                 var durationDays = subscription.DurationDays;
                 if (durationDays <= 0)
                 {
-                    var package = await _unitOfWork.Repository<MembershipPackage>().Find(
-                        item => item.Id == subscription.PackageId)
-                        .SingleOrDefaultAsync(cancellationToken);
-                    durationDays = package?.DurationDays ?? 30;
+                    durationDays = package.DurationDays;
                 }
                 var today = ToBusinessDate(now);
                 var currentEnd = await _unitOfWork.Repository<MemberSubscription>()
-                    .Find(item => item.MemberId == subscription.MemberId && item.Status == "Active" && item.EndDate >= today)
+                    .Find(item => item.MemberId == subscription.MemberId && item.PackageId == subscription.PackageId && item.Status == "Active" && item.EndDate >= today)
                     .MaxAsync(item => (DateOnly?)item.EndDate, cancellationToken);
                 subscription.StartDate = currentEnd.HasValue ? currentEnd.Value.AddDays(1) : today;
                 subscription.EndDate = subscription.StartDate.Value.AddDays(durationDays - 1);
                 subscription.Status = "Active";
                 subscription.UpdatedAt = now;
+                await FlowNotificationWriter.MembershipPaidAsync(db, processedBy, subscription,
+                    package.Name, today, cancellationToken);
             }
         }
 

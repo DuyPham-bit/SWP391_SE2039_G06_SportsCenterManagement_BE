@@ -38,7 +38,7 @@ public class MoMoService : IMoMoService
         var accessKey = _configuration["Momo:AccessKey"] ?? throw new InvalidOperationException("Chưa cấu hình Momo:AccessKey");
         var secretKey = _configuration["Momo:SecretKey"] ?? throw new InvalidOperationException("Chưa cấu hình Momo:SecretKey");
         var paymentUrl = _configuration["Momo:PaymentUrl"] ?? "https://test-payment.momo.vn/v2/gateway/api/create";
-        var redirectUrl = _configuration["Momo:ReturnUrl"] ?? "http://localhost:5173/payment-result";
+        var redirectUrl = _configuration["Momo:ReturnUrl"] ?? "http://localhost:54162/payment-result";
         var ipnUrl = _configuration["Momo:NotifyUrl"] ?? "http://localhost:54162/api/payments/momo-ipn";
         var requestType = _configuration["Momo:RequestType"] ?? "captureWallet";
 

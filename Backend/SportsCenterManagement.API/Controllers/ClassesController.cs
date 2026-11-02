@@ -1,29 +1,23 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using SportsCenterManagement.API.Authorization;
 using SportsCenterManagement.BLL.DTOs.Classes;
-using SportsCenterManagement.BLL.Exceptions;
 using SportsCenterManagement.BLL.Interfaces;
-using SportsCenterManagement.DAL.Context;
+using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace SportsCenterManagement.API.Controllers;
 
 [Authorize(Roles = "MEMBER,MANAGER,ADMIN,RECEPTIONIST")]
-public sealed class ClassesController(IClassService classService, SportsCenterDbContext? db = null) : FlowControllerBase
+public sealed class ClassesController(IClassService classService, ICenterAccessService centerAccessService) : FlowControllerBase, IAsyncActionFilter
 {
     [AllowAnonymous]
     [HttpGet("centers/{centerId:long}/classes")]
     [ProducesResponseType(typeof(IReadOnlyList<ClassCatalogResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<ClassCatalogResponse>>> GetPublished(long centerId, CancellationToken cancellationToken)
     {
-        if (db is not null)
-        {
-            if (!await db.Centers.AnyAsync(center => center.Id == centerId && center.Status == "Active", cancellationToken))
-                throw FlowException.NotFound("Cơ sở không tồn tại hoặc đã ngừng hoạt động.");
-            if (User.Identity?.IsAuthenticated == true && (User.IsInRole("MANAGER") || User.IsInRole("RECEPTIONIST")))
-                await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
-        }
+        if (!await centerAccessService.IsActiveCenterAsync(centerId, cancellationToken))
+            throw new InvalidOperationException("Cơ sở không tồn tại hoặc đã ngừng hoạt động.") { Data = { ["StatusCode"] = 404 } };
+        if (User.Identity?.IsAuthenticated == true && (User.IsInRole("MANAGER") || User.IsInRole("RECEPTIONIST")))
+            await centerAccessService.EnsureCenterAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), centerId, cancellationToken);
         return Ok(await classService.GetPublishedClassesAsync(centerId, cancellationToken));
     }
 
@@ -31,12 +25,9 @@ public sealed class ClassesController(IClassService classService, SportsCenterDb
     [HttpPost("classes/{classId:long}/coaches")]
     public async Task<ActionResult<ClassCoachResponse>> AssignCoach(long classId, [FromBody] AssignCoachRequest request, CancellationToken cancellationToken)
     {
-        if (db is not null)
-        {
-            await CenterScope.EnsureClassAccessAsync(db, User, classId, cancellationToken);
-        }
-        try { return Ok(await classService.AssignCoachToClassAsync(classId, request, cancellationToken)); }
-        catch (FlowException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        await centerAccessService.EnsureClassAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), classId, cancellationToken);
+        try { return Ok(await classService.AssignCoachToClassAsync(CurrentUserId, classId, request, cancellationToken)); }
+        catch (InvalidOperationException ex) when (ex.Data["StatusCode"] is int) { return StatusCode((int)ex.Data["StatusCode"]!, new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
@@ -44,12 +35,9 @@ public sealed class ClassesController(IClassService classService, SportsCenterDb
     [HttpGet("classes/{classId:long}/coaches")]
     public async Task<ActionResult<IReadOnlyList<ClassCoachResponse>>> GetAssignedCoaches(long classId, CancellationToken cancellationToken)
     {
-        if (db is not null)
-        {
-            await CenterScope.EnsureClassAccessAsync(db, User, classId, cancellationToken);
-        }
+        await centerAccessService.EnsureClassAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), classId, cancellationToken);
         try { return Ok(await classService.GetAssignedCoachesAsync(classId, cancellationToken)); }
-        catch (FlowException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (InvalidOperationException ex) when (ex.Data["StatusCode"] is int) { return StatusCode((int)ex.Data["StatusCode"]!, new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
     }
 
@@ -57,16 +45,32 @@ public sealed class ClassesController(IClassService classService, SportsCenterDb
     [HttpDelete("classes/{classId:long}/coaches/{coachId:long}")]
     public async Task<IActionResult> UnassignCoach(long classId, long coachId, CancellationToken cancellationToken)
     {
-        if (db is not null)
-        {
-            await CenterScope.EnsureClassAccessAsync(db, User, classId, cancellationToken);
-        }
+        await centerAccessService.EnsureClassAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), classId, cancellationToken);
         try
         {
-            await classService.UnassignCoachFromClassAsync(classId, coachId, cancellationToken);
+            await classService.UnassignCoachFromClassAsync(CurrentUserId, classId, coachId, cancellationToken);
             return NoContent();
         }
-        catch (FlowException ex) { return StatusCode(ex.StatusCode, new { message = ex.Message }); }
+        catch (InvalidOperationException ex) when (ex.Data["StatusCode"] is int) { return StatusCode((int)ex.Data["StatusCode"]!, new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
+    }
+
+    [NonAction]
+    public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
+    {
+        var executed = await next();
+        // Only tagged business failures are mapped here; unexpected errors remain available to the middleware.
+        if (executed.ExceptionHandled || executed.Exception is not InvalidOperationException exception ||
+            exception.Data["StatusCode"] is not int statusCode) return;
+
+        executed.Result = new ObjectResult(new
+        {
+            code = exception.Data["Code"] as string,
+            message = exception.Message,
+            detail = exception.Message,
+            proposedHandling = exception.Data["ProposedHandling"] as string,
+            isDraftPolicy = exception.Data["IsDraftPolicy"] is true
+        }) { StatusCode = statusCode };
+        executed.ExceptionHandled = true;
     }
 }

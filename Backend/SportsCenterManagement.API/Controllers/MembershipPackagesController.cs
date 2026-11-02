@@ -6,24 +6,24 @@ using SportsCenterManagement.API.Authorization;
 using SportsCenterManagement.BLL.DTOs.MembershipPackages;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.DAL.Authorization;
-using SportsCenterManagement.DAL.Context;
+using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace SportsCenterManagement.API.Controllers;
 
 [ApiController]
-[FlowExceptionFilter]
 [Route("api/centers/{centerId:long}/membership-packages")]
 public sealed class MembershipPackagesController(
     IMembershipPackageService packageService,
-    SportsCenterDbContext db) : ControllerBase
+    ICenterAccessService centerAccessService) : ControllerBase, IAsyncActionFilter
 {
     [HttpGet]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(IReadOnlyList<MembershipPackageResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<MembershipPackageResponse>>> GetActive(
         long centerId,
         CancellationToken cancellationToken)
     {
-        if (!await db.Centers.AnyAsync(center => center.Id == centerId && center.Status == "Active", cancellationToken))
+        if (!await centerAccessService.IsActiveCenterAsync(centerId, cancellationToken))
             return NotFound(new { message = "Cơ sở không tồn tại hoặc đã ngừng hoạt động." });
         var packages = await packageService.GetActivePackagesAsync(centerId, cancellationToken);
         return Ok(packages);
@@ -36,7 +36,7 @@ public sealed class MembershipPackagesController(
         long centerId,
         CancellationToken cancellationToken)
     {
-        await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
+        await centerAccessService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
         var packages = await packageService.GetPackagesAsync(centerId, cancellationToken);
         return Ok(packages);
     }
@@ -51,7 +51,7 @@ public sealed class MembershipPackagesController(
         [FromBody] SaveMembershipPackageRequest request,
         CancellationToken cancellationToken)
     {
-        await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
+        await centerAccessService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
         try
         {
             var package = await packageService.CreatePackageAsync(CenterScope.GetUserId(User), centerId, request, cancellationToken);
@@ -86,7 +86,7 @@ public sealed class MembershipPackagesController(
         [FromBody] SaveMembershipPackageRequest request,
         CancellationToken cancellationToken)
     {
-        await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
+        await centerAccessService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
         try
         {
             return Ok(await packageService.UpdatePackageAsync(
@@ -121,7 +121,7 @@ public sealed class MembershipPackagesController(
         [FromBody] Requests.SetMembershipPackageStatusRequest request,
         CancellationToken cancellationToken)
     {
-        await CenterScope.EnsureCenterAccessAsync(db, User, centerId, cancellationToken);
+        await centerAccessService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
         try
         {
             return Ok(await packageService.SetPackageStatusAsync(
@@ -165,6 +165,25 @@ public sealed class MembershipPackagesController(
         {
             return Conflict(new { message = "Tên gói đã được dùng tại trung tâm này." });
         }
+    }
+
+    [NonAction]
+    public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
+    {
+        var executed = await next();
+        // Only tagged business failures are mapped here; unexpected errors remain available to the middleware.
+        if (executed.ExceptionHandled || executed.Exception is not InvalidOperationException exception ||
+            exception.Data["StatusCode"] is not int statusCode) return;
+
+        executed.Result = new ObjectResult(new
+        {
+            code = exception.Data["Code"] as string,
+            message = exception.Message,
+            detail = exception.Message,
+            proposedHandling = exception.Data["ProposedHandling"] as string,
+            isDraftPolicy = exception.Data["IsDraftPolicy"] is true
+        }) { StatusCode = statusCode };
+        executed.ExceptionHandled = true;
     }
 }
 

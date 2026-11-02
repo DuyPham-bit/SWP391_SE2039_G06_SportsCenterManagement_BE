@@ -1,7 +1,7 @@
 namespace SportsCenterManagement.API.DTOs.Auth
 {
 /// <summary>JWT authentication result returned after login or password change.</summary>
-public sealed record AuthResponse(string AccessToken, long UserId, string Role, DateTimeOffset ExpiresAt);
+public sealed record AuthResponse(string? AccessToken, long UserId, string Role, DateTimeOffset ExpiresAt);
 
 /// <summary>Profile data returned for the authenticated user.</summary>
 public sealed record ProfileResponse(
@@ -13,7 +13,9 @@ public sealed record ProfileResponse(
     string Status,
     string? MemberCode,
     DateTimeOffset CreatedAt,
-    long? CenterId = null);
+    long? CenterId = null,
+    string? Avatar = null,
+    string? AvatarKey = null);
 
 /// <summary>Result of requesting a password reset code.</summary>
 public sealed record PasswordResetRequestResponse(string Message, string? DevelopmentOtp);

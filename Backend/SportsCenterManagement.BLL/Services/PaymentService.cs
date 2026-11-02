@@ -10,6 +10,7 @@ using SportsCenterManagement.BLL.Common;
 using SportsCenterManagement.BLL.DTOs.CoreFlows;
 using SportsCenterManagement.BLL.DTOs.Payments;
 using SportsCenterManagement.BLL.Interfaces;
+using SportsCenterManagement.DAL.Authorization;
 using SportsCenterManagement.DAL.Entities;
 using SportsCenterManagement.DAL.Repositories.Interfaces;
 
@@ -19,13 +20,11 @@ public sealed class PaymentService(
     IUnitOfWork unitOfWork,
     IVnPayService vnPayService,
     IMoMoService moMoService,
-    IPayOsService payOsService,
     IConfiguration configuration) : IPaymentService
 {
     private readonly IUnitOfWork _unitOfWork = unitOfWork;
     private readonly IVnPayService _vnPayService = vnPayService;
     private readonly IMoMoService _moMoService = moMoService;
-    private readonly IPayOsService _payOsService = payOsService;
     private readonly IConfiguration _configuration = configuration;
 
     public async Task<string> CreatePaymentUrlAsync(
@@ -35,9 +34,34 @@ public sealed class PaymentService(
         string idempotencyKey,
         CancellationToken cancellationToken = default)
     {
+        return await CreateVnPayPaymentUrlCoreAsync(
+            memberId, memberId, null, request, ipAddress, idempotencyKey, cancellationToken);
+    }
+
+    public async Task<string> CreateCounterVnPayPaymentUrlAsync(
+        long staffUserId,
+        long? staffCenterId,
+        CounterOnlinePaymentRequest request,
+        string ipAddress,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        return await CreateVnPayPaymentUrlCoreAsync(
+            request.MemberId, staffUserId, staffCenterId, request, ipAddress, idempotencyKey, cancellationToken);
+    }
+
+    private async Task<string> CreateVnPayPaymentUrlCoreAsync(
+        long memberId,
+        long actorUserId,
+        long? allowedCenterId,
+        CreatePaymentRequest request,
+        string ipAddress,
+        string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
         EnsureGatewayConfiguration("VNPay", "VnPay:TmnCode", "VnPay:HashSecret", "VnPay:BaseUrl", "VnPay:ReturnUrl");
         var (invoice, payment, existingLink) = await PrepareOnlinePaymentAsync(
-            memberId, request, "VNPAY", idempotencyKey, cancellationToken);
+            memberId, actorUserId, allowedCenterId, request, "VNPAY", idempotencyKey, cancellationToken);
         if (!string.IsNullOrWhiteSpace(existingLink))
         {
             return existingLink;
@@ -74,7 +98,7 @@ public sealed class PaymentService(
     {
         EnsureGatewayConfiguration("MoMo", "Momo:PartnerCode", "Momo:AccessKey", "Momo:SecretKey", "Momo:PaymentUrl", "Momo:ReturnUrl", "Momo:NotifyUrl");
         var (invoice, payment, existingLink) = await PrepareOnlinePaymentAsync(
-            memberId, request, "MOMO", idempotencyKey, cancellationToken);
+            memberId, memberId, null, request, "MOMO", idempotencyKey, cancellationToken);
         if (!string.IsNullOrWhiteSpace(existingLink))
         {
             return existingLink;
@@ -120,51 +144,6 @@ public sealed class PaymentService(
         }
     }
 
-    public async Task<string> CreatePayOsPaymentUrlAsync(
-        long memberId,
-        CreatePaymentRequest request,
-        string idempotencyKey,
-        CancellationToken cancellationToken = default)
-    {
-        EnsureGatewayConfiguration("PayOS", "PayOS:ClientId", "PayOS:ApiKey", "PayOS:ChecksumKey", "PayOS:BaseUrl", "PayOS:ReturnUrl", "PayOS:CancelUrl");
-        EnsurePayOsUrlConfiguration();
-        var (invoice, payment, existingLink) = await PrepareOnlinePaymentAsync(
-            memberId, request, "PAYOS", idempotencyKey, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(existingLink))
-        {
-            return existingLink;
-        }
-
-        try
-        {
-            var response = await _payOsService.CreatePaymentLinkAsync(
-                payment.Id,
-                payment.Amount,
-                $"HD{payment.Id.ToString(CultureInfo.InvariantCulture)}",
-                "Sports Center membership",
-                cancellationToken);
-            var paymentData = response.Data;
-            if (paymentData is null || paymentData.OrderCode != payment.Id ||
-                paymentData.Amount != payment.Amount || string.IsNullOrWhiteSpace(paymentData.CheckoutUrl))
-            {
-                throw new InvalidOperationException("PayOS payment response did not match the stored payment attempt.");
-            }
-
-            await SavePaymentLinkAsync(payment.Id, paymentData.CheckoutUrl, cancellationToken);
-            return paymentData.CheckoutUrl;
-        }
-        catch (BusinessException)
-        {
-            throw;
-        }
-        catch (Exception)
-        {
-            await MarkPaymentPendingForReconciliationAsync(payment.Id, "PayOS chưa xác nhận kết quả khởi tạo; cần đối soát trước khi thử lại.");
-            throw new BusinessException(HttpStatusCode.ServiceUnavailable,
-                "Chưa xác định được kết quả tạo giao dịch PayOS. Hệ thống giữ Pending; quản lý cần đối soát trước lần thử mới.");
-        }
-    }
-
     public async Task<PaymentResultResponse> ProcessPaymentCallbackAsync(
         IDictionary<string, string> queryParams,
         CancellationToken cancellationToken = default)
@@ -179,7 +158,8 @@ public sealed class PaymentService(
         {
             return FailedCallback("Chữ ký VNPay không hợp lệ.", providerAckCode: "97");
         }
-        if (!string.Equals(callback.CurrencyCode, "VND", StringComparison.Ordinal))
+        if (!string.IsNullOrWhiteSpace(callback.CurrencyCode) &&
+            !string.Equals(callback.CurrencyCode, "VND", StringComparison.OrdinalIgnoreCase))
         {
             if (callback.IsSuccess)
             {
@@ -190,9 +170,20 @@ public sealed class PaymentService(
             return FailedCallback("Currency callback VNPay không hợp lệ.", providerAckCode: "04");
         }
 
+        string note = callback.ResponseCode switch
+        {
+            "00" => "VNPay giao dịch thành công",
+            "24" => "Giao dịch đã bị hủy bởi người dùng (ResponseCode 24)",
+            "09" => "Giao dịch VNPay đang chờ xử lý (ResponseCode 09)",
+            "11" => "Giao dịch không thành công: Đã hết hạn chờ thanh toán (ResponseCode 11)",
+            "51" => "Tài khoản của quý khách không đủ số dư để thực hiện giao dịch (ResponseCode 51)",
+            "79" => "Khách hàng nhập sai mật khẩu quá số lần quy định (ResponseCode 79)",
+            _ => $"VNPay phản hồi mã {callback.ResponseCode}"
+        };
+
         return await CompleteGatewayPaymentAsync(
             "VNPAY", callback.InvoiceNumber, null, callback.IsSuccess, callback.IsPending,
-            callback.TransactionNo, callback.Amount, $"VNPay response {callback.ResponseCode}", cancellationToken);
+            callback.TransactionNo, callback.Amount, note, cancellationToken);
     }
 
     public Task<PaymentResultResponse> ProcessMomoCallbackAsync(
@@ -210,56 +201,6 @@ public sealed class PaymentService(
             callback.TransId, callback.Amount, $"MoMo result {callback.ResultCode}", cancellationToken);
     }
 
-    public async Task<PaymentResultResponse> ProcessPayOsWebhookAsync(
-        PayOsWebhookRequest webhookRequest,
-        CancellationToken cancellationToken = default)
-    {
-        if (!_payOsService.VerifyWebhookSignature(webhookRequest))
-        {
-            throw BusinessException.BadRequest("Chữ ký webhook PayOS không hợp lệ.");
-        }
-
-        var data = webhookRequest.Data!;
-        if (!webhookRequest.Success || !string.Equals(webhookRequest.Code, "00", StringComparison.Ordinal) ||
-            !string.Equals(data.Code, "00", StringComparison.Ordinal))
-        {
-            return new PaymentResultResponse
-            {
-                Success = false,
-                Processed = true,
-                Message = "Webhook PayOS hợp lệ nhưng giao dịch chưa được xác nhận thành công. Payment vẫn Pending để đối soát.",
-                Amount = data.Amount
-            };
-        }
-
-        if (data.OrderCode <= 0 || data.Amount <= 0 ||
-            !string.Equals(data.Currency, "VND", StringComparison.Ordinal) ||
-            string.IsNullOrWhiteSpace(data.Reference))
-        {
-            if (data.OrderCode > 0)
-            {
-                return await MarkSignedGatewayCallbackReviewRequiredAsync(
-                    "PAYOS", data.OrderCode.ToString(CultureInfo.InvariantCulture),
-                    !string.Equals(data.Currency, "VND", StringComparison.Ordinal)
-                        ? "Currency callback không phải VND"
-                        : "Webhook thiếu amount hoặc reference hợp lệ",
-                    data.Amount, data.Reference, cancellationToken);
-            }
-            return FailedCallback("Webhook PayOS thiếu mã giao dịch, số tiền hoặc currency hợp lệ.");
-        }
-
-        return await CompleteGatewayPaymentAsync(
-            "PAYOS",
-            data.OrderCode.ToString(CultureInfo.InvariantCulture),
-            null,
-            true,
-            false,
-            data.Reference,
-            data.Amount,
-            $"PayOS payment {data.Desc}",
-            cancellationToken);
-    }
-
     public async Task<PaymentResultResponse> ReconcilePendingPaymentAsync(
         long managerUserId,
         long? managerCenterId,
@@ -275,8 +216,10 @@ public sealed class PaymentService(
 
         await using var transaction = await _unitOfWork.Context.Database
             .BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var isNumericId = long.TryParse(gatewayReference, NumberStyles.None, CultureInfo.InvariantCulture, out var paymentId);
         var payment = await _unitOfWork.Context.Payments
-            .SingleOrDefaultAsync(candidate => candidate.GatewayReference == gatewayReference, cancellationToken)
+            .SingleOrDefaultAsync(candidate => candidate.GatewayReference == gatewayReference
+                || (isNumericId && candidate.Id == paymentId), cancellationToken)
             ?? throw BusinessException.NotFound("Không tìm thấy lần thử thanh toán.");
         var invoice = await _unitOfWork.Context.Invoices
             .SingleAsync(candidate => candidate.Id == payment.InvoiceId, cancellationToken);
@@ -419,8 +362,21 @@ public sealed class PaymentService(
         var pendingInvoiceNumber = await FindOpenPendingInvoiceNumberAsync(member.Id, package.Id, cancellationToken);
         if (pendingInvoiceNumber is not null)
         {
-            throw BusinessException.Conflict(
-                $"Hội viên đã có hóa đơn chờ thanh toán cho gói này ({pendingInvoiceNumber}); hãy tiếp tục thanh toán hóa đơn đó.");
+            if (request.CancelPendingIfAny)
+            {
+                var existingPendingInv = await _unitOfWork.Context.Invoices
+                    .SingleOrDefaultAsync(i => i.InvoiceNumber == pendingInvoiceNumber, cancellationToken);
+                if (existingPendingInv is not null)
+                {
+                    await CancelPendingInvoiceCoreAsync(staffUserId, existingPendingInv, DateTime.UtcNow, cancellationToken);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                }
+            }
+            else
+            {
+                throw BusinessException.Conflict(
+                    $"Hội viên đã có hóa đơn chờ thanh toán cho gói này ({pendingInvoiceNumber}); hãy tiếp tục thanh toán hóa đơn đó hoặc hủy đơn chờ để thanh toán mới.");
+            }
         }
 
         var received = request.AmountReceived;
@@ -504,6 +460,7 @@ public sealed class PaymentService(
             AmountReceived = received,
             PaymentStatus = "Succeeded",
             CreatedAt = now,
+            AttemptedAt = now,
             PaidAt = now,
             IdempotencyKey = scopedKey,
             Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim()
@@ -594,7 +551,7 @@ public sealed class PaymentService(
         }
         var isAdmin = string.Equals(actorRole, "Admin", StringComparison.OrdinalIgnoreCase);
         var isStaffInCenter = actorCenterId == invoice.CenterId &&
-                              (actorRole is "Manager" or "Receptionist");
+                              (actorRole.ToUpperInvariant() is "MANAGER" or "RECEPTIONIST");
         var ownsInvoice = await _unitOfWork.Context.MemberProfiles
             .AnyAsync(profile => profile.Id == invoice.MemberId && profile.UserId == actorUserId, cancellationToken);
         if (!isAdmin && !isStaffInCenter && !ownsInvoice)
@@ -687,6 +644,7 @@ public sealed class PaymentService(
             AmountReceived = request.Amount,
             PaymentStatus = "Succeeded",
             CreatedAt = now,
+            AttemptedAt = now,
             PaidAt = now,
             IdempotencyKey = scopedKey,
             Note = request.Note?.Trim()
@@ -938,6 +896,13 @@ public sealed class PaymentService(
             if (refund.Status == "Succeeded")
             {
                 payment.RefundApprovedBy = managerUserId;
+            }
+            // Persist the terminal refund state before recomputing the invoice aggregate.
+            // UpdateInvoiceRefundStatusAsync uses a database SUM, so an unsaved Succeeded
+            // refund would otherwise be omitted and leave the invoice/subscription active.
+            await _unitOfWork.Context.SaveChangesAsync(cancellationToken);
+            if (refund.Status == "Succeeded")
+            {
                 await UpdateInvoiceRefundStatusAsync(invoice, DateTime.UtcNow, cancellationToken);
             }
             _unitOfWork.Context.AuditLogs.Add(CreateAudit(managerUserId, "Payment.Refund" + refund.Status,
@@ -1034,6 +999,214 @@ public sealed class PaymentService(
             desiredStatus == "Succeeded" ? "Đã đối soát refund thành công." : "Đã xác nhận refund thất bại; số tiền được mở lại để xử lý.");
     }
 
+    public async Task<IReadOnlyList<RefundEligiblePaymentResponse>> GetMyRefundEligiblePaymentsAsync(
+        long memberUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var memberId = await _unitOfWork.Context.MemberProfiles
+            .Where(profile => profile.UserId == memberUserId)
+            .Select(profile => (long?)profile.Id)
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw BusinessException.NotFound("Không tìm thấy hồ sơ hội viên.");
+
+        var rows = await (from payment in _unitOfWork.Context.Payments.AsNoTracking()
+                          join invoice in _unitOfWork.Context.Invoices.AsNoTracking() on payment.InvoiceId equals invoice.Id
+                          where payment.MemberId == memberId && payment.PaymentStatus == "Succeeded"
+                          orderby payment.PaidAt descending, payment.Id descending
+                          select new
+                          {
+                              payment.Id,
+                              invoice.InvoiceNumber,
+                              payment.Amount,
+                              payment.PaymentMethod,
+                              payment.PaidAt,
+                              Reserved = _unitOfWork.Context.PaymentRefunds
+                                  .Where(refund => refund.PaymentId == payment.Id &&
+                                      (refund.Status == "Pending" || refund.Status == "Approved" || refund.Status == "Succeeded"))
+                                  .Sum(refund => (decimal?)refund.Amount) ?? 0m
+                          }).ToListAsync(cancellationToken);
+
+        return rows.Where(row => row.Amount > row.Reserved)
+            .Select(row => new RefundEligiblePaymentResponse(row.Id, row.InvoiceNumber, row.Amount,
+                row.Amount - row.Reserved, row.PaymentMethod, row.PaidAt))
+            .ToArray();
+    }
+
+    public async Task<IReadOnlyList<ManualRefundRequestResponse>> GetMyManualRefundRequestsAsync(
+        long memberUserId,
+        CancellationToken cancellationToken = default) =>
+        await ManualRefundQuery(requestedBy: memberUserId)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<ManualRefundRequestResponse>> GetManualRefundRequestsAsync(
+        long? managerCenterId,
+        string? status,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedStatus = status?.Trim();
+        if (!string.IsNullOrEmpty(normalizedStatus) && normalizedStatus is not ("Pending" or "Approved" or "Rejected"))
+            throw BusinessException.BadRequest("Trạng thái yêu cầu hoàn tiền không hợp lệ.");
+
+        var query = ManualRefundQuery(centerId: managerCenterId, status: normalizedStatus);
+        return await query.ToListAsync(cancellationToken);
+    }
+
+    public async Task<ManualRefundRequestResponse> SubmitManualRefundRequestAsync(
+        long memberUserId,
+        long paymentId,
+        string idempotencyKey,
+        SubmitManualRefundRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        EnsurePaymentAmount(request.Amount, "Số tiền hoàn");
+        var reason = request.Reason.Trim();
+        var bankName = request.BankName.Trim();
+        var accountNumber = request.BankAccountNumber.Trim();
+        var accountName = request.BankAccountName.Trim().ToUpperInvariant();
+        if (reason.Length < 5 || bankName.Length < 2 || accountName.Length < 2)
+            throw BusinessException.BadRequest("Thông tin nhận hoàn tiền chưa đầy đủ.");
+
+        var scopedKey = ScopeIdempotencyKey(memberUserId, idempotencyKey);
+        await using var transaction = await _unitOfWork.Context.Database
+            .BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var existing = await _unitOfWork.Context.PaymentRefunds
+            .SingleOrDefaultAsync(refund => refund.IdempotencyKey == scopedKey, cancellationToken);
+        if (existing is not null)
+        {
+            if (existing.PaymentId != paymentId || existing.Amount != request.Amount ||
+                !string.Equals(existing.Reason, reason, StringComparison.Ordinal) ||
+                !string.Equals(existing.BankName, bankName, StringComparison.Ordinal) ||
+                !string.Equals(existing.BankAccountNumber, accountNumber, StringComparison.Ordinal) ||
+                !string.Equals(existing.BankAccountName, accountName, StringComparison.Ordinal))
+                throw BusinessException.Conflict("Idempotency-Key đã được dùng cho yêu cầu hoàn tiền khác.");
+            await transaction.CommitAsync(cancellationToken);
+            return await ManualRefundQuery(refundId: existing.Id).SingleAsync(cancellationToken);
+        }
+
+        var member = await _unitOfWork.Context.MemberProfiles
+            .SingleOrDefaultAsync(profile => profile.UserId == memberUserId, cancellationToken)
+            ?? throw BusinessException.NotFound("Không tìm thấy hồ sơ hội viên.");
+        var payment = await _unitOfWork.Context.Payments
+            .SingleOrDefaultAsync(item => item.Id == paymentId && item.MemberId == member.Id, cancellationToken)
+            ?? throw BusinessException.NotFound("Không tìm thấy giao dịch thuộc hội viên hiện tại.");
+        if (payment.PaymentStatus != "Succeeded")
+            throw BusinessException.Conflict("Chỉ giao dịch đã thanh toán thành công mới có thể yêu cầu hoàn tiền.");
+
+        var reserved = await _unitOfWork.Context.PaymentRefunds
+            .Where(refund => refund.PaymentId == payment.Id &&
+                (refund.Status == "Pending" || refund.Status == "Approved" || refund.Status == "Succeeded"))
+            .SumAsync(refund => (decimal?)refund.Amount, cancellationToken) ?? 0m;
+        if (request.Amount > payment.Amount - reserved)
+            throw BusinessException.Conflict($"Số tiền tối đa có thể yêu cầu hoàn là {Math.Max(0, payment.Amount - reserved):N0} VND.");
+
+        var now = DateTime.UtcNow;
+        var refund = new PaymentRefund
+        {
+            PaymentId = payment.Id,
+            Amount = request.Amount,
+            Status = "Pending",
+            IdempotencyKey = scopedKey,
+            Reason = reason,
+            BankName = bankName,
+            BankAccountNumber = accountNumber,
+            BankAccountName = accountName,
+            RequestedBy = memberUserId,
+            CreatedAt = now
+        };
+        _unitOfWork.Context.PaymentRefunds.Add(refund);
+        await _unitOfWork.Context.SaveChangesAsync(cancellationToken);
+        var invoice = await _unitOfWork.Context.Invoices.SingleAsync(item => item.Id == payment.InvoiceId, cancellationToken);
+        var managerIds = await (from staff in _unitOfWork.Context.StaffProfiles
+                                join user in _unitOfWork.Context.Users on staff.UserId equals user.Id
+                                join role in _unitOfWork.Context.Roles on user.RoleId equals role.Id
+                                where staff.CenterId == invoice.CenterId && staff.Status == "Active" &&
+                                      user.Status == "Active" && role.Name == "Manager"
+                                select user.Id).Distinct().ToListAsync(cancellationToken);
+        await FlowNotificationWriter.CreateAsync(_unitOfWork.Context, memberUserId, managerIds,
+            "Có yêu cầu hoàn tiền mới", $"{member.FullName} yêu cầu hoàn {request.Amount:N0} VND cho hóa đơn {invoice.InvoiceNumber}.",
+            "RefundRequested", cancellationToken);
+        _unitOfWork.Context.AuditLogs.Add(CreateAudit(memberUserId, "Payment.RefundRequested", "PaymentRefund", refund.Id,
+            new { payment.Id, invoice.InvoiceNumber, refund.Amount, refund.Status }, now));
+        await _unitOfWork.Context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return await ManualRefundQuery(refundId: refund.Id).SingleAsync(cancellationToken);
+    }
+
+    public async Task<ManualRefundRequestResponse> ReviewManualRefundRequestAsync(
+        long managerUserId,
+        long? managerCenterId,
+        long refundId,
+        ReviewManualRefundRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var status = request.Status.Trim();
+        if (status == "Approved" && string.IsNullOrWhiteSpace(request.TransferProofUrl))
+            throw BusinessException.BadRequest("Ảnh xác nhận chuyển khoản là bắt buộc khi duyệt hoàn tiền.");
+        var transferProofUrl = request.TransferProofUrl?.Trim();
+        if (status == "Approved" && transferProofUrl is not null &&
+            (!transferProofUrl.StartsWith("refund-bills/", StringComparison.Ordinal) ||
+             transferProofUrl.Contains("../", StringComparison.Ordinal) ||
+             transferProofUrl.EndsWith("/", StringComparison.Ordinal)))
+            throw BusinessException.BadRequest("Đường dẫn ảnh xác nhận chuyển khoản không hợp lệ.");
+        if (status == "Rejected" && string.IsNullOrWhiteSpace(request.ReviewNote))
+            throw BusinessException.BadRequest("Vui lòng nhập lý do từ chối hoàn tiền.");
+
+        await using var transaction = await _unitOfWork.Context.Database
+            .BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var refund = await _unitOfWork.Context.PaymentRefunds
+            .SingleOrDefaultAsync(item => item.Id == refundId, cancellationToken)
+            ?? throw BusinessException.NotFound("Không tìm thấy yêu cầu hoàn tiền.");
+        if (string.IsNullOrWhiteSpace(refund.BankName) ||
+            string.IsNullOrWhiteSpace(refund.BankAccountNumber) ||
+            string.IsNullOrWhiteSpace(refund.BankAccountName))
+            throw BusinessException.NotFound("Không tìm thấy yêu cầu hoàn tiền thủ công.");
+        var payment = await _unitOfWork.Context.Payments.SingleAsync(item => item.Id == refund.PaymentId, cancellationToken);
+        var invoice = await _unitOfWork.Context.Invoices.SingleAsync(item => item.Id == payment.InvoiceId, cancellationToken);
+        EnsureCenterScope(managerCenterId, invoice.CenterId);
+        if (refund.Status != "Pending")
+            throw BusinessException.Conflict("Yêu cầu hoàn tiền này đã được xử lý.");
+
+        if (status == "Approved")
+        {
+            // A caller must not claim another tenant's object by attaching its key to a new refund.
+            var scope = await MediaAccessScope.ForUser(_unitOfWork.Context, managerUserId, cancellationToken);
+            if (!scope.IsAdmin)
+            {
+                var fileId = MediaAccessScope.R2FileIdPrefix + transferProofUrl;
+                var media = await _unitOfWork.Context.UploadedMedias.AsNoTracking()
+                    .Where(m => EF.Functions.Collate(m.DriveFileId, "Latin1_General_100_BIN2") == fileId)
+                    .Select(m => new { m.CenterId }).SingleOrDefaultAsync(cancellationToken);
+                if (!scope.IsManager || scope.CenterId != invoice.CenterId || media?.CenterId != invoice.CenterId)
+                    throw BusinessException.NotFound("Không tìm thấy ảnh trong phạm vi được phép. Vui lòng tải lại ảnh chứng từ.");
+            }
+        }
+
+        var now = DateTime.UtcNow;
+        refund.Status = status;
+        refund.ReviewedBy = managerUserId;
+        refund.ProcessedAt = now;
+        refund.ReviewNote = request.ReviewNote?.Trim();
+        refund.TransferProofUrl = status == "Approved" ? transferProofUrl : null;
+        refund.ExternalReference = status == "Approved" ? request.TransferReference?.Trim() : null;
+        if (status == "Approved")
+        {
+            payment.RefundApprovedBy = managerUserId;
+            await _unitOfWork.Context.SaveChangesAsync(cancellationToken);
+            await UpdateInvoiceRefundStatusAsync(invoice, now, cancellationToken);
+        }
+        await FlowNotificationWriter.CreateAsync(_unitOfWork.Context, managerUserId, [refund.RequestedBy],
+            status == "Approved" ? "Yêu cầu hoàn tiền đã được duyệt" : "Yêu cầu hoàn tiền bị từ chối",
+            status == "Approved"
+                ? $"Đã hoàn {refund.Amount:N0} VND cho hóa đơn {invoice.InvoiceNumber}."
+                : $"Yêu cầu hoàn tiền hóa đơn {invoice.InvoiceNumber} bị từ chối. {refund.ReviewNote}",
+            "RefundReviewed", cancellationToken);
+        _unitOfWork.Context.AuditLogs.Add(CreateAudit(managerUserId, $"Payment.Refund{status}", "PaymentRefund", refund.Id,
+            new { payment.Id, invoice.InvoiceNumber, refund.Amount, refund.Status, refund.TransferProofUrl, refund.ExternalReference }, now));
+        await _unitOfWork.Context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return await ManualRefundQuery(refundId: refund.Id).SingleAsync(cancellationToken);
+    }
+
     public async Task<RevenueReportResponse> GetRevenueReportAsync(
         long centerId,
         DateOnly from,
@@ -1041,9 +1214,9 @@ public sealed class PaymentService(
         string groupBy,
         CancellationToken cancellationToken = default)
     {
-        if (from > to || to == DateOnly.MaxValue || to.DayNumber - from.DayNumber > 366)
+        if (from > to || to == DateOnly.MaxValue || to.DayNumber - from.DayNumber > 365)
         {
-            throw BusinessException.BadRequest("Khoảng ngày phải hợp lệ và không vượt quá 367 ngày.");
+            throw BusinessException.BadRequest("Khoảng ngày phải hợp lệ và không vượt quá 366 ngày.");
         }
         groupBy = (groupBy ?? string.Empty).Trim().ToLowerInvariant();
         if (groupBy is not ("day" or "month"))
@@ -1069,7 +1242,7 @@ public sealed class PaymentService(
             from refund in _unitOfWork.Context.PaymentRefunds
             join payment in _unitOfWork.Context.Payments on refund.PaymentId equals payment.Id
             join invoice in _unitOfWork.Context.Invoices on payment.InvoiceId equals invoice.Id
-            where invoice.CenterId == centerId && refund.Status == "Succeeded" &&
+            where invoice.CenterId == centerId && (refund.Status == "Succeeded" || refund.Status == "Approved") &&
                   refund.ProcessedAt != null && refund.ProcessedAt >= startUtc && refund.ProcessedAt < endUtc
             select new { refund.Amount, ProcessedAt = refund.ProcessedAt!.Value })
             .ToListAsync(cancellationToken);
@@ -1106,6 +1279,8 @@ public sealed class PaymentService(
 
     private async Task<(Invoice Invoice, Payment Payment, string? ExistingLink)> PrepareOnlinePaymentAsync(
         long memberId,
+        long actorUserId,
+        long? allowedCenterId,
         CreatePaymentRequest request,
         string provider,
         string idempotencyKey,
@@ -1116,7 +1291,7 @@ public sealed class PaymentService(
             throw BusinessException.BadRequest("Cần PackageId để tạo hóa đơn mới.");
         }
 
-        var scopedKey = ScopeIdempotencyKey(memberId, idempotencyKey);
+        var scopedKey = ScopeIdempotencyKey(actorUserId, idempotencyKey);
         await using var transaction = await _unitOfWork.Context.Database
             .BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 
@@ -1177,9 +1352,15 @@ public sealed class PaymentService(
             {
                 throw BusinessException.Forbidden("Tài khoản hội viên không hoạt động.");
             }
+
+            var effectiveActorUserId = (actorUserId == memberId || !await _unitOfWork.Context.Users.AnyAsync(u => u.Id == actorUserId, cancellationToken))
+                ? member.UserId
+                : actorUserId;
+
             package = await _unitOfWork.Context.MembershipPackages
                 .SingleOrDefaultAsync(candidate => candidate.Id == request.PackageId && candidate.Status == "Active", cancellationToken)
                 ?? throw BusinessException.NotFound("Gói tập không tồn tại hoặc đã ngừng hoạt động.");
+            EnsureCenterScope(allowedCenterId, package.CenterId);
             if (package.Price <= 0 || package.DurationDays <= 0)
             {
                 throw BusinessException.Conflict("Gói tập phải có giá và thời hạn lớn hơn 0.");
@@ -1198,8 +1379,21 @@ public sealed class PaymentService(
             var pendingInvoiceNumber = await FindOpenPendingInvoiceNumberAsync(member.Id, package.Id, cancellationToken);
             if (pendingInvoiceNumber is not null)
             {
-                throw BusinessException.Conflict(
-                    $"Hội viên đã có hóa đơn chờ thanh toán cho gói này ({pendingInvoiceNumber}); hãy tiếp tục thanh toán hóa đơn đó.");
+                if (request.CancelPendingIfAny)
+                {
+                    var existingPendingInv = await _unitOfWork.Context.Invoices
+                        .SingleOrDefaultAsync(i => i.InvoiceNumber == pendingInvoiceNumber, cancellationToken);
+                    if (existingPendingInv is not null)
+                    {
+                        await CancelPendingInvoiceCoreAsync(effectiveActorUserId, existingPendingInv, now, cancellationToken);
+                        await _unitOfWork.SaveChangesAsync(cancellationToken);
+                    }
+                }
+                else
+                {
+                    throw BusinessException.Conflict(
+                        $"Hội viên đã có hóa đơn chờ thanh toán cho gói này ({pendingInvoiceNumber}); hãy tiếp tục thanh toán hóa đơn đó.");
+                }
             }
             if (!member.CenterId.HasValue)
             {
@@ -1226,7 +1420,7 @@ public sealed class PaymentService(
                 IdempotencyKey = scopedKey,
                 MemberId = memberId,
                 CenterId = package.CenterId,
-                CreatedBy = member.UserId,
+                CreatedBy = effectiveActorUserId,
                 Subtotal = package.Price,
                 Discount = 0,
                 Tax = 0,
@@ -1265,6 +1459,8 @@ public sealed class PaymentService(
                 .SingleAsync(candidate => candidate.Id == item.PackageId, cancellationToken);
         }
 
+        EnsureCenterScope(allowedCenterId, invoice.CenterId);
+
         var memberProfile = await _unitOfWork.Context.MemberProfiles
             .SingleAsync(candidate => candidate.Id == memberId, cancellationToken);
         if (!await _unitOfWork.Context.Users.AnyAsync(
@@ -1289,21 +1485,31 @@ public sealed class PaymentService(
         {
             throw BusinessException.Conflict("Hóa đơn đã được thanh toán đủ.");
         }
-        if ((provider is "MOMO" or "PAYOS") && remaining != decimal.Truncate(remaining))
+        if (provider == "MOMO" && remaining != decimal.Truncate(remaining))
         {
             throw BusinessException.Conflict($"{provider} chỉ nhận số tiền VND nguyên; số dư hóa đơn đang có phần thập phân.");
         }
-        if (provider == "PAYOS" && remaining > int.MaxValue)
+        var pendingPayments = await _unitOfWork.Context.Payments
+            .Where(candidate => candidate.InvoiceId == invoice.Id && candidate.PaymentStatus == "Pending")
+            .OrderByDescending(candidate => candidate.Id)
+            .Take(2)
+            .ToListAsync(cancellationToken);
+        if (pendingPayments.Count > 0)
         {
-            throw BusinessException.Conflict("PayOS không hỗ trợ số tiền vượt giới hạn số nguyên 32-bit.");
-        }
-        if (await _unitOfWork.Context.Payments.AnyAsync(
-                candidate => candidate.InvoiceId == invoice.Id && candidate.PaymentStatus == "Pending",
-                cancellationToken))
-        {
-            throw BusinessException.Conflict("Hóa đơn đã có payment Pending. Chờ callback hoặc quản lý đối soát trước khi thử lại.");
+            var pendingPayment = pendingPayments[0];
+            if (pendingPayments.Count == 1 &&
+                pendingPayment.PaymentMethod.StartsWith(provider, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(pendingPayment.GatewayPaymentUrl))
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return (invoice, pendingPayment, pendingPayment.GatewayPaymentUrl);
+            }
+
+            throw BusinessException.Conflict(
+                "Hóa đơn đang có giao dịch chờ xác nhận và chưa thể tiếp tục tự động. Vui lòng chờ callback hoặc liên hệ quản lý đối soát.");
         }
 
+        var paymentAttemptTime = DateTime.UtcNow;
         var payment = new Payment
         {
             InvoiceId = invoice.Id,
@@ -1311,17 +1517,13 @@ public sealed class PaymentService(
             PaymentMethod = provider,
             Amount = remaining,
             PaymentStatus = "Pending",
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = paymentAttemptTime,
+            AttemptedAt = paymentAttemptTime,
             IdempotencyKey = scopedKey,
             GatewayReference = $"PAY-{Guid.NewGuid():N}"
         };
         _unitOfWork.Context.Payments.Add(payment);
         await _unitOfWork.Context.SaveChangesAsync(cancellationToken);
-        if (provider == "PAYOS")
-        {
-            payment.GatewayReference = payment.Id.ToString(CultureInfo.InvariantCulture);
-            await _unitOfWork.Context.SaveChangesAsync(cancellationToken);
-        }
         await transaction.CommitAsync(cancellationToken);
         return (invoice, payment, null);
     }
@@ -1467,7 +1669,7 @@ public sealed class PaymentService(
             {
                 Success = false,
                 Processed = true,
-                Message = "Cổng thanh toán báo thất bại; quyền lợi chưa được kích hoạt.",
+                Message = !string.IsNullOrWhiteSpace(note) ? note : "Cổng thanh toán báo thất bại; quyền lợi chưa được kích hoạt.",
                 InvoiceNumber = invoice.InvoiceNumber,
                 TransactionId = providerTransactionId,
                 Amount = amount
@@ -1484,13 +1686,16 @@ public sealed class PaymentService(
             }
             return FailedCallback("Amount hoặc transaction id không khớp payment attempt.", invoice.InvoiceNumber);
         }
+
         var normalizedId = NormalizeProviderTransactionId(provider, providerTransactionId);
+        // Nếu Transaction ID này đã tồn tại ở một Payment khác...
         if (await _unitOfWork.Context.Payments.AnyAsync(
                 candidate => candidate.ProviderTransactionId == normalizedId && candidate.Id != payment.Id,
                 cancellationToken))
         {
             if (isSuccess && payment.PaymentStatus != "Succeeded")
             {
+                // thì hệ thống chuyển sang trạng thái chờ đối soát thay vì kích hoạt!
                 var review = await MarkPaymentReviewRequiredAsync(payment, provider,
                     "Provider transaction ID đã gắn với payment khác", amount, providerTransactionId, cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
@@ -1550,6 +1755,8 @@ public sealed class PaymentService(
             join subscription in _unitOfWork.Context.MemberSubscriptions on item.SubscriptionId equals subscription.Id
             where item.InvoiceId == invoiceId && item.SubscriptionId != null && subscription.Status == "PendingPayment"
             select subscription).ToListAsync(cancellationToken);
+        var senderId = await _unitOfWork.Context.Invoices.Where(i => i.Id == invoiceId)
+            .Select(i => i.CreatedBy).SingleAsync(cancellationToken);
         foreach (var subscription in subscriptions)
         {
             var package = await _unitOfWork.Context.MembershipPackages
@@ -1557,6 +1764,7 @@ public sealed class PaymentService(
             var today = ToBusinessDate(now);
             var currentEnd = await _unitOfWork.Context.MemberSubscriptions
                 .Where(candidate => candidate.MemberId == subscription.MemberId &&
+                                    candidate.PackageId == subscription.PackageId &&
                                     candidate.Status == "Active" && candidate.EndDate >= today)
                 .MaxAsync(candidate => (DateOnly?)candidate.EndDate, cancellationToken);
             subscription.StartDate = currentEnd.HasValue ? currentEnd.Value.AddDays(1) : today;
@@ -1565,6 +1773,8 @@ public sealed class PaymentService(
             subscription.DurationDays = durationDays;
             subscription.Status = "Active";
             subscription.UpdatedAt = now;
+            await FlowNotificationWriter.MembershipPaidAsync(_unitOfWork.Context, senderId, subscription,
+                package.Name, today, cancellationToken);
         }
     }
 
@@ -1574,7 +1784,7 @@ public sealed class PaymentService(
         var refunded = await (
             from refund in _unitOfWork.Context.PaymentRefunds
             join payment in _unitOfWork.Context.Payments on refund.PaymentId equals payment.Id
-            where payment.InvoiceId == invoice.Id && refund.Status == "Succeeded"
+            where payment.InvoiceId == invoice.Id && (refund.Status == "Succeeded" || refund.Status == "Approved")
             select (decimal?)refund.Amount).SumAsync(cancellationToken) ?? 0m;
         if (refunded <= 0)
         {
@@ -1619,11 +1829,15 @@ public sealed class PaymentService(
             refundRows.Where(refund => refund.PaymentId == payment.Id)
                 .Select(refund => new InvoiceRefundResponse(refund.Id, refund.Amount, refund.Status,
                     refund.Reason, refund.ProviderRefundId, refund.ExternalReference, refund.CreatedAt, refund.ProcessedAt))
-                .ToArray())).ToArray();
+                .ToArray(),
+            payment.GatewayReference)).ToArray();
+        var member = await _unitOfWork.Context.MemberProfiles.SingleAsync(m => m.Id == invoice.MemberId, cancellationToken);
+        var center = await _unitOfWork.Context.Centers.SingleAsync(c => c.Id == invoice.CenterId, cancellationToken);
         return new InvoiceDetailsResponse(
             invoice.Id, invoice.InvoiceNumber, invoice.MemberId, invoice.CenterId,
             invoice.IssuedAt, invoice.PaidAt, invoice.Status, invoice.Subtotal, invoice.Discount,
-            invoice.Tax, invoice.TotalAmount, paid, Math.Max(0m, invoice.TotalAmount - paid), items, payments);
+            invoice.Tax, invoice.TotalAmount, paid, Math.Max(0m, invoice.TotalAmount - paid), items, payments,
+            member.FullName, member.MemberCode, center.Name, center.Address);
     }
 
     private async Task<CounterPaymentResponse> BuildCounterResponseAsync(
@@ -1710,7 +1924,7 @@ public sealed class PaymentService(
 
     private async Task<decimal> GetSuccessfulRefundAmountAsync(long paymentId, CancellationToken cancellationToken) =>
         await _unitOfWork.Context.PaymentRefunds
-            .Where(refund => refund.PaymentId == paymentId && refund.Status == "Succeeded")
+            .Where(refund => refund.PaymentId == paymentId && (refund.Status == "Succeeded" || refund.Status == "Approved"))
             .SumAsync(refund => (decimal?)refund.Amount, cancellationToken) ?? 0m;
 
     private Task<bool> InvoiceHasPackageAsync(long invoiceId, long packageId, CancellationToken cancellationToken) =>
@@ -1739,6 +1953,59 @@ public sealed class PaymentService(
             CreatedAt = createdAt
         };
 
+    private IQueryable<ManualRefundRequestResponse> ManualRefundQuery(
+        long? refundId = null,
+        long? requestedBy = null,
+        long? centerId = null,
+        string? status = null)
+    {
+        var publicDomain = _configuration["R2Storage:PublicDomain"]?.Trim().TrimEnd('/');
+        var rows = from refund in _unitOfWork.Context.PaymentRefunds.AsNoTracking()
+                   join payment in _unitOfWork.Context.Payments.AsNoTracking() on refund.PaymentId equals payment.Id
+                   join invoice in _unitOfWork.Context.Invoices.AsNoTracking() on payment.InvoiceId equals invoice.Id
+                   join member in _unitOfWork.Context.MemberProfiles.AsNoTracking() on payment.MemberId equals member.Id
+                   where refund.BankName != null && refund.BankAccountNumber != null && refund.BankAccountName != null
+                   select new { Refund = refund, Payment = payment, Invoice = invoice, Member = member };
+
+        if (refundId.HasValue) rows = rows.Where(row => row.Refund.Id == refundId.Value);
+        if (requestedBy.HasValue) rows = rows.Where(row => row.Refund.RequestedBy == requestedBy.Value);
+        if (centerId.HasValue) rows = rows.Where(row => row.Invoice.CenterId == centerId.Value);
+        if (!string.IsNullOrEmpty(status)) rows = rows.Where(row => row.Refund.Status == status);
+        rows = rows.OrderByDescending(row => row.Refund.CreatedAt);
+
+        return from row in rows
+               join reviewerUser in _unitOfWork.Context.Users.AsNoTracking()
+                   on row.Refund.ReviewedBy equals reviewerUser.Id into reviewerUsers
+               from reviewerUser in reviewerUsers.DefaultIfEmpty()
+               select new ManualRefundRequestResponse(
+                   row.Refund.Id,
+                   row.Payment.Id,
+                   row.Invoice.InvoiceNumber,
+                   row.Member.Id,
+                   row.Member.FullName,
+                   row.Member.MemberCode,
+                   row.Payment.Amount,
+                   row.Refund.Amount,
+                   row.Payment.PaymentMethod,
+                   row.Refund.Status,
+                   row.Refund.Reason,
+                   row.Refund.BankName ?? string.Empty,
+                   row.Refund.BankAccountNumber ?? string.Empty,
+                   row.Refund.BankAccountName ?? string.Empty,
+                   row.Refund.RequestedBy,
+                   row.Refund.CreatedAt,
+                   row.Refund.ReviewedBy,
+                   reviewerUser == null ? null : reviewerUser.Username,
+                   row.Refund.ProcessedAt,
+                   row.Refund.ReviewNote,
+                   row.Refund.TransferProofUrl != null &&
+                       row.Refund.TransferProofUrl.StartsWith("refund-bills/") &&
+                       publicDomain != null
+                       ? publicDomain + "/" + row.Refund.TransferProofUrl
+                       : row.Refund.TransferProofUrl,
+                   row.Refund.ExternalReference);
+    }
+
     private static PaymentRefundResponse BuildRefundResponse(
         PaymentRefund refund, Payment payment, Invoice invoice, string message) =>
         new(refund.Id, payment.Id, invoice.InvoiceNumber, refund.Amount, refund.Status,
@@ -1758,12 +2025,12 @@ public sealed class PaymentService(
         string message,
         string? invoiceNumber = null,
         string providerAckCode = "99") => new()
-    {
-        Success = false,
-        Message = message,
-        InvoiceNumber = invoiceNumber,
-        ProviderAckCode = providerAckCode
-    };
+        {
+            Success = false,
+            Message = message,
+            InvoiceNumber = invoiceNumber,
+            ProviderAckCode = providerAckCode
+        };
 
     private static string CreateInvoiceNumber(DateTime now) =>
         $"SC-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..30];
@@ -1899,8 +2166,7 @@ public sealed class PaymentService(
 
     private static string GetProvider(string method) =>
         method.StartsWith("VNPAY", StringComparison.OrdinalIgnoreCase) ? "VNPAY" :
-        method.StartsWith("MOMO", StringComparison.OrdinalIgnoreCase) ? "MOMO" :
-        method.StartsWith("PAYOS", StringComparison.OrdinalIgnoreCase) ? "PAYOS" : method.ToUpperInvariant();
+        method.StartsWith("MOMO", StringComparison.OrdinalIgnoreCase) ? "MOMO" : method.ToUpperInvariant();
 
     private void EnsureGatewayConfiguration(string provider, params string[] keys)
     {
@@ -1916,27 +2182,7 @@ public sealed class PaymentService(
         {
             throw new BusinessException(
                 HttpStatusCode.ServiceUnavailable,
-                $"{provider} chưa được cấu hình đầy đủ. Hãy cấu hình bằng User Secrets hoặc biến môi trường.");
-        }
-    }
-
-    private void EnsurePayOsUrlConfiguration()
-    {
-        var baseUrl = _configuration["PayOS:BaseUrl"];
-        var returnUrl = _configuration["PayOS:ReturnUrl"];
-        var cancelUrl = _configuration["PayOS:CancelUrl"];
-        var validBaseUrl = Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri)
-            && baseUri.Scheme == Uri.UriSchemeHttps;
-        var validReturnUrl = Uri.TryCreate(returnUrl, UriKind.Absolute, out var returnUri)
-            && returnUri.Scheme is "http" or "https";
-        var validCancelUrl = Uri.TryCreate(cancelUrl, UriKind.Absolute, out var cancelUri)
-            && cancelUri.Scheme is "http" or "https";
-
-        if (!validBaseUrl || !validReturnUrl || !validCancelUrl)
-        {
-            throw new BusinessException(
-                HttpStatusCode.ServiceUnavailable,
-                "PayOS cần BaseUrl HTTPS cùng ReturnUrl và CancelUrl tuyệt đối hợp lệ trước khi tạo payment.");
+                $"{provider} thiếu cấu hình bắt buộc: {string.Join(", ", missingKeys)}. Hãy cấu hình bằng User Secrets hoặc biến môi trường.");
         }
     }
 
@@ -1968,4 +2214,207 @@ public sealed class PaymentService(
     private DateOnly ToBusinessDate(DateTime utcDateTime) =>
         DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
             DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc), GetReportTimeZone()));
+
+    private async Task CancelPendingInvoiceCoreAsync(
+        long? actorUserId,
+        Invoice invoice,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        // Every cancellation path, including replacement checkout, must preserve collected money.
+        if (invoice.Status is not ("Issued" or "PartiallyPaid"))
+            throw BusinessException.Conflict("Chỉ có thể hủy hóa đơn ở trạng thái Issued hoặc PartiallyPaid.");
+        if (await _unitOfWork.Context.Payments.AnyAsync(
+                p => p.InvoiceId == invoice.Id && p.PaymentStatus == "Succeeded", cancellationToken))
+            throw BusinessException.Conflict("Hóa đơn đã có thanh toán thành công. Liên hệ nhân viên để được hỗ trợ.");
+
+        invoice.Status = "Voided";
+
+        // Void tất cả payment Pending của hóa đơn này
+        var pendingPayments = await _unitOfWork.Context.Payments
+            .Where(p => p.InvoiceId == invoice.Id && p.PaymentStatus == "Pending")
+            .ToListAsync(cancellationToken);
+        foreach (var payment in pendingPayments)
+        {
+            payment.PaymentStatus = "Voided";
+            payment.Note = "Hủy hóa đơn chờ thanh toán.";
+        }
+
+        // Hủy subscription PendingPayment liên kết
+        var invoiceItems = await _unitOfWork.Context.InvoiceItems
+            .Where(item => item.InvoiceId == invoice.Id && item.SubscriptionId != null)
+            .ToListAsync(cancellationToken);
+        foreach (var item in invoiceItems)
+        {
+            var subscription = await _unitOfWork.Context.MemberSubscriptions
+                .SingleOrDefaultAsync(s => s.Id == item.SubscriptionId, cancellationToken);
+            if (subscription is not null && subscription.Status == "PendingPayment")
+            {
+                subscription.Status = "Cancelled";
+                subscription.UpdatedAt = now;
+            }
+        }
+
+        var audit = CreateAudit(
+            actorUserId, "Invoice.CancelledByMember", "Invoice", invoice.Id,
+            new { invoice.InvoiceNumber, reason = "Hủy hóa đơn chờ thanh toán." }, now);
+        audit.CenterId = invoice.CenterId;
+        _unitOfWork.Context.AuditLogs.Add(audit);
+    }
+
+    private async Task EnsureCanCancelPendingAsync(long actorId, long memberId, long centerId, CancellationToken ct)
+    {
+        var actor = await (from user in _unitOfWork.Context.Users
+                           join role in _unitOfWork.Context.Roles on user.RoleId equals role.Id
+                           where user.Id == actorId && user.Status == "Active"
+                               && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
+                           select new { user.RoleId, Role = role.Name }).SingleOrDefaultAsync(ct);
+        if (actor is null) throw BusinessException.Forbidden("Tài khoản không hoạt động.");
+
+        var owner = actor.Role == RoleNames.Member && await _unitOfWork.Context.MemberProfiles
+            .AnyAsync(m => m.Id == memberId && m.UserId == actorId, ct);
+        if (!owner)
+        {
+            if (actor.Role is not (RoleNames.Manager or RoleNames.Receptionist or RoleNames.Admin))
+                throw BusinessException.Forbidden("Bạn không có quyền hủy hóa đơn này.");
+            if (actor.Role is RoleNames.Manager or RoleNames.Receptionist &&
+                !await _unitOfWork.Context.StaffProfiles.AnyAsync(s => s.UserId == actorId
+                    && s.CenterId == centerId && s.Status == "Active", ct))
+                throw BusinessException.Forbidden("Hóa đơn không thuộc trung tâm bạn được phân công.");
+        }
+
+        var permission = owner ? PermissionCodes.PaymentSelfCreate : PermissionCodes.PaymentCenterCash;
+        if (!await (from grant in _unitOfWork.Context.RolePermissions
+                    join p in _unitOfWork.Context.Permissions on grant.PermissionId equals p.Id
+                    where grant.RoleId == actor.RoleId && p.Code == permission
+                    select p.Id).AnyAsync(ct))
+            throw BusinessException.Forbidden("Bạn không có quyền xử lý hóa đơn chờ thanh toán.");
+        if (actor.Role is RoleNames.Member or RoleNames.Receptionist)
+        {
+            var policy = await CenterRolePolicy.Read(_unitOfWork.Context, centerId, actor.RoleId, ct);
+            if (policy is not null && (!policy.PermissionCodes.Contains(permission)
+                || (!owner && !policy.CapabilityIds.Contains("register_counter_package"))))
+                throw BusinessException.Forbidden("Quyền xử lý thanh toán đã bị thu hồi tại trung tâm.");
+        }
+    }
+
+    /// <summary>
+    /// Hủy hóa đơn PendingPayment do member chủ động yêu cầu.
+    /// Điều kiện: hóa đơn thuộc member đó, chưa có payment Succeeded, trạng thái Issued/PartiallyPaid.
+    /// </summary>
+    public async Task<PaymentResultResponse> CancelPendingInvoiceAsync(
+        long memberUserId,
+        string invoiceNumber,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await _unitOfWork.Context.Database
+            .BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+
+        var invoice = await _unitOfWork.Context.Invoices
+            .SingleOrDefaultAsync(i => i.InvoiceNumber == invoiceNumber, cancellationToken)
+            ?? throw BusinessException.NotFound("Không tìm thấy hóa đơn.");
+
+        await EnsureCanCancelPendingAsync(memberUserId, invoice.MemberId, invoice.CenterId, cancellationToken);
+
+        var now = DateTime.UtcNow;
+        await CancelPendingInvoiceCoreAsync(memberUserId, invoice, now, cancellationToken);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return new PaymentResultResponse
+        {
+            Success = true,
+            Message = "Đã hủy hóa đơn chờ thanh toán thành công.",
+            InvoiceNumber = invoice.InvoiceNumber
+        };
+    }
+
+    /// <summary>
+    /// Hủy hóa đơn chờ thanh toán của gói tập do member hoặc nhân sự chủ động yêu cầu.
+    /// </summary>
+    public async Task<PaymentResultResponse> CancelPendingPackageAsync(
+        long memberUserId,
+        long packageId,
+        long? targetMemberId = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (packageId <= 0 || targetMemberId is <= 0)
+            throw BusinessException.BadRequest("Mã gói và mã hội viên phải là số dương.");
+        var package = await _unitOfWork.Context.MembershipPackages
+            .SingleOrDefaultAsync(p => p.Id == packageId, cancellationToken)
+            ?? throw BusinessException.NotFound("Không tìm thấy gói tập.");
+        var resolvedMemberId = targetMemberId ?? await _unitOfWork.Context.MemberProfiles
+            .Where(m => m.UserId == memberUserId).Select(m => (long?)m.Id).SingleOrDefaultAsync(cancellationToken)
+            ?? throw BusinessException.BadRequest("Nhân viên cần chỉ định hội viên khi hủy đơn theo gói.");
+        await EnsureCanCancelPendingAsync(memberUserId, resolvedMemberId, package.CenterId, cancellationToken);
+
+        var pendingInvoiceNumber = await FindOpenPendingInvoiceNumberAsync(resolvedMemberId, packageId, cancellationToken);
+        if (pendingInvoiceNumber is null)
+        {
+            return new PaymentResultResponse
+            {
+                Success = true,
+                Message = "Không có hóa đơn chờ nào cho gói này."
+            };
+        }
+
+        return await CancelPendingInvoiceAsync(memberUserId, pendingInvoiceNumber, cancellationToken);
+    }
+
+    /// <summary>
+    /// Lấy danh sách hóa đơn đang chờ thanh toán của member.
+    /// </summary>
+    public async Task<List<PendingInvoiceDto>> GetMyPendingInvoicesAsync(
+        long memberUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var memberProfile = await _unitOfWork.Context.MemberProfiles
+            .SingleOrDefaultAsync(m => m.UserId == memberUserId, cancellationToken);
+        if (memberProfile is null) return new();
+
+        var query = from item in _unitOfWork.Context.InvoiceItems.AsNoTracking()
+                    join invoice in _unitOfWork.Context.Invoices.AsNoTracking() on item.InvoiceId equals invoice.Id
+                    join subscription in _unitOfWork.Context.MemberSubscriptions.AsNoTracking() on item.SubscriptionId equals subscription.Id
+                    join package in _unitOfWork.Context.MembershipPackages.AsNoTracking() on item.PackageId equals package.Id
+                    where invoice.MemberId == memberProfile.Id
+                        && subscription.Status == "PendingPayment"
+                        && (invoice.Status == "Issued" || invoice.Status == "PartiallyPaid")
+                    orderby invoice.IssuedAt descending
+                    select new
+                    {
+                        invoice.Id,
+                        invoice.InvoiceNumber,
+                        PackageId = package.Id,
+                        PackageName = item.Description ?? package.Name,
+                        Amount = invoice.TotalAmount - (_unitOfWork.Context.Payments
+                            .Where(p => p.InvoiceId == invoice.Id && p.PaymentStatus == "Succeeded")
+                            .Sum(p => (decimal?)p.Amount) ?? 0m),
+                        DurationDays = subscription.DurationDays,
+                        invoice.IssuedAt
+                    };
+
+        var items = await query.ToListAsync(cancellationToken);
+        if (items.Count == 0) return new();
+
+        var invoiceIds = items.Select(x => x.Id).ToList();
+        var latestPayments = await _unitOfWork.Context.Payments.AsNoTracking()
+            .Where(p => invoiceIds.Contains(p.InvoiceId))
+            .OrderByDescending(p => p.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        return items.Select(x =>
+        {
+            var p = latestPayments.FirstOrDefault(pay => pay.InvoiceId == x.Id);
+            return new PendingInvoiceDto(
+                x.InvoiceNumber,
+                x.PackageId,
+                x.PackageName,
+                x.Amount,
+                x.DurationDays,
+                x.IssuedAt,
+                p?.PaymentMethod
+            );
+        }).ToList();
+    }
 }

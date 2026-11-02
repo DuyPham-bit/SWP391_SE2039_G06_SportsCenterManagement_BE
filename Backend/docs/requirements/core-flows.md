@@ -24,12 +24,14 @@ Ngoài phạm vi bắt buộc của tài liệu này: AI, giáo án/tiến độ
 
 **Quy tắc phân quyền nền:** API phải kiểm tra role và phạm vi center cho mọi thao tác; không dựa vào việc frontend ẩn nút. Không trả password hash hoặc dữ liệu nhạy cảm qua API.
 
+**Cập nhật quyết định ngày 10/10/2026:** Người dùng xác nhận Manager được phân quyền trong trung tâm. Override riêng theo center/role áp dụng cho Member, Coach và Receptionist, giới hạn trong quyền nền của vai trò. System Admin vẫn giữ quyền sửa ma trận toàn hệ thống. Thiết kế và bằng chứng kiểm thử tại [flow2-delivery.md](./flow2-delivery.md).
+
 **Quyết định RBAC:** Mỗi user có một role. Ma trận `RolePermission` là nguồn cấp quyền cho các API có permission policy. Chỉ System Admin được sửa ma trận; quyền `roles.permissions.manage` luôn thuộc SystemAdmin và không thể cấp cho role khác hoặc tự gỡ. Tài khoản System Admin đầu tiên chỉ được bootstrap bằng biến môi trường `Bootstrap__SystemAdmin__Username`, `Bootstrap__SystemAdmin__Email`, `Bootstrap__SystemAdmin__Password`; không có mật khẩu mặc định. Manager/Receptionist vẫn bị giới hạn bởi assignment center và các rule nghiệp vụ ở service.
 
 ### Quyết định triển khai Flow 1
 
 - Mỗi User có một role theo `User.RoleId`; mỗi MemberProfile và StaffProfile gắn tối đa một center. Member chưa chọn center được gắn vào center của gói mua đầu tiên trong transaction.
-- MVP không bắt buộc email verification; tài khoản được kích hoạt sau đăng ký. Số điện thoại là tùy chọn. Mật khẩu tối thiểu 12 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt; khóa 15 phút sau 5 lần đăng nhập sai.
+- MVP không bắt buộc email verification; tài khoản được kích hoạt sau đăng ký. Số điện thoại là tùy chọn. Mật khẩu tối thiểu 6 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt; khóa 15 phút sau 5 lần đăng nhập sai.
 - Subscription bắt đầu sau khi invoice được thanh toán đủ. Khi còn một subscription Active chưa hết hạn, lần mua/gia hạn mới bắt đầu vào ngày kế tiếp ngày hết hạn đó; nếu không, bắt đầu vào ngày nhận đủ tiền.
 - Ngày kết thúc là inclusive: `end_date = start_date + duration_days - 1`. `duration_days` được chụp trên subscription lúc mua và các ngày hiệu lực để trống khi PendingPayment.
 - Token Bearer được bảo vệ bằng ASP.NET Core Data Protection, hết hạn sau 1 giờ; mỗi request đọc lại trạng thái tài khoản và role hiện tại.

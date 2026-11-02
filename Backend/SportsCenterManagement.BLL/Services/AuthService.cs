@@ -1,3 +1,4 @@
+using SportsCenterManagement.BLL.Common;
 using System.Text.RegularExpressions;
 using System.ComponentModel.DataAnnotations;
 using Microsoft.EntityFrameworkCore;
@@ -48,24 +49,12 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
         PasswordPolicy.ValidateOrThrow(request.Password, email, phone);
 
         // Validate date of birth cannot be in the future
-        if (request.DateOfBirth > DateOnly.FromDateTime(DateTime.UtcNow))
+        if (request.DateOfBirth > VietnamTime.Today)
         {
             throw new ValidationException("Date of birth cannot be in the future.");
         }
 
         var users = unitOfWork.Repository<User>();
-
-        // Ensure username or email is not already registered
-        if (await users.AnyAsync(user => user.Username == username || user.Email == email, cancellationToken))
-        {
-            throw new InvalidOperationException("Username or email is already in use.");
-        }
-
-        // Ensure phone number is not already registered if provided
-        if (phone is not null && await users.AnyAsync(user => user.Phone == phone, cancellationToken))
-        {
-            throw new InvalidOperationException("Phone number is already in use.");
-        }
 
         // Retrieve default 'Member' role from database
         var role = await unitOfWork.Repository<Role>()
@@ -81,8 +70,36 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
         }
 
         // Begin transaction: User and MemberProfile must succeed or roll back together
-        await using var transaction = await unitOfWork.BeginTransactionAsync(cancellationToken);
+        await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
         var now = DateTime.UtcNow;
+
+        // Self-registration proves mailbox ownership; staff-created memberships retain their existing workflow.
+        if (!actorUserId.HasValue)
+        {
+            var verification = await unitOfWork.Context.EmailVerificationTokens
+                .Where(item => item.Email == email && item.UsedAt == null && item.ExpiresAt > now)
+                .OrderByDescending(item => item.Id).FirstOrDefaultAsync(cancellationToken);
+            if (verification is null || verification.FailedAttempts >= 5
+                || request.EmailOtp is null || !Regex.IsMatch(request.EmailOtp, "^[0-9]{6}$"))
+                throw new ValidationException("Vui lòng nhập mã xác thực email hợp lệ. Mã có thể đã hết hạn hoặc đã được sử dụng.");
+
+            if (!BCrypt.Net.BCrypt.Verify(request.EmailOtp, verification.Token))
+            {
+                verification.FailedAttempts++;
+                if (verification.FailedAttempts >= 5) verification.UsedAt = now;
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                throw new ValidationException("Mã xác thực email không đúng. Sau 5 lần nhập sai, bạn cần yêu cầu mã mới.");
+            }
+            verification.UsedAt = now;
+        }
+
+        // Only disclose duplicate account details after mailbox verification (or authenticated staff creation).
+        if (await users.AnyAsync(user => user.Username == username || user.Email == email, cancellationToken))
+            throw new InvalidOperationException("Username or email is already in use.");
+        if (phone is not null && await users.AnyAsync(user => user.Phone == phone, cancellationToken))
+            throw new InvalidOperationException("Phone number is already in use.");
 
         // Create new user entity with hashed password
         var user = new User
@@ -143,12 +160,6 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
 
         var now = DateTime.UtcNow;
 
-        // Check if account is inactive or currently locked out
-        if (user.Status != "Active" || user.LockedUntil > now)
-        {
-            throw new InvalidOperationException("Account is currently unavailable for login.");
-        }
-
         // Verify the entered password against the stored password hash
         if (!PasswordHashing.Verify(request.Password, user.PasswordHash))
         {
@@ -163,6 +174,31 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
                         item => item.FailedLoginAttempts >= 4 ? now.AddMinutes(15) : item.LockedUntil)
                     .SetProperty(item => item.UpdatedAt, now), cancellationToken);
             throw new InvalidOperationException("Invalid username or password.");
+        }
+
+        // Only disclose an account lock after the caller has proved they know the password.
+        if (!string.Equals(user.Status, "Active", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 423,
+                    ["Code"] = "ACCOUNT_DISABLED"
+                }
+            };
+        }
+
+        if (user.LockedUntil.HasValue && user.LockedUntil.Value > now)
+        {
+            throw new InvalidOperationException("Tài khoản đang tạm thời bị khóa. Vui lòng thử lại sau.")
+            {
+                Data =
+                {
+                    ["StatusCode"] = 423,
+                    ["Code"] = "ACCOUNT_TEMPORARILY_LOCKED"
+                }
+            };
         }
 
         // Reset failed login counter and update login timestamp on successful authentication
@@ -189,17 +225,17 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
             .Select(profile => (long?)profile.CenterId)
             .SingleOrDefaultAsync(cancellationToken);
 
-        return new AuthResponses.AuthenticatedUser(user.Id, user.Username, role.Name, centerId, user.Email);
+        return new AuthResponses.AuthenticatedUser(user.Id, user.Username, role.Name, centerId, user.Email, user.AuthVersion);
     }
 
     /// <summary>
-    /// Validates password complexity: minimum 12 characters, including uppercase, lowercase, numbers, and special characters.
+    /// Validates password complexity: minimum 6 characters, including uppercase, lowercase, numbers, and special characters.
     /// </summary>
     /// <param name="password">Plain text password to be validated.</param>
     private static void ValidatePassword(string password)
     {
-        // 1. Kiểm tra chuỗi rỗng hoặc độ dài tối thiểu 12 ký tự / Check null or minimum length of 12 characters
-        if (string.IsNullOrWhiteSpace(password) || password.Length < 12
+        // 1. Kiểm tra chuỗi rỗng hoặc độ dài tối thiểu 6 ký tự / Check null or minimum length of 6 characters
+        if (string.IsNullOrWhiteSpace(password) || password.Length < 6
             // 2. Phải chứa ít nhất 1 chữ hoa / Must contain at least one uppercase letter (A-Z)
             || !Regex.IsMatch(password, "[A-Z]")
             // 3. Phải chứa ít nhất 1 chữ thường / Must contain at least one lowercase letter (a-z)
@@ -210,7 +246,7 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
             || !Regex.IsMatch(password, "[^a-zA-Z0-9]"))
         {
             // Ném ngoại lệ nếu không thỏa mãn bất kỳ điều kiện bảo mật nào / Throw validation exception if any rule fails
-            throw new ValidationException("Password must be at least 12 characters long and contain uppercase letters, lowercase letters, numbers, and special characters.");
+            throw new ValidationException("Password must be at least 6 characters long and contain uppercase letters, lowercase letters, numbers, and special characters.");
         }
     }
 

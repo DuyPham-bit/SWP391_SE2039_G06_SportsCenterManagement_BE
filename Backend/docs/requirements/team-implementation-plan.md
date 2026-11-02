@@ -3,7 +3,7 @@
 **Trạng thái:** Draft để nhóm thống nhất trước khi triển khai.  
 **Kiến trúc:** ASP.NET Core MVC API — Controller nhận/trả HTTP; Service xử lý nghiệp vụ; EF Core DbContext truy cập SQL Server; DTO làm hợp đồng API. Backend không dùng Razor Views vì frontend được tách riêng.
 
-**Quyết định áp dụng cho Flow 1:** một role/user và tối đa một center/member profile; email verification tắt ở MVP; mật khẩu tối thiểu 12 ký tự gồm chữ hoa, chữ thường, số, ký tự đặc biệt; khóa 15 phút sau 5 lần sai. Token Bearer dùng Data Protection, hết hạn sau 1 giờ và kiểm tra lại role/trạng thái mỗi request. Subscription PendingPayment chưa có ngày hiệu lực; chỉ kích hoạt khi invoice paid đủ; duration snapshot; end date inclusive; gia hạn nối tiếp gói Active còn hạn.
+**Quyết định áp dụng cho Flow 1:** một role/user và tối đa một center/member profile; email verification tắt ở MVP; mật khẩu tối thiểu 6 ký tự gồm chữ hoa, chữ thường, số, ký tự đặc biệt; khóa 15 phút sau 5 lần sai. Token Bearer dùng Data Protection, hết hạn sau 1 giờ và kiểm tra lại role/trạng thái mỗi request. Subscription PendingPayment chưa có ngày hiệu lực; chỉ kích hoạt khi invoice paid đủ; duration snapshot; end date inclusive; gia hạn nối tiếp gói Active còn hạn.
 
 ## 1. Phạm vi tổng hợp
 

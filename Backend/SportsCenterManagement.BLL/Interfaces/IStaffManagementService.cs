@@ -11,12 +11,20 @@ public interface IStaffManagementService
         string? query,
         int page,
         int pageSize,
+        string sortBy,
+        string sortDirection,
         CancellationToken cancellationToken = default);
 
     Task<StaffResponses.CenterStaffResponse> CreateAtCenterAsync(
         long actorUserId,
         long centerId,
         StaffRequests.CreateCenterStaffRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<StaffResponses.CenterStaffResponse> AppointAtCenterAsync(
+        long actorUserId,
+        long centerId,
+        StaffRequests.AppointCenterStaffRequest request,
         CancellationToken cancellationToken = default);
 
     Task<StaffResponses.CenterStaffResponse> UpdateAtCenterAsync(

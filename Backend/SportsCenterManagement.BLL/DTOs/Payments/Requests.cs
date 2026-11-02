@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace SportsCenterManagement.BLL.DTOs.Payments
@@ -24,6 +25,8 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
 
         [MaxLength(500)]
         public string? Note { get; set; }
+
+        public bool CancelPendingIfAny { get; set; }
     }
 
     public class CreatePaymentRequest
@@ -36,6 +39,24 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
 
         [MaxLength(50)]
         public string? BankCode { get; set; }
+
+        public bool CancelPendingIfAny { get; set; }
+    }
+
+    public sealed class CounterOnlinePaymentRequest : CreatePaymentRequest
+    {
+        [Range(1, long.MaxValue, ErrorMessage = "Hội viên không hợp lệ.")]
+        public long MemberId { get; set; }
+    }
+
+    public class CancelPendingRequest
+    {
+        [MaxLength(50)]
+        public string? InvoiceNumber { get; set; }
+
+        public long? PackageId { get; set; }
+
+        public long? MemberId { get; set; }
     }
 
     public sealed class CreateRefundRequest
@@ -50,74 +71,37 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
         public string? ExternalRefundReference { get; set; }
     }
 
-    /// <summary>DTO tiếp nhận dữ liệu Webhook từ PayOS khi có giao dịch chuyển khoản thành công.</summary>
-    public class PayOsWebhookRequest
+    public sealed class SubmitManualRefundRequest
     {
-        [JsonPropertyName("code")]
-        public string Code { get; set; } = string.Empty;
+        [Range(typeof(decimal), "0.01", "1000000000")]
+        public decimal Amount { get; set; }
 
-        [JsonPropertyName("desc")]
-        public string Desc { get; set; } = string.Empty;
+        [Required, MinLength(5), MaxLength(500)]
+        public string Reason { get; set; } = string.Empty;
 
-        [JsonPropertyName("success")]
-        public bool Success { get; set; }
+        [Required, MinLength(2), MaxLength(100)]
+        public string BankName { get; set; } = string.Empty;
 
-        [JsonPropertyName("data")]
-        public PayOsWebhookData? Data { get; set; }
+        [Required, RegularExpression("^[0-9]{6,30}$")]
+        public string BankAccountNumber { get; set; } = string.Empty;
 
-        [JsonPropertyName("signature")]
-        public string Signature { get; set; } = string.Empty;
+        [Required, MinLength(2), MaxLength(150)]
+        public string BankAccountName { get; set; } = string.Empty;
     }
 
-    public class PayOsWebhookData
+    public sealed class ReviewManualRefundRequest
     {
-        [JsonPropertyName("orderCode")]
-        public long OrderCode { get; set; }
+        [Required, RegularExpression("^(Approved|Rejected)$")]
+        public string Status { get; set; } = string.Empty;
 
-        [JsonPropertyName("amount")]
-        public int Amount { get; set; }
+        [MaxLength(1000)]
+        public string? TransferProofUrl { get; set; }
 
-        [JsonPropertyName("description")]
-        public string Description { get; set; } = string.Empty;
+        [MaxLength(150)]
+        public string? TransferReference { get; set; }
 
-        [JsonPropertyName("accountNumber")]
-        public string AccountNumber { get; set; } = string.Empty;
-
-        [JsonPropertyName("reference")]
-        public string Reference { get; set; } = string.Empty;
-
-        [JsonPropertyName("transactionDateTime")]
-        public string TransactionDateTime { get; set; } = string.Empty;
-
-        [JsonPropertyName("currency")]
-        public string Currency { get; set; } = "VND";
-
-        [JsonPropertyName("paymentLinkId")]
-        public string PaymentLinkId { get; set; } = string.Empty;
-
-        [JsonPropertyName("code")]
-        public string Code { get; set; } = string.Empty;
-
-        [JsonPropertyName("desc")]
-        public string Desc { get; set; } = string.Empty;
-
-        [JsonPropertyName("counterAccountBankId")]
-        public string CounterAccountBankId { get; set; } = string.Empty;
-
-        [JsonPropertyName("counterAccountBankName")]
-        public string CounterAccountBankName { get; set; } = string.Empty;
-
-        [JsonPropertyName("counterAccountName")]
-        public string CounterAccountName { get; set; } = string.Empty;
-
-        [JsonPropertyName("counterAccountNumber")]
-        public string CounterAccountNumber { get; set; } = string.Empty;
-
-        [JsonPropertyName("virtualAccountName")]
-        public string VirtualAccountName { get; set; } = string.Empty;
-
-        [JsonPropertyName("virtualAccountNumber")]
-        public string VirtualAccountNumber { get; set; } = string.Empty;
+        [MaxLength(1000)]
+        public string? ReviewNote { get; set; }
     }
 
     public sealed class ReconcilePendingPaymentRequest

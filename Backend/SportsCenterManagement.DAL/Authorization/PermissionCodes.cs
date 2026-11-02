@@ -27,5 +27,5 @@ public static class RoleNames
     public const string Coach = "Coach";
     public const string Receptionist = "Receptionist";
     public const string Manager = "Manager";
-    public const string SystemAdmin = "SystemAdmin";
+    public const string Admin = "Admin";
 }

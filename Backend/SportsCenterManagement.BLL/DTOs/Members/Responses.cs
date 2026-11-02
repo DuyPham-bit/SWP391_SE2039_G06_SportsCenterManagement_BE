@@ -14,7 +14,13 @@ public static class Responses
         string? Gender,
         string? Address,
         DateTime CreatedAt,
-        string AccountStatus = "Active");
+        string AccountStatus = "Active",
+        string? PackageName = null,
+        DateOnly? PackageExpiry = null,
+        string? PackageStatus = null,
+        long? PackageId = null,
+        long? SubscriptionId = null,
+        DateOnly? PackageStartDate = null);
 
     public sealed record MemberSubscriptionResponse(
         long SubscriptionId,
@@ -25,7 +31,8 @@ public static class Responses
         DateOnly? StartDate,
         DateOnly? EndDate,
         string Status,
-        DateTime CreatedAt);
+        DateTime CreatedAt,
+        string? EffectiveStatus = null);
 
     public sealed record PagedResponse<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
 }

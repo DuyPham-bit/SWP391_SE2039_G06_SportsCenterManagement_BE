@@ -11,6 +11,8 @@ namespace SportsCenterManagement.BLL.Services;
 
 public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembershipPackageService
 {
+    private const decimal MaxPackagePrice = 9_999_999_999m;
+
     public Task<IReadOnlyList<MembershipPackageResponse>> GetPackagesAsync(
         long centerId,
         CancellationToken cancellationToken = default) =>
@@ -109,6 +111,7 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
         await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(
             IsolationLevel.Serializable, cancellationToken);
         var package = await FindPackageAsync(centerId, packageId, cancellationToken);
+        await EnsurePackageCanBeModifiedAsync(packageId, cancellationToken);
         var oldValues = new { package.Name, package.Price, package.DurationDays, package.Status };
         package.Name = request.Name.Trim();
         package.Description = Normalize(request.Description);
@@ -141,6 +144,7 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
         var package = await unitOfWork.Repository<MembershipPackage>().GetByIdAsync(packageId, cancellationToken)
             ?? throw new KeyNotFoundException("Không tìm thấy gói tập.");
         await EnsureManagerAsync(actorUserId, package.CenterId, cancellationToken);
+        await EnsurePackageCanBeModifiedAsync(packageId, cancellationToken);
         var name = request.Name.Trim();
         if (await unitOfWork.Repository<MembershipPackage>().AnyAsync(
                 item => item.Id != packageId && item.CenterId == package.CenterId
@@ -189,7 +193,12 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
         if (string.Equals(previousStatus, newStatus, StringComparison.OrdinalIgnoreCase))
         {
             await transaction.CommitAsync(cancellationToken);
-            return ToResponse(package);
+            var currentSubCount = await unitOfWork.Context.MemberSubscriptions
+                .CountAsync(s => s.PackageId == package.Id, cancellationToken);
+            var currentHasInvoices = await unitOfWork.Context.InvoiceItems
+                .AnyAsync(i => i.PackageId == package.Id, cancellationToken);
+            var currentHasOrders = currentSubCount > 0 || currentHasInvoices;
+            return ToResponse(package, currentSubCount, currentHasOrders, !currentHasOrders);
         }
         package.Status = newStatus;
         package.UpdatedAt = DateTime.UtcNow;
@@ -199,7 +208,13 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
             new { Status = previousStatus }, new { Status = package.Status });
         await unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return ToResponse(package);
+
+        var subCount = await unitOfWork.Context.MemberSubscriptions
+            .CountAsync(s => s.PackageId == package.Id, cancellationToken);
+        var hasInvoices = await unitOfWork.Context.InvoiceItems
+            .AnyAsync(i => i.PackageId == package.Id, cancellationToken);
+        var hasOrders = subCount > 0 || hasInvoices;
+        return ToResponse(package, subCount, hasOrders, !hasOrders);
     }
 
     private async Task<IReadOnlyList<MembershipPackageResponse>> MapPackagesAsync(
@@ -214,9 +229,51 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
         }
 
         var packages = await query
-            .OrderBy(package => package.Price)
+            .OrderBy(package => package.Status == "Inactive" ? 1 : 0)
+            .ThenBy(package => package.Price)
             .ToListAsync(cancellationToken);
-        return packages.Select(ToResponse).ToList();
+
+        if (packages.Count == 0) return [];
+
+        var packageIds = packages.Select(package => package.Id).ToList();
+
+        var subscriptionCounts = await unitOfWork.Context.MemberSubscriptions
+            .Where(s => packageIds.Contains(s.PackageId))
+            .GroupBy(s => s.PackageId)
+            .Select(g => new { PackageId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.PackageId, x => x.Count, cancellationToken);
+
+        var invoicedPackageIds = (await unitOfWork.Context.InvoiceItems
+            .Where(i => i.PackageId.HasValue && packageIds.Contains(i.PackageId.Value))
+            .Select(i => i.PackageId!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken))
+            .ToHashSet();
+
+        return packages.Select(package =>
+        {
+            subscriptionCounts.TryGetValue(package.Id, out var subCount);
+            var hasOrders = subCount > 0 || invoicedPackageIds.Contains(package.Id);
+            var isEditable = !hasOrders;
+            return ToResponse(package, subCount, hasOrders, isEditable);
+        }).ToList();
+    }
+
+    private async Task EnsurePackageCanBeModifiedAsync(long packageId, CancellationToken cancellationToken)
+    {
+        var hasSubscriptions = await unitOfWork.Context.MemberSubscriptions
+            .AnyAsync(s => s.PackageId == packageId, cancellationToken);
+        var hasInvoices = await unitOfWork.Context.InvoiceItems
+            .AnyAsync(i => i.PackageId == packageId, cancellationToken);
+
+        if (hasSubscriptions || hasInvoices)
+        {
+            var ex = new InvalidOperationException("Gói tập đã kích hoạt và có người đặt/sử dụng, không thể chỉnh sửa thông tin gói.");
+            ex.Data["Code"] = "PKG_HAS_ORDERS";
+            ex.Data["StatusCode"] = 409;
+            ex.Data["ProposedHandling"] = "Để thay đổi chính sách hoặc biểu phí, vui lòng khóa bán gói hiện tại và tạo một gói mới.";
+            throw ex;
+        }
     }
 
     private async Task<MembershipPackage> FindPackageAsync(long centerId, long packageId, CancellationToken cancellationToken) =>
@@ -257,15 +314,27 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
         {
             throw new ArgumentException("Package name is required.");
         }
-        if (request.DurationDays <= 0 || request.Price <= 0 || request.MaxClasses is <= 0 || request.AllowedSports <= 0)
+        if (request.DurationDays <= 0 || request.MaxClasses is <= 0 || request.AllowedSports <= 0)
         {
-            throw new ArgumentException("Duration, price, and class limit must be positive.");
+            throw new ArgumentException("Thời hạn, số lớp và số môn phải lớn hơn 0.");
+        }
+        if (request.Price <= 0 || request.Price > MaxPackagePrice)
+        {
+            throw new ArgumentException($"Giá gói tập phải lớn hơn 0 và không vượt quá {MaxPackagePrice:N0} VNĐ.");
+        }
+        if (decimal.Round(request.Price, 2) != request.Price)
+        {
+            throw new ArgumentException("Giá gói tập chỉ được có tối đa 2 chữ số thập phân.");
         }
     }
 
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-    private static MembershipPackageResponse ToResponse(MembershipPackage package) => new(
+    private static MembershipPackageResponse ToResponse(
+        MembershipPackage package,
+        int subscriberCount = 0,
+        bool hasOrders = false,
+        bool isEditable = true) => new(
         package.Id,
         package.CenterId,
         package.Name,
@@ -277,7 +346,10 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
         package.Status,
         package.AllowedSports,
         package.Badge,
-        ParseFeatures(package.Features));
+        ParseFeatures(package.Features),
+        subscriberCount,
+        hasOrders,
+        isEditable);
 
     private static IReadOnlyList<string> ParseFeatures(string? features)
     {

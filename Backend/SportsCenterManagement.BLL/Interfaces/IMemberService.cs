@@ -9,7 +9,7 @@ public interface IMemberService
 {
     Task<MembersResponses.MemberProfileResponse> GetMeAsync(long userId, CancellationToken cancellationToken = default);
     Task<MembersResponses.MemberProfileResponse> UpdateMeAsync(long userId, MembersRequests.UpdateMemberProfileRequest request, CancellationToken cancellationToken = default);
-    Task<MembersResponses.MemberProfileResponse> UpdateAtCenterAsync(long actorUserId, long centerId, long memberId, MembersRequests.UpdateMemberProfileRequest request, CancellationToken cancellationToken = default);
+    Task<MembersResponses.MemberProfileResponse> UpdateAtCenterAsync(long actorUserId, long centerId, long memberId, MembersRequests.UpdateMemberAtCenterRequest request, CancellationToken cancellationToken = default);
     Task<MembersResponses.MemberProfileResponse> SetMemberStatusAsync(long actorUserId, long centerId, long memberId, string status, CancellationToken cancellationToken = default);
     Task<MembersResponses.PagedResponse<MembersResponses.MemberProfileResponse>> SearchAtCenterAsync(
         long actorUserId,
@@ -17,6 +17,8 @@ public interface IMemberService
         string query,
         int page,
         int pageSize,
+        string sortBy,
+        string sortDirection,
         CancellationToken cancellationToken = default);
     Task<MembersResponses.MemberProfileResponse> CreateAtCenterAsync(long actorUserId, long centerId, AuthRequests.RegisterRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<MembersResponses.MemberSubscriptionResponse>> GetSubscriptionsAsync(long actorUserId, long memberId, CancellationToken cancellationToken = default);

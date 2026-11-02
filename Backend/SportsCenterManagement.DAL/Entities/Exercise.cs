@@ -8,6 +8,12 @@ namespace SportsCenterManagement.DAL.Entities;
 [Table("exercises")]
 public class Exercise : Common.BaseEntity
 {
+    [Column("center_id")]
+    public long? CenterId { get; set; }
+
+    [Column("created_by_coach_id")]
+    public long? CreatedByCoachId { get; set; }
+
     [Column("sport_id")]
     public long? SportId { get; set; }
 
@@ -33,6 +39,10 @@ public class Exercise : Common.BaseEntity
     [MaxLength(500)]
     [Column("video_url")]
     public string? VideoUrl { get; set; }
+
+    [MaxLength(500)]
+    [Column("image_url")]
+    public string? ImageUrl { get; set; }
 
     [MaxLength(30)]
     [Column("status")]

@@ -9,6 +9,7 @@ public interface IClassService
         CancellationToken cancellationToken = default);
 
     Task<ClassCoachResponse> AssignCoachToClassAsync(
+        long actorUserId,
         long classId,
         AssignCoachRequest request,
         CancellationToken cancellationToken = default);
@@ -18,6 +19,7 @@ public interface IClassService
         CancellationToken cancellationToken = default);
 
     Task UnassignCoachFromClassAsync(
+        long actorUserId,
         long classId,
         long coachId,
         CancellationToken cancellationToken = default);

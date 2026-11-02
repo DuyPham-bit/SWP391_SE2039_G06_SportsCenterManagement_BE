@@ -62,7 +62,7 @@ public sealed class RolePermissionService(IUnitOfWork unitOfWork) : IRolePermiss
 
     private static readonly HashSet<string> ProtectedSystemRoles = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Admin", "Super Admin", RoleNames.SystemAdmin, "Manager", "Receptionist", "Coach", "Member"
+        RoleNames.Admin, "Super Admin", "Manager", "Receptionist", "Coach", "Member"
     };
 
     public async Task<RoleResponse> CreateRoleAsync(CreateRoleRequest request, CancellationToken cancellationToken = default)
@@ -169,11 +169,11 @@ public sealed class RolePermissionService(IUnitOfWork unitOfWork) : IRolePermiss
                 && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow))
             .Select(user => (long?)user.RoleId)
             .SingleOrDefaultAsync(cancellationToken);
-        var systemAdminRoleId = await unitOfWork.Context.Roles
-            .Where(role => role.Name == RoleNames.SystemAdmin)
+        var adminRoleId = await unitOfWork.Context.Roles
+            .Where(role => role.Name == RoleNames.Admin)
             .Select(role => (long?)role.Id)
             .SingleOrDefaultAsync(cancellationToken);
-        if (actorRoleId is null || systemAdminRoleId is null || actorRoleId.Value != systemAdminRoleId.Value)
+        if (actorRoleId is null || adminRoleId is null || actorRoleId.Value != adminRoleId.Value)
             throw new UnauthorizedAccessException("Chỉ System Admin được quản lý quyền vai trò.");
 
         if (request?.PermissionIds is null || request.PermissionIds.Count == 0)
@@ -207,7 +207,7 @@ public sealed class RolePermissionService(IUnitOfWork unitOfWork) : IRolePermiss
             var currentCodes = existingPerms.Select(p => p.Code).ToHashSet();
             if (currentCodes.Contains(PermissionCodes.RolePermissionManage))
             {
-                throw new InvalidOperationException("Quyền quản lý ma trận chỉ được gán cho SystemAdmin qua API quản trị ma trận.");
+                throw new InvalidOperationException("Quyền quản lý ma trận chỉ được gán cho Admin qua API quản trị ma trận.");
             }
             var requiredParentCodes = new HashSet<string>();
 

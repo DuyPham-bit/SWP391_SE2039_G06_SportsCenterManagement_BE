@@ -66,12 +66,8 @@ public class Payment : Common.BaseEntity
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }
 
-    [NotMapped]
-    public DateTime AttemptedAt
-    {
-        get => CreatedAt;
-        set => CreatedAt = value;
-    }
+    [Column("attempted_at")]
+    public DateTime AttemptedAt { get; set; }
 
     [MaxLength(500)]
     [Column("note")]

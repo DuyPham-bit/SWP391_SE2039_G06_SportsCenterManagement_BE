@@ -49,9 +49,9 @@ public sealed class AuditLogService(IUnitOfWork unitOfWork) : IAuditLogService
             ?? throw new UnauthorizedAccessException("Không có quyền xem lịch sử.");
         var role = await unitOfWork.Context.Roles.AsNoTracking()
             .SingleOrDefaultAsync(item => item.Id == user.RoleId, cancellationToken);
-        if (user.Status != "Active" || user.LockedUntil > DateTime.UtcNow || role?.Name != RoleNames.SystemAdmin)
+        if (user.Status != "Active" || user.LockedUntil > DateTime.UtcNow || role?.Name != RoleNames.Admin)
         {
-            throw new UnauthorizedAccessException("Chỉ System Admin được xem lịch sử toàn hệ thống.");
+            throw new UnauthorizedAccessException("Chỉ Admin được xem lịch sử toàn hệ thống.");
         }
 
         return await ReadPageAsync(centerId, page, pageSize, cancellationToken);
@@ -76,7 +76,7 @@ public sealed class AuditLogService(IUnitOfWork unitOfWork) : IAuditLogService
             .Take(pageSize)
             .Select(log => new AuditResponses.AuditLogEntry(
                 log.Id, log.UserId, log.CenterId, log.Action, log.EntityType, log.EntityId,
-                log.OldValues, log.NewValues, log.CreatedAt))
+                log.CreatedAt))
             .ToListAsync(cancellationToken);
         return new AuditResponses.AuditLogPageResponse(items, page, pageSize, totalCount);
     }

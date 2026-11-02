@@ -11,10 +11,11 @@ namespace SportsCenterManagement.BLL.DTOs.Auth
         public sealed record RegisterRequest(
             [param: Required, StringLength(100, MinimumLength = 3)] string Username,
             [param: Required, StringLength(150)] string Email,
-            [param: Required, StringLength(128, MinimumLength = 12)] string Password,
+            [param: Required, StringLength(128, MinimumLength = 6)] string Password,
             [param: Required, StringLength(150, MinimumLength = 1)] string FullName,
             [param: StringLength(20)] string? Phone,
             DateOnly? DateOfBirth,
-            [param: Range(1, long.MaxValue)] long? CenterId = null);
+            [param: Range(1, long.MaxValue)] long? CenterId = null,
+            [param: RegularExpression("^[0-9]{6}$")] string? EmailOtp = null);
     }
 }

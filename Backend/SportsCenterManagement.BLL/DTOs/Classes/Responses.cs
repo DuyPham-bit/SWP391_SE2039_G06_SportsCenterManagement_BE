@@ -98,7 +98,8 @@ public sealed record SessionScheduleItemResponse(
     int BookedCount,
     int AvailableSeats,
     bool IsBookable,
-    bool AllowWaitlist = true);
+    bool AllowWaitlist = true,
+    string? RoomName = null);
 
 public sealed record TeachingScheduleItemResponse(
     long SessionId,
@@ -112,7 +113,8 @@ public sealed record TeachingScheduleItemResponse(
     string SessionStatus,
     string ClassStatus,
     int Capacity,
-    int BookedCount);
+    int BookedCount,
+    string? RoomName = null);
 
 // ---------- UC-43 / UC-44: session bookings ----------
 
@@ -125,7 +127,14 @@ public sealed record SessionBookingResponse(
     TimeOnly StartTime,
     TimeOnly EndTime,
     string Status,
-    DateTime BookedAt);
+    DateTime BookedAt,
+    string? SessionStatus = null,
+    string? RoomName = null,
+    string? CoachName = null,
+    string? CoachSpecialization = null,
+    string? AttendanceStatus = null,
+    string? AttendanceNote = null,
+    DateTime? CheckInTime = null);
 
 public sealed record BookSessionResult(
     bool Booked,
@@ -171,4 +180,30 @@ namespace SportsCenterManagement.BLL.DTOs.Classes
 {
 public sealed record ClassOptionResponse(long Id, string Name, string? Type, int Capacity);
 public sealed record SportOptionResponse(long Id, string Name, string? Description);
+public sealed record ManagedSportResponse(
+    long Id,
+    string Name,
+    string? Description,
+    string Status,
+    bool IsShared);
+
+public sealed record CoachTeachingSlotResponse(
+    long ClassId,
+    string ClassName,
+    int DayOfWeek,
+    TimeOnly StartTime,
+    TimeOnly EndTime,
+    DateOnly? StartDate,
+    DateOnly? EndDate,
+    string? RoomName);
+
+public sealed record CoachAssignmentCandidateResponse(
+    long Id,
+    long UserId,
+    string CoachCode,
+    string FullName,
+    string? Specialization,
+    string? Certification,
+    IReadOnlyList<long> SportIds,
+    IReadOnlyList<CoachTeachingSlotResponse> TeachingSlots);
 }

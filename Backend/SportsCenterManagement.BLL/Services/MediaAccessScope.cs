@@ -30,8 +30,11 @@ public sealed record MediaAccessScope(long UserId, long? CenterId, bool IsAdmin,
 
     public IQueryable<UploadedMedia> Library(SportsCenterDbContext db)
     {
-        // Refund evidence and personal R2 avatars are not gallery assets.
-        var query = db.UploadedMedias.AsNoTracking().Where(m => !m.DriveFileId.StartsWith(R2FileIdPrefix));
+        // Refund evidence, dashboards and personal avatars are not gallery assets.
+        // Legacy records remain visible until the administrator migrates them to R2.
+        var query = db.UploadedMedias.AsNoTracking().Where(m =>
+            !m.DriveFileId.StartsWith(R2FileIdPrefix) ||
+            m.DriveFileId.StartsWith(R2FileIdPrefix + "media/"));
         if (IsAdmin) return query;
         return CenterId.HasValue
             ? query.Where(m => m.CenterId == CenterId)

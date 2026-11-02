@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.BLL.DTOs.Notifications;
 using SportsCenterManagement.BLL.Exceptions;
 using SportsCenterManagement.BLL.Interfaces;
@@ -9,7 +8,9 @@ using SportsCenterManagement.DAL.Repositories.Interfaces;
 
 namespace SportsCenterManagement.BLL.Services;
 
-public sealed class CenterNotificationService(IUnitOfWork unitOfWork) : ICenterNotificationService
+public sealed class CenterNotificationService(
+    INotificationRepository notificationRepository,
+    IUnitOfWork unitOfWork) : ICenterNotificationService
 {
     private static readonly string[] AllowedRoles =
         [RoleNames.Member, RoleNames.Coach, RoleNames.Receptionist, RoleNames.Manager];
@@ -39,23 +40,15 @@ public sealed class CenterNotificationService(IUnitOfWork unitOfWork) : ICenterN
             throw new FlowException(400, "Vai trò nhận thông báo không hợp lệ.");
 
         var targetRoles = request.SendToAll ? AllowedRoles : requestedRoles;
-        var recipientIds = await (from user in unitOfWork.Context.Users.AsNoTracking()
-            join role in unitOfWork.Context.Roles.AsNoTracking() on user.RoleId equals role.Id
-            where user.Id != actorUserId && user.Status == "Active"
-                && (!user.LockedUntil.HasValue || user.LockedUntil <= DateTime.UtcNow)
-                && targetRoles.Contains(role.Name)
-                && ((role.Name == RoleNames.Member && unitOfWork.Context.MemberProfiles.Any(profile => profile.UserId == user.Id && profile.CenterId == centerId))
-                    || (role.Name == RoleNames.Coach && unitOfWork.Context.CoachProfiles.Any(profile => profile.UserId == user.Id && profile.CenterId == centerId && profile.Status == "Active"))
-                    || ((role.Name == RoleNames.Receptionist || role.Name == RoleNames.Manager)
-                        && unitOfWork.Context.StaffProfiles.Any(profile => profile.UserId == user.Id && profile.CenterId == centerId && profile.Status == "Active")))
-            select user.Id).Distinct().ToListAsync(cancellationToken);
+        var recipientIds = await notificationRepository.GetRecipientUserIdsForCenterAsync(
+            actorUserId, centerId, targetRoles, cancellationToken);
 
         if (recipientIds.Count == 0)
             throw new FlowException(409, "Không có tài khoản đang hoạt động phù hợp với nhóm người nhận đã chọn.");
 
-        await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(cancellationToken);
-        var notification = await FlowNotificationWriter.CreateWithResultAsync(
-            unitOfWork.Context, actorUserId, recipientIds, title, message, "CenterAnnouncement", cancellationToken)
+        await using var transaction = await unitOfWork.BeginTransactionAsync(cancellationToken);
+        var notification = await notificationRepository.CreateNotificationWithRecipientsAsync(
+            actorUserId, recipientIds, title, message, "CenterAnnouncement", cancellationToken)
             ?? throw new FlowException(409, "Không thể xác định người nhận thông báo.");
 
         var allowedChannels = new[] { "InApp", "Email" };
@@ -65,17 +58,26 @@ public sealed class CenterNotificationService(IUnitOfWork unitOfWork) : ICenterN
             .Distinct().ToArray();
         if (channels.Length == 0) channels = ["InApp"];
 
-        unitOfWork.Context.CommunicationDeliveries.AddRange(recipientIds.SelectMany(id => channels.Select(channel => new CommunicationDelivery
+        var deliveryRepo = unitOfWork.Repository<CommunicationDelivery>();
+        foreach (var id in recipientIds)
         {
-            NotificationId = notification.Id,
-            RecipientUserId = id,
-            Channel = channel,
-            Status = channel == "InApp" ? "Delivered" : "Queued",
-            ProviderMessage = channel == "InApp" ? "Đã giao trong ứng dụng" : "Đang chờ cấu hình cổng gửi bên ngoài",
-            CreatedAt = notification.CreatedAt,
-            SentAt = channel == "InApp" ? notification.CreatedAt : null
-        })));
-        unitOfWork.Context.AuditLogs.Add(new AuditLog
+            foreach (var channel in channels)
+            {
+                await deliveryRepo.AddAsync(new CommunicationDelivery
+                {
+                    NotificationId = notification.Id,
+                    RecipientUserId = id,
+                    Channel = channel,
+                    Status = channel == "InApp" ? "Delivered" : "Queued",
+                    ProviderMessage = channel == "InApp" ? "Đã giao trong ứng dụng" : "Đang chờ cấu hình cổng gửi bên ngoài",
+                    CreatedAt = notification.CreatedAt,
+                    SentAt = channel == "InApp" ? notification.CreatedAt : null
+                }, cancellationToken);
+            }
+        }
+
+        var auditRepo = unitOfWork.Repository<AuditLog>();
+        await auditRepo.AddAsync(new AuditLog
         {
             UserId = actorUserId,
             CenterId = centerId,
@@ -84,25 +86,73 @@ public sealed class CenterNotificationService(IUnitOfWork unitOfWork) : ICenterN
             EntityId = notification.Id,
             NewValues = JsonSerializer.Serialize(new { TargetRoles = targetRoles, RecipientCount = recipientIds.Count }),
             CreatedAt = DateTime.UtcNow
-        });
+        }, cancellationToken);
+
         await unitOfWork.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+
         return new SendCenterNotificationResponse(
             notification.Id, recipientIds.Count, targetRoles, notification.CreatedAt);
     }
 
+    public async Task<IReadOnlyList<UserNotificationResponse>> GetMineAsync(long userId, CancellationToken ct = default)
+    {
+        var items = await notificationRepository.GetUserNotificationsAsync(userId, 200, ct);
+        return items.Select(n => new UserNotificationResponse(
+            n.Id, n.Title, n.Content, n.NotificationType, n.SenderId, n.CreatedAt, n.IsRead)).ToList();
+    }
+
+    public async Task<bool> MarkAsReadAsync(long notificationId, long userId, CancellationToken ct = default)
+    {
+        return await notificationRepository.MarkAsReadAsync(notificationId, userId, ct);
+    }
+
+    public async Task MarkAllAsReadAsync(long userId, CancellationToken ct = default)
+    {
+        await notificationRepository.MarkAllAsReadAsync(userId, ct);
+    }
+
+    public async Task<IReadOnlyList<CoachSentNotificationResponse>> GetCoachSentNotificationsAsync(long coachUserId, CancellationToken ct = default)
+    {
+        var rows = await notificationRepository.GetCoachSentNotificationsAsync(coachUserId, 200, ct);
+        var targetIds = rows.SelectMany(row => ParseClassIds(row.TargetClassIds)).Distinct().ToArray();
+        var classNames = await notificationRepository.GetClassNamesAsync(targetIds, ct);
+
+        return rows.Select(row =>
+        {
+            var classIds = ParseClassIds(row.TargetClassIds);
+            var target = classIds.Length > 0
+                ? "Lớp: " + string.Join(", ", classIds.Select(id => classNames.GetValueOrDefault(id, $"#{id}")))
+                : row.SingleMemberName is not null ? "Học viên: " + row.SingleMemberName : "Học viên được phân công";
+            return new CoachSentNotificationResponse(
+                row.Id,
+                row.Title,
+                row.Content,
+                row.CreatedAt,
+                row.RecipientCount,
+                classIds.Length == 1 ? (long?)classIds[0] : null,
+                classIds,
+                target);
+        }).ToList();
+    }
+
     private async Task EnsureManagerAsync(long actorUserId, long centerId, CancellationToken cancellationToken)
     {
-        var permitted = await (from user in unitOfWork.Context.Users.AsNoTracking()
-            join role in unitOfWork.Context.Roles.AsNoTracking() on user.RoleId equals role.Id
-            join staff in unitOfWork.Context.StaffProfiles.AsNoTracking() on user.Id equals staff.UserId
-            join center in unitOfWork.Context.Centers.AsNoTracking() on staff.CenterId equals center.Id
-            where user.Id == actorUserId && user.Status == "Active"
-                && (!user.LockedUntil.HasValue || user.LockedUntil <= DateTime.UtcNow)
-                && role.Name == RoleNames.Manager && staff.CenterId == centerId
-                && staff.Status == "Active" && center.Status == "Active"
-            select user.Id).AnyAsync(cancellationToken);
+        var permitted = await notificationRepository.IsActiveManagerAtCenterAsync(actorUserId, centerId, cancellationToken);
         if (!permitted)
             throw new FlowException(403, "Bạn không có quyền gửi thông báo tại trung tâm này.");
+    }
+
+    private static long[] ParseClassIds(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return [];
+        try
+        {
+            return (JsonSerializer.Deserialize<long[]>(value) ?? []).Where(id => id > 0).Distinct().ToArray();
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 }

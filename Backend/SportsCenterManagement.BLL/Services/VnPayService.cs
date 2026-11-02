@@ -1,3 +1,4 @@
+using SportsCenterManagement.BLL.Services.Interfaces;
 using System.Globalization;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
@@ -17,11 +18,13 @@ public class VnPayService : IVnPayService
 {
     private readonly IConfiguration _configuration;
     private readonly HttpClient _httpClient;
+    private readonly IBusinessClock _clock;
 
-    public VnPayService(IConfiguration configuration, HttpClient httpClient)
+    public VnPayService(IConfiguration configuration, HttpClient httpClient, IBusinessClock clock)
     {
         _configuration = configuration;
         _httpClient = httpClient;
+        _clock = clock;
     }
 
     /// <summary>
@@ -155,8 +158,8 @@ public class VnPayService : IVnPayService
         var tmnCode = _configuration["VnPay:TmnCode"] ?? throw new InvalidOperationException("Chưa cấu hình VnPay:TmnCode");
         var hashSecret = _configuration["VnPay:HashSecret"] ?? throw new InvalidOperationException("Chưa cấu hình VnPay:HashSecret");
         var apiUrl = _configuration["VnPay:RefundUrl"] ?? "https://sandbox.vnpayment.vn/merchant_webapi/api/transaction";
-        var nowLocal = DateTime.UtcNow.AddHours(7);
-        var paymentDateLocal = paidAtUtc.AddHours(7);
+        var nowLocal = _clock.BusinessNow;
+        var paymentDateLocal = _clock.ToBusinessTime(paidAtUtc);
         var amountMinor = decimal.ToInt64(amount * 100m);
         var transactionType = isFullRefund ? "02" : "03";
         var cleanIpAddress = string.IsNullOrWhiteSpace(ipAddress) ? "127.0.0.1" : ipAddress;

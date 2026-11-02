@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -339,8 +339,6 @@ try {
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> {
             ["Jwt:Key"] = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"), ["Jwt:Issuer"] = "logic-audit", ["Jwt:Audience"] = "logic-audit",
-            ["GoogleDrive:StorageProvider"] = "Local", ["GoogleDrive:FolderId"] = "audit-only-folder",
-            ["GoogleDrive:CredentialsPath"] = Path.Combine(root, name + "-no-credentials.json")
         });
         var issuer = new JwtTokenIssuer(builder.Configuration);
         builder.Services.AddSingleton(issuer);
@@ -359,9 +357,6 @@ try {
             o.BucketName = "audit-only"; o.PublicDomain = "https://media.example.test";
         });
         builder.Services.AddScoped<SportsCenterManagement.API.Services.IR2StorageService, SportsCenterManagement.API.Services.R2StorageService>();
-        var driveSnapshot = new AuditDriveSnapshot();
-        builder.Services.AddScoped<GoogleDriveService>(s => new AuditGoogleDriveService(s.GetRequiredService<SportsCenterDbContext>(), builder.Configuration,
-            s.GetRequiredService<ILogger<GoogleDriveService>>(), Path.Combine(root, name + "-media"), driveSnapshot));
         builder.Services.AddRateLimiter(o => {
             o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             PasswordResetRateLimiting.Configure(o);
@@ -436,7 +431,7 @@ try {
         await AuthChecks.Run(db, http, issuer, owner, mail, Check);
         await BrowserSessionChecks.Run(db, http.BaseAddress!, mail, center.Id, Check);
         await MailSecurityChecks.Run(db, http, issuer, mailFixture, Check);
-        await MediaSecurityChecks.Run(db, http, issuer, objectStorage, driveSnapshot, builder.Configuration, Check);
+        await MediaSecurityChecks.Run(db, http, issuer, objectStorage, Check);
         await web.StopAsync();
     }
 } finally {

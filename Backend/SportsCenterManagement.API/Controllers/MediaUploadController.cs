@@ -1,93 +1,73 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.API.Filters;
+using SportsCenterManagement.API.Services;
 using SportsCenterManagement.BLL.DTOs.Media;
 using SportsCenterManagement.BLL.Exceptions;
 using SportsCenterManagement.BLL.Services;
+using SportsCenterManagement.DAL.Context;
+using SportsCenterManagement.DAL.Entities;
 
 namespace SportsCenterManagement.API.Controllers;
 
 [Route("api/media")]
 [Authorize(Roles = "COACH,MANAGER,ADMIN")]
 [FlowExceptionFilter]
-public class MediaUploadController : FlowControllerBase
+public sealed class MediaUploadController(
+    IR2StorageService storageService,
+    SportsCenterDbContext dbContext) : FlowControllerBase
 {
-    private readonly GoogleDriveService _googleDriveService;
-
-    public MediaUploadController(GoogleDriveService googleDriveService)
-    {
-        _googleDriveService = googleDriveService;
-    }
-
-    /// <summary>
-    /// Upload file ảnh lên Google Drive và tự động lưu vào cơ sở dữ liệu qua EF Core Code-First.
-    /// </summary>
     [HttpPost("upload")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(52 * 1024 * 1024)]
     [ProducesResponseType(typeof(UploadMediaResultDto), StatusCodes.Status200OK)]
     public async Task<ActionResult<UploadMediaResultDto>> Upload(IFormFile? file, CancellationToken ct)
     {
-        if (file == null || file.Length == 0)
-        {
-            throw new FlowException(400, "Vui lòng chọn tệp hình ảnh để tải lên.");
-        }
-
-        // Ảnh hoặc video hướng dẫn, tối đa 50MB.
+        if (file is null || file.Length == 0)
+            throw new FlowException(400, "A media file is required.");
         if (file.Length > ImageUploadValidator.MaxFileSize)
-        {
-            throw new FlowException(400, "Dung lượng media tối đa là 50MB.");
-        }
+            throw new FlowException(400, "Media files cannot exceed 50 MB.");
 
-        // Kiểm tra content-type
-        var contentType = file.ContentType?.ToLowerInvariant() ?? "";
-        if (!contentType.StartsWith("image/") && contentType is not ("video/mp4" or "video/webm"))
-        {
-            throw new FlowException(400, "Chỉ hỗ trợ ảnh hoặc video MP4/WEBM.");
-        }
-
-        using var stream = file.OpenReadStream();
-        var currentUserId = CurrentUserId;
-
-        var result = await _googleDriveService.UploadFileAsync(
-            stream,
-            file.FileName,
-            contentType,
-            file.Length,
-            currentUserId,
-            ct
-        );
-
-        return Ok(result);
+        var key = await storageService.UploadMediaAsync(file, ct);
+        var media = await dbContext.UploadedMedias.SingleAsync(item =>
+            item.DriveFileId == MediaAccessScope.R2FileIdPrefix + key, ct);
+        return Ok(ToDto(media));
     }
 
-    /// <summary>
-    /// Lấy danh sách toàn bộ ảnh trực tiếp từ Google Drive folder và DB đã đồng bộ.
-    /// </summary>
-    [HttpGet("drive-files")]
-    public async Task<ActionResult<List<UploadMediaResultDto>>> GetDriveFiles(CancellationToken ct = default)
+    [HttpGet("files")]
+    public async Task<ActionResult<List<UploadMediaResultDto>>> GetFiles(CancellationToken ct = default)
     {
-        var files = await _googleDriveService.GetDriveFolderImagesAsync(CurrentUserId, ct);
-        return Ok(files);
+        var scope = await MediaAccessScope.ForUser(dbContext, CurrentUserId, ct);
+        return Ok(await MediaQuery(scope).ToListAsync(ct));
     }
 
-    /// <summary>
-    /// Kiểm tra tình trạng kết nối Google Drive API và thư mục lưu trữ
-    /// </summary>
     [HttpGet("status")]
-    public async Task<ActionResult<GoogleDriveStatusDto>> GetStatus(CancellationToken ct = default)
+    public async Task<ActionResult<MediaStorageStatusDto>> GetStatus(CancellationToken ct = default)
     {
-        var status = await _googleDriveService.GetStatusAsync(CurrentUserId, ct);
-        return Ok(status);
+        var scope = await MediaAccessScope.ForUser(dbContext, CurrentUserId, ct);
+        var totalMedia = await scope.Library(dbContext).CountAsync(ct);
+        return Ok(new MediaStorageStatusDto(true, totalMedia, "Cloudflare R2"));
     }
 
-    /// <summary>
-    /// Lấy danh sách các tệp media đã tải lên gần đây từ database.
-    /// </summary>
     [HttpGet("recent")]
     public async Task<ActionResult<List<UploadMediaResultDto>>> GetRecent([FromQuery] int limit = 50, CancellationToken ct = default)
     {
-        var list = await _googleDriveService.GetRecentUploadsAsync(CurrentUserId, Math.Clamp(limit, 1, 100), ct);
-        return Ok(list);
+        var scope = await MediaAccessScope.ForUser(dbContext, CurrentUserId, ct);
+        return Ok(await MediaQuery(scope).Take(Math.Clamp(limit, 1, 100)).ToListAsync(ct));
     }
+
+    [HttpPost("migrate-legacy")]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<ActionResult<LegacyMediaMigrationResult>> MigrateLegacyMedia(CancellationToken ct = default) =>
+        Ok(await storageService.MigrateLegacyMediaAsync(ct));
+
+    private IQueryable<UploadMediaResultDto> MediaQuery(MediaAccessScope scope) =>
+        scope.Library(dbContext).OrderByDescending(media => media.CreatedAt).Select(media => new UploadMediaResultDto(
+            media.Id, media.DriveFileId, media.FileUrl, media.FileName, media.MimeType,
+            media.FileSize, media.CreatedAt, media.FileUrl));
+
+    private static UploadMediaResultDto ToDto(UploadedMedia media) => new(
+        media.Id, media.DriveFileId, media.FileUrl, media.FileName, media.MimeType,
+        media.FileSize, media.CreatedAt, media.FileUrl);
 }

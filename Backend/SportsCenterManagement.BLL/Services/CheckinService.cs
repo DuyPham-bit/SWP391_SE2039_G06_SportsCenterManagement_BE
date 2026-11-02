@@ -1,3 +1,4 @@
+using SportsCenterManagement.BLL.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.BLL.DTOs.Checkins;
 using SportsCenterManagement.BLL.Interfaces;
@@ -7,7 +8,7 @@ using SportsCenterManagement.DAL.Repositories.Interfaces;
 
 namespace SportsCenterManagement.BLL.Services;
 
-public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
+public sealed class CheckinService(IUnitOfWork unitOfWork, IBusinessClock clock) : ICheckinService
 {
     public async Task<CheckinResponse> CheckInMemberAsync(
         long actorUserId,
@@ -71,7 +72,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
         }
 
         // 3. Kiểm tra gói tập còn hiệu lực không
-        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+        var today = clock.Today;
         var activeSub = await (
             from s in unitOfWork.Context.MemberSubscriptions.AsNoTracking()
             join pkg in unitOfWork.Context.MembershipPackages.AsNoTracking() on s.PackageId equals pkg.Id
@@ -99,7 +100,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
             .FirstOrDefaultAsync(c => c.CenterId == centerId && c.MemberId == member.Id && c.CheckInTime >= recentCutoff, cancellationToken);
         if (recentCheckin != null)
         {
-            var localRecentTime = recentCheckin.CheckInTime.AddHours(7).ToString("HH:mm");
+            var localRecentTime = clock.ToBusinessTime(recentCheckin.CheckInTime).ToString("HH:mm");
             throw new InvalidOperationException($"Hội viên {member.FullName} ({member.MemberCode}) vừa được check-in lúc {localRecentTime}.")
             {
                 Data =
@@ -134,7 +135,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
         var receptionistName = staffProfile?.FullName ?? staffUser?.Username ?? "Lễ tân";
 
         // Định dạng thời gian check-in: yyyy-MM-dd HH:mm:ss (theo giờ địa phương +7)
-        var localTime = now.AddHours(7).ToString("yyyy-MM-dd HH:mm:ss");
+        var localTime = clock.ToBusinessTime(now).ToString("yyyy-MM-dd HH:mm:ss");
 
         return new CheckinResponse(
             checkin.Id,
@@ -154,7 +155,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
     {
         await EnsureCenterStaffAsync(actorUserId, centerId, cancellationToken);
 
-        var todayUtc = DateTime.UtcNow.AddHours(7).Date.AddHours(-7);
+        var todayUtc = clock.StartOfBusinessDayUtc(clock.Today);
         var tomorrowUtc = todayUtc.AddDays(1);
         var checkins = await (
             from c in unitOfWork.Context.CenterCheckins.AsNoTracking()
@@ -180,7 +181,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
         }
 
         var memberIds = checkins.Select(c => c.MemberId).Distinct().ToList();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+        var today = clock.Today;
         var memberSubsList = await (
             from s in unitOfWork.Context.MemberSubscriptions.AsNoTracking()
             join pkg in unitOfWork.Context.MembershipPackages.AsNoTracking() on s.PackageId equals pkg.Id
@@ -200,7 +201,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
             c.FullName,
             c.MemberCode,
             memberPackages.GetValueOrDefault(c.MemberId, "Gói thành viên"),
-            c.CheckInTime.AddHours(7).ToString("yyyy-MM-dd HH:mm:ss"),
+            clock.ToBusinessTime(c.CheckInTime).ToString("yyyy-MM-dd HH:mm:ss"),
             c.ReceptionistName
         )).ToList();
     }
@@ -208,12 +209,11 @@ public sealed class CheckinService(IUnitOfWork unitOfWork) : ICheckinService
     public async Task<CheckinSummary> GetTodaySummaryAsync(long actorUserId, long centerId, CancellationToken cancellationToken = default)
     {
         await EnsureCenterStaffAsync(actorUserId, centerId, cancellationToken);
-        var date = DateTime.UtcNow.AddHours(7).Date;
-        var start = date.AddHours(-7);
-        var end = start.AddDays(1);
+        var start = clock.StartOfBusinessDayUtc(clock.Today);
+        var end = clock.EndOfBusinessDayUtc(clock.Today);
         var rows = unitOfWork.Context.CenterCheckins.AsNoTracking()
             .Where(c => c.CenterId == centerId && c.CheckInTime >= start && c.CheckInTime < end);
-        return new CheckinSummary(DateOnly.FromDateTime(date), await rows.CountAsync(cancellationToken),
+        return new CheckinSummary(clock.Today, await rows.CountAsync(cancellationToken),
             await rows.Select(c => c.MemberId).Distinct().CountAsync(cancellationToken));
     }
 

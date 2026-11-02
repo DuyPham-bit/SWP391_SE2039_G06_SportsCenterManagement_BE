@@ -1,3 +1,4 @@
+using SportsCenterManagement.BLL.Services.Interfaces;
 using SportsCenterManagement.BLL.Common;
 using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
@@ -14,7 +15,7 @@ using SportsCenterManagement.DAL.Repositories.Interfaces;
 
 namespace SportsCenterManagement.BLL.Services;
 
-public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authService) : IMemberService
+public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authService, IBusinessClock clock) : IMemberService
 {
     public async Task<MembersResponses.MemberProfileResponse> GetMeAsync(long userId, CancellationToken cancellationToken = default)
     {
@@ -274,7 +275,7 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             await EnsureCenterStaffAsync(actorUserId, member.CenterId.Value, cancellationToken);
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+        var today = clock.Today;
         return await (
             from subscription in unitOfWork.Context.MemberSubscriptions.AsNoTracking()
             join package in unitOfWork.Context.MembershipPackages.AsNoTracking() on subscription.PackageId equals package.Id
@@ -425,7 +426,7 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         if (items.Count == 0) return items.ToList();
 
         var memberIds = items.Select(m => m.MemberId).Distinct().ToList();
-        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7));
+        var today = clock.Today;
 
         var subs = await (
             from sub in unitOfWork.Context.MemberSubscriptions.AsNoTracking()

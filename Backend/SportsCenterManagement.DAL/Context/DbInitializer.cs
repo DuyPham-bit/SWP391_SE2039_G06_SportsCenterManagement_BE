@@ -16,6 +16,7 @@ public static class DbInitializer
         await EnsureAuthAndReceptionPermissionsAsync(context);
         await EnsureCompleteSportsCatalogAsync(context);
         await EnsureMembershipPackageSportsAsync(context);
+        await EnsureCommunicationDeliverySchemaAsync(context);
     }
 
     private static async Task EnsureRolesAndPermissionsAsync(SportsCenterDbContext context)
@@ -562,5 +563,40 @@ public static class DbInitializer
         {
             await context.SaveChangesAsync();
         }
+    }
+
+    private static async Task EnsureCommunicationDeliverySchemaAsync(SportsCenterDbContext context)
+    {
+        await context.Database.ExecuteSqlRawAsync("""
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('communication_deliveries') AND name = 'attempt_count')
+            BEGIN
+                ALTER TABLE [communication_deliveries] ADD [attempt_count] INT NOT NULL CONSTRAINT DF_communication_deliveries_attempt_count DEFAULT 0;
+            END
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('communication_deliveries') AND name = 'next_attempt_at')
+            BEGIN
+                ALTER TABLE [communication_deliveries] ADD [next_attempt_at] DATETIME2 NULL;
+            END
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('communication_deliveries') AND name = 'lease_until')
+            BEGIN
+                ALTER TABLE [communication_deliveries] ADD [lease_until] DATETIME2 NULL;
+            END
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('communication_deliveries') AND name = 'locked_by')
+            BEGIN
+                ALTER TABLE [communication_deliveries] ADD [locked_by] NVARCHAR(100) NULL;
+            END
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('communication_deliveries') AND name = 'last_error')
+            BEGIN
+                ALTER TABLE [communication_deliveries] ADD [last_error] NVARCHAR(1000) NULL;
+            END
+
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('communication_deliveries') AND name = 'IX_communication_deliveries_status_lease')
+            BEGIN
+                CREATE INDEX [IX_communication_deliveries_status_lease] ON [communication_deliveries] ([status], [next_attempt_at], [lease_until]);
+            END
+        """);
     }
 }

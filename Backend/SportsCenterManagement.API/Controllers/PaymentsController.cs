@@ -1,3 +1,4 @@
+using SportsCenterManagement.API.Services;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Security.Claims;
@@ -24,19 +25,22 @@ public sealed class PaymentsController : ControllerBase
     private readonly IMemberService _memberService;
     private readonly ICoreFlowService _coreFlowService;
     private readonly SportsCenterDbContext _dbContext;
+    private readonly IR2StorageService _r2StorageService;
 
     public PaymentsController(
         IPaymentService paymentService,
         ILogger<PaymentsController> logger,
         IMemberService memberService,
         ICoreFlowService coreFlowService,
-        SportsCenterDbContext dbContext)
+        SportsCenterDbContext dbContext,
+        IR2StorageService r2StorageService)
     {
         _paymentService = paymentService;
         _logger = logger;
         _memberService = memberService;
         _coreFlowService = coreFlowService;
         _dbContext = dbContext;
+        _r2StorageService = r2StorageService;
     }
 
     /// <summary>
@@ -450,4 +454,25 @@ public sealed class PaymentsController : ControllerBase
         }
         return BadRequest(new { success = false, message = "Vui lòng cung cấp invoiceNumber hoặc packageId." });
     }
+
+    /// <summary>
+    /// Lấy presigned URL chứng từ hoàn tiền (bảo mật theo RBAC và center tenancy).
+    /// </summary>
+    [HttpGet("refunds/{id:long}/proof")]
+    [Authorize]
+    public async Task<IActionResult> GetRefundProof(long id, [FromQuery] bool redirect = true, CancellationToken ct = default)
+    {
+        var role = User.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
+        long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId);
+        long? centerId = long.TryParse(User.FindFirstValue("CenterId"), out var cid) ? cid : null;
+
+        var key = await _paymentService.GetRefundProofKeyAsync(id, userId, role, centerId, ct);
+        var presignedUrl = _r2StorageService.GetPresignedUrl(key, TimeSpan.FromMinutes(5));
+
+        if (!redirect)
+            return Ok(new { proofUrl = presignedUrl, expiresInSeconds = 300 });
+
+        return Redirect(presignedUrl);
+    }
 }
+

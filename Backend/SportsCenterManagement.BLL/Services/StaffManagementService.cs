@@ -1,3 +1,4 @@
+using SportsCenterManagement.BLL.Services.Interfaces;
 using SportsCenterManagement.BLL.Common;
 using System.Data;
 using System.ComponentModel.DataAnnotations;
@@ -14,7 +15,7 @@ using SportsCenterManagement.DAL.Repositories.Interfaces;
 
 namespace SportsCenterManagement.BLL.Services;
 
-public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManagementService
+public sealed class StaffManagementService(IUnitOfWork unitOfWork, IBusinessClock clock) : IStaffManagementService
 {
     public async Task<StaffResponses.CenterStaffResponse[]> SearchAtCenterAsync(
         long actorUserId,
@@ -363,7 +364,7 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork) : IStaffManag
                 where c.UserId == user.Id
                       && cls.Status != "Cancelled" && cls.Status != "Archived"
                       && s.SessionStatus == "Scheduled"
-                      && s.SessionDate >= DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7))
+                      && s.SessionDate >= clock.Today
                 select new { cls.Name, s.SessionDate }
             ).Take(3).ToListAsync(cancellationToken);
 

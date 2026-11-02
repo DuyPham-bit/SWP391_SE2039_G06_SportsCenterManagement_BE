@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -13,36 +13,30 @@ using SportsCenterManagement.BLL.Services;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
 
-sealed class AuditDriveSnapshot
-{
-    public bool Enabled { get; set; }
-    public List<Google.Apis.Drive.v3.Data.File> Files { get; } = [];
-}
-
-sealed class AuditGoogleDriveService(SportsCenterDbContext db, IConfiguration configuration, ILogger<GoogleDriveService> logger,
-    string storageRoot, AuditDriveSnapshot snapshot) : GoogleDriveService(db, configuration, logger, storageRoot)
-{
-    protected override Task<List<Google.Apis.Drive.v3.Data.File>> ReadDriveImagesAsync(CancellationToken ct) =>
-        snapshot.Enabled ? Task.FromResult(snapshot.Files) : base.ReadDriveImagesAsync(ct);
-}
-
 sealed class RecordingObjectStorage : AmazonS3Client
 {
     public List<string> Uploaded { get; } = [];
     public List<string> Deleted { get; } = [];
+
     public RecordingObjectStorage() : base(new AnonymousAWSCredentials(), new AmazonS3Config { ServiceURL = "http://127.0.0.1:1" }) { }
-    public override Task<PutObjectResponse> PutObjectAsync(PutObjectRequest request, CancellationToken cancellationToken = default) {
-        Uploaded.Add(request.Key); return Task.FromResult(new PutObjectResponse { HttpStatusCode = HttpStatusCode.OK });
+
+    public override Task<PutObjectResponse> PutObjectAsync(PutObjectRequest request, CancellationToken cancellationToken = default)
+    {
+        Uploaded.Add(request.Key);
+        return Task.FromResult(new PutObjectResponse { HttpStatusCode = HttpStatusCode.OK });
     }
-    public override Task<DeleteObjectResponse> DeleteObjectAsync(DeleteObjectRequest request, CancellationToken cancellationToken = default) {
-        Deleted.Add(request.Key); return Task.FromResult(new DeleteObjectResponse { HttpStatusCode = HttpStatusCode.NoContent });
+
+    public override Task<DeleteObjectResponse> DeleteObjectAsync(DeleteObjectRequest request, CancellationToken cancellationToken = default)
+    {
+        Deleted.Add(request.Key);
+        return Task.FromResult(new DeleteObjectResponse { HttpStatusCode = HttpStatusCode.NoContent });
     }
 }
 
 static class MediaSecurityChecks
 {
     public static async Task Run(SportsCenterDbContext db, HttpClient http, JwtTokenIssuer issuer,
-        RecordingObjectStorage objects, AuditDriveSnapshot driveSnapshot, IConfiguration configuration, Func<string, Func<Task<bool>>, Task> check)
+        RecordingObjectStorage objects, Func<string, Func<Task<bool>>, Task> check)
     {
         var a = new Center { Name = "Media center A", Address = "Audit", Status = "Active", CreatedAt = DateTime.UtcNow };
         var b = new Center { Name = "Media center B", Address = "Audit", Status = "Active", CreatedAt = DateTime.UtcNow };
@@ -81,7 +75,7 @@ static class MediaSecurityChecks
             return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
         }
         Task<HttpResponseMessage> Delete(string route, string key) => http.DeleteAsync(route + "?key=" + Uri.EscapeDataString(key));
-        async Task<long[]> Gallery(string route = "api/media/drive-files") {
+        async Task<long[]> Gallery(string route = "api/media/files") {
             using var response = await http.GetAsync(route);
             if (!response.IsSuccessStatusCode) throw new Exception($"Gallery returned {(int)response.StatusCode}.");
             return (await response.Content.ReadFromJsonAsync<JsonElement>()).EnumerateArray().Select(x => x.GetProperty("id").GetInt64()).ToArray();
@@ -228,38 +222,6 @@ static class MediaSecurityChecks
         await check("media status does not expose another center's image count", async () => {
             Login(alice); using var response = await http.GetAsync("api/media/status");
             return response.IsSuccessStatusCode && (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("totalImages").GetInt32() == 2;
-        });
-        await check("Google Drive failures fall back to the same scoped library", async () => {
-            configuration["GoogleDrive:StorageProvider"] = "GoogleDrive";
-            try { Login(alice); return (await Gallery()).ToHashSet().SetEquals(new[] { aliceImage, coworkerImage }); }
-            finally { configuration["GoogleDrive:StorageProvider"] = "Local"; }
-        });
-        var remoteA = new UploadedMedia { DriveFileId = "drive-center-a", FileName = "before-a.png", MimeType = "image/png",
-            FileUrl = "https://media.example.test/a.png", CenterId = a.Id, UploadedByUserId = alice.Id, CreatedAt = DateTime.UtcNow };
-        var remoteB = new UploadedMedia { DriveFileId = "drive-center-b", FileName = "before-b.png", MimeType = "image/png",
-            FileUrl = "https://media.example.test/b.png", CenterId = b.Id, UploadedByUserId = bob.Id, CreatedAt = DateTime.UtcNow };
-        db.AddRange(remoteA, remoteB); await db.SaveChangesAsync();
-        driveSnapshot.Files.AddRange(new[] { "drive-center-a", "drive-center-b", "drive-unowned" }.Select(id =>
-            new Google.Apis.Drive.v3.Data.File { Id = id, Name = "after-" + id + ".png", MimeType = "image/png" }));
-        await check("a shared Drive snapshot cannot expose, import or mutate another center's files", async () => {
-            configuration["GoogleDrive:StorageProvider"] = "GoogleDrive"; driveSnapshot.Enabled = true;
-            try {
-                Login(alice); var before = await db.UploadedMedias.CountAsync(); var ids = await Gallery();
-                var aName = await db.UploadedMedias.AsNoTracking().Where(m => m.Id == remoteA.Id).Select(m => m.FileName).SingleAsync();
-                var bName = await db.UploadedMedias.AsNoTracking().Where(m => m.Id == remoteB.Id).Select(m => m.FileName).SingleAsync();
-                return ids.Contains(remoteA.Id) && !ids.Contains(remoteB.Id)
-                    && before == await db.UploadedMedias.CountAsync() && aName == "after-drive-center-a.png" && bName == "before-b.png";
-            } finally { configuration["GoogleDrive:StorageProvider"] = "Local"; driveSnapshot.Enabled = false; }
-        });
-        await check("only Admin may import unowned files from the shared Drive folder", async () => {
-            configuration["GoogleDrive:StorageProvider"] = "GoogleDrive"; driveSnapshot.Enabled = true;
-            try {
-                Login(admin, "Admin"); var ids = await Gallery();
-                var imported = await db.UploadedMedias.AsNoTracking().SingleAsync(m => m.DriveFileId == "drive-unowned");
-                if (!ids.Contains(remoteA.Id) || !ids.Contains(remoteB.Id) || !ids.Contains(imported.Id)
-                    || imported.CenterId != null || imported.UploadedByUserId != null) return false;
-                Login(alice); return !(await Gallery()).Contains(imported.Id);
-            } finally { configuration["GoogleDrive:StorageProvider"] = "Local"; driveSnapshot.Enabled = false; }
         });
         await check("Admin retains a global media view and R2 management", async () => {
             Login(admin, "Admin"); var ids = await Gallery();

@@ -13,7 +13,7 @@ namespace SportsCenterManagement.BLL.Services;
 /// BR-BOOK-02 (cancel ≥ 2h before), BR-BOOK-03 (no overlapping sessions the same day),
 /// BR-BOOK-04 (promote waitlist), BR-CLASS-01 (capacity).
 /// </summary>
-public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBookingService
+public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterManagement.DAL.Repositories.Interfaces.IClassRepository classRepository, ICenterScopeService centerScopeService) : ISessionBookingService
 {
     private static readonly TimeSpan MinLeadTime = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan MaxLeadTime = TimeSpan.FromDays(7);
@@ -502,4 +502,124 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork) : ISessionBook
 
     private static SessionBookingResponse ToResponse(SessionBooking b, ClassSession s, ClassEntity c) => new(
         b.Id, b.SessionId, c.Id, c.Name, s.SessionDate, s.StartTime, s.EndTime, b.Status, b.BookedAt);
+
+    public async Task<long> ResolveMemberUserIdAsync(long actorUserId, bool isAdmin, long memberId, CancellationToken ct = default)
+    {
+        var member = await classRepository.GetMemberUserAndCenterAsync(memberId, ct)
+            ?? throw new InvalidOperationException("Không tìm thấy hội viên.") { Data = { ["StatusCode"] = 404 } };
+        if (member.CenterId is not { } centerId)
+            throw new InvalidOperationException("Hội viên chưa được gán trung tâm.") { Data = { ["StatusCode"] = 403 } };
+        await centerScopeService.EnsureCenterAccessAsync(actorUserId, isAdmin, centerId, ct);
+        return member.UserId;
+    }
+
+    public async Task<BookSessionResult> BookForMemberAsync(long actorUserId, bool isAdmin, long memberId, long sessionId, CancellationToken ct = default)
+    {
+        var userId = await ResolveMemberUserIdAsync(actorUserId, isAdmin, memberId, ct);
+        var classId = await classRepository.GetClassIdBySessionIdAsync(sessionId, ct)
+            ?? throw new InvalidOperationException("Không tìm thấy buổi học.") { Data = { ["StatusCode"] = 404 } };
+        await centerScopeService.EnsureClassAccessAsync(actorUserId, isAdmin, classId, ct);
+        return await BookSessionAsync(userId, sessionId, ct, actorUserId);
+    }
+
+    public async Task<CancelBookingResult> CancelForMemberAsync(long actorUserId, bool isAdmin, long memberId, long bookingId, CancellationToken ct = default)
+    {
+        var userId = await ResolveMemberUserIdAsync(actorUserId, isAdmin, memberId, ct);
+        var classId = await classRepository.GetClassIdByBookingIdAsync(bookingId, memberId, ct)
+            ?? throw new InvalidOperationException("Không tìm thấy lượt đặt của hội viên.") { Data = { ["StatusCode"] = 404 } };
+        await centerScopeService.EnsureClassAccessAsync(actorUserId, isAdmin, classId, ct);
+        return await CancelBookingAsync(userId, bookingId, ct, actorUserId);
+    }
+
+    public async Task<IReadOnlyList<MemberWaitlistItemDto>> GetMyWaitlistAsync(long userId, CancellationToken ct = default)
+    {
+        var items = await classRepository.GetMemberWaitlistAsync(userId, ct);
+        return items.Select(w => new MemberWaitlistItemDto(
+            w.Id,
+            w.SessionId,
+            w.ClassName,
+            w.SessionDate,
+            w.StartTime,
+            w.EndTime,
+            w.Status,
+            w.JoinedAt)).ToList();
+    }
+
+    public async Task LeaveWaitlistAsync(long userId, long waitlistId, CancellationToken ct = default)
+    {
+        var memberId = await classRepository.GetMemberIdByUserIdAsync(userId, ct)
+            ?? throw new InvalidOperationException("Không tìm thấy lượt chờ.") { Data = { ["StatusCode"] = 404 } };
+        var result = await classRepository.CancelWaitlistEntryAsync(waitlistId, memberId, ct);
+        if (result == 0)
+            throw new InvalidOperationException("Không tìm thấy lượt chờ.") { Data = { ["StatusCode"] = 404 } };
+        if (result == -1)
+            throw new InvalidOperationException("Lượt chờ đã được xử lý, vui lòng tải lại lịch.") { Data = { ["StatusCode"] = 409 } };
+    }
+
+    public async Task<IReadOnlyList<SessionRosterItemDto>> GetSessionRosterAsync(long coachUserId, long sessionId, CancellationToken ct = default)
+    {
+        var isCoach = await classRepository.IsCoachAssignedToSessionAsync(coachUserId, sessionId, ct);
+        if (!isCoach)
+            throw new InvalidOperationException("Bạn không được phân công phụ trách buổi học này.") { Data = { ["StatusCode"] = 403 } };
+
+        var items = await classRepository.GetSessionRosterAsync(sessionId, ct);
+        return items.Select(m => new SessionRosterItemDto(
+            m.BookingId,
+            m.MemberId,
+            m.MemberName,
+            m.MemberCode,
+            m.Email,
+            m.Phone,
+            m.FitnessGoal,
+            m.FitnessLevel,
+            m.AttendanceStatus,
+            m.Note)).ToList();
+    }
+
+    public async Task<int> RecordAttendanceAsync(long coachUserId, long sessionId, IReadOnlyList<AttendanceRecordDto> records, CancellationToken ct = default)
+    {
+        if (records.Count == 0 || records.Count > 1000 || records.Select(r => r.MemberId).Distinct().Count() != records.Count
+            || records.Any(r => r.Status is not ("PRESENT" or "ABSENT" or "LATE" or "EXCUSED") || r.Note?.Length > 500))
+            throw new InvalidOperationException("Danh sách điểm danh không hợp lệ.") { Data = { ["StatusCode"] = 400 } };
+
+        var isCoach = await classRepository.IsCoachAssignedToSessionAsync(coachUserId, sessionId, ct);
+        if (!isCoach)
+            throw new InvalidOperationException("Bạn không được phân công phụ trách buổi học này.") { Data = { ["StatusCode"] = 403 } };
+
+        var session = await classRepository.GetSessionByIdAsync(sessionId, ct)
+            ?? throw new InvalidOperationException("Buổi học không tồn tại.") { Data = { ["StatusCode"] = 404 } };
+
+        var vietnamNow = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).DateTime;
+        if (string.Equals(session.SessionStatus, "Cancelled", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Chỉ điểm danh khi buổi học đã bắt đầu và không bị hủy.") { Data = { ["StatusCode"] = 409 } };
+        if (session.SessionDate < DateOnly.FromDateTime(vietnamNow))
+            throw new InvalidOperationException("Buổi học đã qua ngày nên không thể sửa điểm danh.") { Data = { ["StatusCode"] = 409 } };
+        if (session.SessionDate.ToDateTime(session.StartTime) > vietnamNow)
+            throw new InvalidOperationException("Chỉ điểm danh khi buổi học đã bắt đầu và không bị hủy.") { Data = { ["StatusCode"] = 409 } };
+
+        var ids = records.Select(r => r.MemberId).ToList();
+        var eligible = await classRepository.GetEligibleAttendanceMemberIdsAsync(sessionId, session.ClassId, ids, ct);
+        if (eligible.Count != records.Count)
+            throw new InvalidOperationException("Có học viên không đăng ký buổi học này.") { Data = { ["StatusCode"] = 400 } };
+
+        await using var tx = await unitOfWork.BeginTransactionAsync(ct);
+        await classRepository.UpsertAttendancesAsync(sessionId, coachUserId, records.Select(r => (r.MemberId, r.Status, r.Note)).ToList(), ct);
+
+        var centerId = await classRepository.GetCenterIdByClassIdAsync(session.ClassId, ct);
+        var auditRepo = unitOfWork.Repository<AuditLog>();
+        await auditRepo.AddAsync(new AuditLog
+        {
+            UserId = coachUserId,
+            CenterId = centerId,
+            Action = "SESSION_ATTENDANCE",
+            EntityType = "ClassSession",
+            EntityId = sessionId,
+            CreatedAt = DateTime.UtcNow
+        }, ct);
+
+        await unitOfWork.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return records.Count;
+    }
+
 }

@@ -47,12 +47,21 @@ public static class BrowserSessionCookie
             context.Response.Cookies.Delete(Prefix + id, Options(context.Request));
     }
 
-    private static CookieOptions Options(HttpRequest request) => new()
+    private static CookieOptions Options(HttpRequest request)
     {
-        HttpOnly = true,
-        Secure = request.IsHttps,
-        SameSite = SameSiteMode.Strict,
-        Path = "/api",
-        IsEssential = true
-    };
+        // A Vercel site and a trycloudflare.com API are cross-site. This opt-in is
+        // required only for that deployment shape; named subdomains keep Strict.
+        var allowCrossSiteCookies = request.HttpContext.RequestServices
+            .GetRequiredService<IConfiguration>()
+            .GetValue<bool>("Authentication:AllowCrossSiteCookies");
+
+        return new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = allowCrossSiteCookies || request.IsHttps,
+            SameSite = allowCrossSiteCookies ? SameSiteMode.None : SameSiteMode.Strict,
+            Path = "/api",
+            IsEssential = true
+        };
+    }
 }

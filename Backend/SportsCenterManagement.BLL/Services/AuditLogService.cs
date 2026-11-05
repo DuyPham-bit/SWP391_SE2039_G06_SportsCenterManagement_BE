@@ -70,14 +70,76 @@ public sealed class AuditLogService(IUnitOfWork unitOfWork) : IAuditLogService
         }
 
         var totalCount = await query.CountAsync(cancellationToken);
-        var items = await query.OrderByDescending(log => log.CreatedAt)
+        var rawLogs = await query.OrderByDescending(log => log.CreatedAt)
             .ThenByDescending(log => log.Id)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(log => new AuditResponses.AuditLogEntry(
-                log.Id, log.UserId, log.CenterId, log.Action, log.EntityType, log.EntityId,
-                log.CreatedAt))
             .ToListAsync(cancellationToken);
+
+        var actorIds = rawLogs.Where(l => l.UserId.HasValue).Select(l => l.UserId!.Value).Distinct().ToList();
+        var actors = await unitOfWork.Context.Users.AsNoTracking()
+            .Where(u => actorIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, cancellationToken);
+
+        var allRoles = await unitOfWork.Context.Roles.AsNoTracking()
+            .ToDictionaryAsync(r => r.Id, r => r.Name, cancellationToken);
+
+        var classIds = rawLogs.Where(l => l.EntityType == "Class" && l.EntityId.HasValue).Select(l => l.EntityId!.Value).Distinct().ToList();
+        var classes = await unitOfWork.Context.Classes.AsNoTracking()
+            .Where(c => classIds.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
+
+        var pkgIds = rawLogs.Where(l => l.EntityType == "MembershipPackage" && l.EntityId.HasValue).Select(l => l.EntityId!.Value).Distinct().ToList();
+        var packages = await unitOfWork.Context.MembershipPackages.AsNoTracking()
+            .Where(p => pkgIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id, p => p.Name, cancellationToken);
+
+        var sportIds = rawLogs.Where(l => l.EntityType == "Sport" && l.EntityId.HasValue).Select(l => l.EntityId!.Value).Distinct().ToList();
+        var sports = await unitOfWork.Context.Sports.AsNoTracking()
+            .Where(s => sportIds.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, s => s.Name, cancellationToken);
+
+        var targetUserIds = rawLogs.Where(l => (l.EntityType == "User" || l.EntityType == "MemberProfile") && l.EntityId.HasValue).Select(l => l.EntityId!.Value).Distinct().ToList();
+        var targetUsers = await unitOfWork.Context.Users.AsNoTracking()
+            .Where(u => targetUserIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => u.Username, cancellationToken);
+
+        var items = rawLogs.Select(log =>
+        {
+            string? actorName = null;
+            string? actorRole = null;
+            if (log.UserId.HasValue && actors.TryGetValue(log.UserId.Value, out var actor))
+            {
+                actorName = actor.Username;
+                if (allRoles.TryGetValue(actor.RoleId, out var rName))
+                {
+                    actorRole = rName;
+                }
+            }
+
+            string? entityName = null;
+            if (log.EntityId.HasValue)
+            {
+                if (log.EntityType == "Class" && classes.TryGetValue(log.EntityId.Value, out var cName)) entityName = cName;
+                else if (log.EntityType == "MembershipPackage" && packages.TryGetValue(log.EntityId.Value, out var pName)) entityName = pName;
+                else if (log.EntityType == "Sport" && sports.TryGetValue(log.EntityId.Value, out var sName)) entityName = sName;
+                else if (log.EntityType == "Role" && allRoles.TryGetValue(log.EntityId.Value, out var roleName)) entityName = roleName;
+                else if (log.EntityType == "User" && targetUsers.TryGetValue(log.EntityId.Value, out var uName)) entityName = uName;
+            }
+
+            return new AuditResponses.AuditLogEntry(
+                log.Id,
+                log.UserId,
+                log.CenterId,
+                log.Action,
+                log.EntityType,
+                log.EntityId,
+                log.CreatedAt,
+                actorName,
+                actorRole,
+                entityName);
+        }).ToList();
+
         return new AuditResponses.AuditLogPageResponse(items, page, pageSize, totalCount);
     }
 

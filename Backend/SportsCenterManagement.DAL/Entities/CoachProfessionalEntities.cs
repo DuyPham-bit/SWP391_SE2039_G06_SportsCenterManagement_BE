@@ -91,6 +91,11 @@ public sealed class CommunicationDelivery : BaseEntity
     [MaxLength(1000), Column("provider_message")] public string? ProviderMessage { get; set; }
     [Column("created_at")] public DateTime CreatedAt { get; set; }
     [Column("sent_at")] public DateTime? SentAt { get; set; }
+    [Column("attempt_count")] public int AttemptCount { get; set; } = 0;
+    [Column("next_attempt_at")] public DateTime? NextAttemptAt { get; set; }
+    [Column("lease_until")] public DateTime? LeaseUntil { get; set; }
+    [MaxLength(100), Column("locked_by")] public string? LockedBy { get; set; }
+    [MaxLength(1000), Column("last_error")] public string? LastError { get; set; }
 }
 
 [Table("coach_compensation_policies")]

@@ -1,3 +1,4 @@
+using SportsCenterManagement.BLL.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,8 @@ namespace SportsCenterManagement.API.Controllers;
 public sealed class ClassResourcesController(
     SportsCenterDbContext db,
     ISportManagementService sportManagementService,
-    ICoachAssignmentQueryService coachAssignmentQueryService) : FlowControllerBase, IAsyncActionFilter
+    ICoachAssignmentQueryService coachAssignmentQueryService,
+    IBusinessClock clock) : FlowControllerBase, IAsyncActionFilter
 {
     [HttpGet("centers/{centerId:long}/classes/all")]
     public async Task<IActionResult> Classes(long centerId, CancellationToken ct)
@@ -112,7 +114,7 @@ public sealed class ClassResourcesController(
             throw new InvalidOperationException("Tên phòng đã tồn tại trong trung tâm.") { Data = { ["StatusCode"] = 409 } };
         // Capacity changes must preserve the seats already promised in future sessions.
         if (await (from s in db.ClassSessions join c in db.Classes on s.ClassId equals c.Id
-            where (s.RoomId ?? c.RoomId) == roomId && s.SessionDate >= DateOnly.FromDateTime(DateTime.UtcNow.AddHours(7))
+            where (s.RoomId ?? c.RoomId) == roomId && s.SessionDate >= clock.Today
                 && s.SessionStatus == "Scheduled"
                 && db.SessionBookings.Count(b => b.SessionId == s.Id && b.Status == "Booked") > request.Capacity
             select s.Id).AnyAsync(ct))

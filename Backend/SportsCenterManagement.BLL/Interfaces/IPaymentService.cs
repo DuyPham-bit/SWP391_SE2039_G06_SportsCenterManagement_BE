@@ -141,6 +141,13 @@ public interface IPaymentService
     /// <summary>
     /// Lấy danh sách hóa đơn đang chờ thanh toán của member.
     /// </summary>
+        Task<string> GetRefundProofKeyAsync(
+        long refundId,
+        long actorUserId,
+        string actorRole,
+        long? actorCenterId,
+        CancellationToken cancellationToken = default);
+
     Task<List<PendingInvoiceDto>> GetMyPendingInvoicesAsync(
         long memberUserId,
         CancellationToken cancellationToken = default);

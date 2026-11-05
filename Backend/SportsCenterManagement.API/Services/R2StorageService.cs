@@ -19,7 +19,8 @@ public sealed class R2StorageService(
     SportsCenterDbContext db,
     IHttpContextAccessor httpContextAccessor,
     ILogger<R2StorageService> logger,
-    IHttpClientFactory httpClientFactory) : IR2StorageService, IDisposable
+    IHttpClientFactory httpClientFactory,
+    Amazon.S3.IAmazonS3? s3Client = null) : IR2StorageService, IDisposable
 {
     private const long MaxFileSize = 5 * 1024 * 1024;
     private const string RefundBillPrefix = "refund-bills/";
@@ -39,7 +40,7 @@ public sealed class R2StorageService(
         };
 
     private readonly R2StorageOptions _options = options.Value;
-    private IAmazonS3? _s3Client;
+    private IAmazonS3? _s3Client = s3Client;
 
     // Object storage is optional for local/demo environments. Defer configuration
     // validation until an upload/delete actually needs R2, while retaining all
@@ -103,14 +104,16 @@ public sealed class R2StorageService(
             AutoCloseStream = false,
             DisablePayloadSigning = true
         };
-        request.Headers.CacheControl = "public, max-age=31536000, immutable";
+        request.Headers.CacheControl = folder == "refund-bills"
+            ? "private, no-cache, no-store, max-age=0"
+            : "public, max-age=31536000, immutable";
 
         await S3Client.PutObjectAsync(request, cancellationToken);
         var media = new UploadedMedia
         {
             DriveFileId = MediaAccessScope.R2FileIdPrefix + key,
             FileName = Path.GetFileName(file.FileName), MimeType = contentType, FileSize = file.Length,
-            FileUrl = $"{_options.PublicDomain.TrimEnd('/')}/{key}", UploadedByUserId = scope.UserId,
+            FileUrl = folder == "refund-bills" ? key : $"{_options.PublicDomain.TrimEnd('/')}/{key}", UploadedByUserId = scope.UserId,
             CenterId = scope.CenterId, CreatedAt = now.UtcDateTime
         };
         db.UploadedMedias.Add(media);
@@ -280,6 +283,24 @@ public sealed class R2StorageService(
             db.UploadedMedias.Remove(metadata);
             await db.SaveChangesAsync(cancellationToken);
         }
+    }
+
+        public string GetPresignedUrl(string key, TimeSpan expiresIn)
+    {
+        if (string.IsNullOrWhiteSpace(key) ||
+            !Regex.IsMatch(key, @"\A(?:refund-bills|dashboard|media|avatars)/[a-zA-Z0-9/_.-]+\z") ||
+            key.Split('/').Any(part => part is "" or "." or ".."))
+        {
+            throw BusinessException.BadRequest("Đường dẫn tệp không hợp lệ.");
+        }
+
+        var request = new GetPreSignedUrlRequest
+        {
+            BucketName = Required(_options.BucketName, nameof(_options.BucketName)),
+            Key = key,
+            Expires = DateTime.UtcNow.Add(expiresIn)
+        };
+        return S3Client.GetPreSignedURL(request);
     }
 
     private Task<MediaAccessScope> CurrentScope(CancellationToken ct)

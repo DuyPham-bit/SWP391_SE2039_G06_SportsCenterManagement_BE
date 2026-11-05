@@ -7,6 +7,7 @@ public interface IR2StorageService
     Task DeleteAsync(string key, CancellationToken cancellationToken = default);
     Task<string> UploadMediaAsync(IFormFile file, CancellationToken cancellationToken = default);
     Task<LegacyMediaMigrationResult> MigrateLegacyMediaAsync(CancellationToken cancellationToken = default);
+    string GetPresignedUrl(string key, TimeSpan expiresIn);
 }
 
 public sealed record LegacyMediaMigrationResult(int Migrated, int Skipped, IReadOnlyList<long> FailedMediaIds);

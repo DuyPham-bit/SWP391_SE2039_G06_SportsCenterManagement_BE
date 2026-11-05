@@ -7,16 +7,19 @@ namespace SportsCenterManagement.API.BackgroundServices;
 
 /// <summary>
 /// Delivers queued Email/SMS/Push notifications to configurable provider webhooks.
-/// The provider is responsible for translating the normalized payload to its vendor API.
+/// Supports multi-instance distributed lease claiming, exponential backoff retries,
+/// strict HTTPS enforcement in production, and delivery idempotency keys.
 /// </summary>
 public sealed class CommunicationDeliveryWorker(
     IServiceScopeFactory scopeFactory,
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
+    IHostEnvironment environment,
     TimeProvider timeProvider,
     ILogger<CommunicationDeliveryWorker> logger) : BackgroundService
 {
     private static readonly string[] ExternalChannels = ["Email"];
+    private readonly string _workerInstanceId = $"{Environment.MachineName}-{Guid.NewGuid():N}";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -51,14 +54,20 @@ public sealed class CommunicationDeliveryWorker(
 
     private async Task DispatchBatchAsync(CancellationToken cancellationToken)
     {
+        var isProduction = environment.IsProduction();
         var endpoints = ExternalChannels
             .Select(channel => new
             {
                 Channel = channel,
                 Url = configuration[$"ExternalCommunications:{channel}:WebhookUrl"]
             })
-            .Where(item => Uri.TryCreate(item.Url, UriKind.Absolute, out var uri)
-                && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
+            .Where(item =>
+            {
+                if (!Uri.TryCreate(item.Url, UriKind.Absolute, out var uri)) return false;
+                if (uri.Scheme == Uri.UriSchemeHttps) return true;
+                // Allow non-HTTPS strictly on loopback / localhost when NOT in production
+                return !isProduction && uri.IsLoopback;
+            })
             .ToDictionary(item => item.Channel, item => item.Url!, StringComparer.OrdinalIgnoreCase);
 
         // Queued deliveries are intentionally retained until an administrator configures a gateway.
@@ -67,13 +76,31 @@ public sealed class CommunicationDeliveryWorker(
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SportsCenterDbContext>();
         var enabledChannels = endpoints.Keys.ToArray();
+
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var leaseUntil = now.AddMinutes(2);
+
+        // Atomic claim: fetch candidates that are Queued or have an expired lease, and whose retry time has arrived
         var deliveries = await db.CommunicationDeliveries
-            .Where(item => item.Status == "Queued" && enabledChannels.Contains(item.Channel))
+            .Where(item =>
+                (item.Status == "Queued" || (item.Status == "Processing" && item.LeaseUntil < now))
+                && (item.NextAttemptAt == null || item.NextAttemptAt <= now)
+                && enabledChannels.Contains(item.Channel))
             .OrderBy(item => item.CreatedAt)
             .Take(50)
             .ToListAsync(cancellationToken);
 
         if (deliveries.Count == 0) return;
+
+        // Claim ownership immediately before dispatching to prevent other instances from processing concurrently
+        foreach (var delivery in deliveries)
+        {
+            delivery.Status = "Processing";
+            delivery.LockedBy = _workerInstanceId;
+            delivery.LeaseUntil = leaseUntil;
+            delivery.AttemptCount++;
+        }
+        await db.SaveChangesAsync(cancellationToken);
 
         var notificationIds = deliveries
             .Where(item => item.NotificationId.HasValue)
@@ -113,6 +140,9 @@ public sealed class CommunicationDeliveryWorker(
             }
 
             using var request = new HttpRequestMessage(HttpMethod.Post, endpoints[delivery.Channel]);
+            // Attach idempotency key header so providers do not send duplicate messages on retries
+            request.Headers.Add("X-Delivery-Id", delivery.Id.ToString());
+
             var token = configuration[$"ExternalCommunications:{delivery.Channel}:BearerToken"];
             if (string.IsNullOrWhiteSpace(token))
                 token = configuration["ExternalCommunications:BearerToken"];
@@ -140,14 +170,17 @@ public sealed class CommunicationDeliveryWorker(
                 {
                     delivery.Status = "Sent";
                     delivery.SentAt = timeProvider.GetUtcNow().UtcDateTime;
+                    delivery.LockedBy = null;
+                    delivery.LeaseUntil = null;
+                    delivery.LastError = null;
                     delivery.ProviderMessage = string.IsNullOrWhiteSpace(providerMessage)
                         ? $"Gateway accepted ({(int)response.StatusCode})."
                         : providerMessage;
                 }
                 else
                 {
-                    MarkFailed(delivery,
-                        $"Gateway trả về {(int)response.StatusCode}: {providerMessage}".TrimEnd());
+                    HandleRetryOrFailure(delivery,
+                        $"Gateway trả về {(int)response.StatusCode}: {providerMessage}".TrimEnd(), now);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -156,18 +189,46 @@ public sealed class CommunicationDeliveryWorker(
             }
             catch (Exception exception)
             {
-                MarkFailed(delivery, $"Không gọi được gateway: {exception.Message}");
+                HandleRetryOrFailure(delivery, $"Không gọi được gateway: {exception.Message}", now);
             }
         }
 
         await db.SaveChangesAsync(cancellationToken);
-        logger.LogInformation("Processed {Count} queued external communication deliveries.", deliveries.Count);
+        logger.LogInformation("Processed {Count} external communication deliveries by worker {WorkerId}.", deliveries.Count, _workerInstanceId);
+    }
+
+    private void HandleRetryOrFailure(DAL.Entities.CommunicationDelivery delivery, string message, DateTime nowUtc)
+    {
+        delivery.LastError = Truncate(message, 1000);
+        delivery.ProviderMessage = Truncate(message, 1000);
+        delivery.LockedBy = null;
+        delivery.LeaseUntil = null;
+
+        if (delivery.AttemptCount < 5)
+        {
+            delivery.Status = "Queued";
+            // Exponential backoff: 1m, 2m, 4m, 8m, 16m
+            var delayMinutes = Math.Pow(2, Math.Min(delivery.AttemptCount - 1, 4));
+            delivery.NextAttemptAt = nowUtc.AddMinutes(delayMinutes);
+            logger.LogWarning("Delivery {Id} ({Channel}) attempt {Attempt} failed: {Error}. Retrying in {Minutes}m.",
+                delivery.Id, delivery.Channel, delivery.AttemptCount, delivery.LastError, delayMinutes);
+        }
+        else
+        {
+            delivery.Status = "Failed";
+            logger.LogError("Delivery {Id} ({Channel}) failed permanently after {Attempt} attempts: {Error}",
+                delivery.Id, delivery.Channel, delivery.AttemptCount, delivery.LastError);
+        }
     }
 
     private static void MarkFailed(DAL.Entities.CommunicationDelivery delivery, string message)
     {
         delivery.Status = "Failed";
         delivery.ProviderMessage = Truncate(message, 1000);
+        delivery.LastError = Truncate(message, 1000);
+        delivery.LockedBy = null;
+        delivery.LeaseUntil = null;
+        delivery.NextAttemptAt = null;
     }
 
     private static string Truncate(string? value, int maxLength)

@@ -18,6 +18,15 @@ public static class CoachWorkflowRules
     public static bool IsActiveEnrollmentStatus(string? status) =>
         !string.IsNullOrWhiteSpace(status) && ActiveEnrollmentStatuses.Contains(status);
 
+    // Attendance writes use the uppercase API contract; dashboard aggregation must not
+    // silently drop those persisted values because of presentation casing.
+    public static bool CountsAsPresentAttendance(string? status) =>
+        string.Equals(status, "PRESENT", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "LATE", StringComparison.OrdinalIgnoreCase);
+
+    public static bool CountsAsAbsentAttendance(string? status) =>
+        string.Equals(status, "ABSENT", StringComparison.OrdinalIgnoreCase);
+
     public static bool IsEffectiveSessionCoach(
         long coachId,
         long? sessionCoachId,

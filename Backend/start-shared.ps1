@@ -1,13 +1,65 @@
 [CmdletBinding()]
 param(
     [ValidateRange(1024, 65535)]
-    [int]$Port = 54162,
+    [int]$Port = 5000,
     [string]$SqlServer,
     [string]$Database = 'SportsCenterManagement',
-    [switch]$SkipFrontendBuild
+    [switch]$SkipFrontendBuild,
+    [string]$SqlServiceName = 'MSSQLSERVER',
+    [switch]$SkipSqlServerCheck
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Test-IsAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Ensure-SqlServerReady {
+    param([string]$ServiceName)
+
+    $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if (-not $service) {
+        Write-Warning "Khong tim thay dich vu SQL Server '$ServiceName'. Bo qua kiem tra vi co the ban dang dung SQL Server tu xa hoac LocalDB."
+        return
+    }
+
+    if ($service.Status -eq 'Running') {
+        Write-Host "SQL Server ($ServiceName) dang chay."
+        return
+    }
+
+    if (-not (Test-IsAdministrator)) {
+        $starter = Join-Path (Split-Path $PSScriptRoot -Parent) 'start-sql-server.bat'
+        throw "SQL Server ($ServiceName) dang dung nen API se khong mo cong $Port. Hay chay '$starter' bang quyen Administrator, sau do chay lai script nay."
+    }
+
+    Write-Host "Dang khoi dong SQL Server ($ServiceName)..."
+    try {
+        Start-Service -Name $ServiceName -ErrorAction Stop
+        $deadline = (Get-Date).AddSeconds(30)
+        do {
+            Start-Sleep -Seconds 1
+            $service.Refresh()
+        } while ($service.Status -ne 'Running' -and (Get-Date) -lt $deadline)
+    }
+    catch {
+        throw "Khong the khoi dong SQL Server ($ServiceName): $($_.Exception.Message)"
+    }
+
+    if ($service.Status -ne 'Running') {
+        throw "SQL Server ($ServiceName) khong san sang sau 30 giay. Kiem tra Windows Event Viewer va cau hinh SQL Server."
+    }
+
+    Write-Host "SQL Server ($ServiceName) da san sang."
+}
+
+if (-not $SkipSqlServerCheck) {
+    Ensure-SqlServerReady -ServiceName $SqlServiceName
+}
+
 $projectRoot = if (Test-Path (Join-Path $PSScriptRoot 'Frontend')) {
     [System.IO.Path]::GetFullPath($PSScriptRoot)
 } else {

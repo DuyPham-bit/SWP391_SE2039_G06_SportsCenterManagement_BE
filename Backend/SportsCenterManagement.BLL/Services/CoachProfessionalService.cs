@@ -447,11 +447,11 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
             .ToListAsync(ct);
 
         var totalAttendanceRecords = attendances.Count;
-        var presentRecords = attendances.Count(a => a.AttendanceStatus == "Present" || a.AttendanceStatus == "Late");
+        var presentRecords = attendances.Count(a => CoachWorkflowRules.CountsAsPresentAttendance(a.AttendanceStatus));
         var attendanceRate = totalAttendanceRecords == 0 ? 94.5 : Math.Round(presentRecords * 100.0 / totalAttendanceRecords, 1);
 
         // Danh sách học viên vắng mặt nhiều để HLV theo dõi & nhắc nhở
-        var absentGroup = attendances.Where(a => a.AttendanceStatus == "Absent")
+        var absentGroup = attendances.Where(a => CoachWorkflowRules.CountsAsAbsentAttendance(a.AttendanceStatus))
             .GroupBy(a => a.MemberId)
             .OrderByDescending(g => g.Count())
             .Take(5)
@@ -488,7 +488,7 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
                     SessionDate = s.SessionDate.ToString("yyyy-MM-dd"),
                     TimeSlot = $"{s.StartTime:HH\\:mm} - {s.EndTime:HH\\:mm}",
                     Status = isCompleted ? "COMPLETED" : "UPCOMING",
-                    PresentCount = attendances.Count(a => a.SessionId == s.Id && (a.AttendanceStatus == "Present" || a.AttendanceStatus == "Late"))
+                    PresentCount = attendances.Count(a => a.SessionId == s.Id && CoachWorkflowRules.CountsAsPresentAttendance(a.AttendanceStatus))
                 };
             }).ToArray();
 

@@ -9,7 +9,10 @@ public static class Responses
         string Action,
         string EntityType,
         long? EntityId,
-        DateTime CreatedAt);
+        DateTime CreatedAt,
+        string? ActorUserName = null,
+        string? ActorRole = null,
+        string? EntityName = null);
 
     public sealed record AuditLogPageResponse(
         IReadOnlyList<AuditLogEntry> Items,

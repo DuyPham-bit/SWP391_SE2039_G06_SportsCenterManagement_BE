@@ -86,14 +86,14 @@ public sealed class AuthController(
         var verification = new EmailVerificationToken
         {
             Email = email, Token = BCrypt.Net.BCrypt.HashPassword(otp),
-            CreatedAt = now, ExpiresAt = now.AddMinutes(10)
+            CreatedAt = now, ExpiresAt = now.AddMinutes(5)
         };
         dbContext.EmailVerificationTokens.Add(verification);
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         if (!await resetEmail.SendVerificationAsync(verification, otp, cancellationToken))
             return StatusCode(503, new { message = "Chưa gửi được email xác thực. Vui lòng thử lại sau." });
-        return Ok(new { message = "Vui lòng kiểm tra hộp thư và thư rác để tiếp tục đăng ký. Mã xác thực có hạn 10 phút." });
+        return Ok(new { message = "Vui lòng kiểm tra hộp thư và thư rác để tiếp tục đăng ký. Mã xác thực có hạn 5 phút." });
     }
 
     [HttpPost("login")]
@@ -184,7 +184,7 @@ public sealed class AuthController(
         {
             UserId = user.Id,
             Token = BCrypt.Net.BCrypt.HashPassword(otp),
-            ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+            ExpiresAt = DateTime.UtcNow.AddMinutes(5),
             CreatedAt = DateTime.UtcNow
         };
         await dbContext.PasswordResetTokens.AddAsync(reset, cancellationToken);
@@ -328,14 +328,14 @@ public sealed class AuthController(
         {
             UserId = user.Id,
             Token = BCrypt.Net.BCrypt.HashPassword(otp),
-            ExpiresAt = DateTime.UtcNow.AddMinutes(10),
+            ExpiresAt = DateTime.UtcNow.AddMinutes(5),
             CreatedAt = DateTime.UtcNow
         };
         await dbContext.PasswordResetTokens.AddAsync(reset, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        if (!await resetEmail.SendAsync(user, reset, otp, cancellationToken))
+        if (!await resetEmail.SendAsync(user, reset, otp, cancellationToken, "approve password change"))
         {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new
             {

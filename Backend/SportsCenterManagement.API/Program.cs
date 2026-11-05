@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using SportsCenterManagement.BLL.Services.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -60,6 +63,10 @@ builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler
 
 builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<IUserRepository, UserRepository>();
+builder.Services.AddScoped<ICatalogRepository, CatalogRepository>();
+builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
+builder.Services.AddScoped<IClassRepository, ClassRepository>();
 
 // Layer 2: BLL (Business Logic Services)
 // Flow 1 Services
@@ -67,6 +74,10 @@ builder.Services.AddScoped<IClassService, ClassService>();
 builder.Services.AddScoped<IMembershipPackageService, MembershipPackageService>();
 builder.Services.AddScoped<ICoreFlowService, CoreFlowService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IProfileService, ProfileService>();
+builder.Services.AddScoped<ICenterScopeService, CenterScopeService>();
+builder.Services.AddScoped<IClassEnrollmentService, ClassEnrollmentService>();
+builder.Services.AddScoped<IPublicCatalogService, PublicCatalogService>();
 builder.Services.AddScoped<IMemberService, MemberService>();
 builder.Services.AddScoped<IAccessControlService, AccessControlService>();
 builder.Services.AddScoped<ICenterAccessService, CenterAccessService>();
@@ -93,6 +104,15 @@ builder.Services.AddScoped<TrainingService>();
 builder.Services.AddScoped<CoachProfessionalService>();
 builder.Services.AddScoped<PayrollService>();
 builder.Services.AddScoped<MemberAiContextService>();
+builder.Services.AddSingleton<IBusinessClock, BusinessClock>();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthCheck>("database", tags: new[] { "ready" });
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ClassReminderService>();
@@ -136,13 +156,33 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-// Đồng bộ schema/quyền; Admin đầu tiên chỉ được tạo từ cấu hình riêng của môi trường.
-using (var scope = app.Services.CreateScope())
+app.UseForwardedHeaders();
+
+// BE-004: Đồng bộ schema/quyền có kiểm soát môi trường và distributed application lock
+var autoMigrateOnStartup = app.Configuration.GetValue<bool>("Database:AutoMigrateOnStartup", true);
+if (autoMigrateOnStartup)
 {
+    using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<SportsCenterDbContext>();
     var baselineLegacySchema = app.Configuration.GetValue<bool>("Database:BaselineLegacySchema");
-    await DbInitializer.SeedAsync(dbContext, baselineLegacySchema);
-    await AdminBootstrapper.SeedAsync(dbContext, app.Configuration);
+
+    await using var connection = dbContext.Database.GetDbConnection();
+    await connection.OpenAsync();
+    await using var lockCommand = connection.CreateCommand();
+    lockCommand.CommandText = "EXEC sp_getapplock @Resource = 'SCMS_Database_Migration_Lock', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 60000";
+    await lockCommand.ExecuteNonQueryAsync();
+
+    try
+    {
+        await DbInitializer.SeedAsync(dbContext, baselineLegacySchema);
+        await AdminBootstrapper.SeedAsync(dbContext, app.Configuration);
+    }
+    finally
+    {
+        await using var releaseCommand = connection.CreateCommand();
+        releaseCommand.CommandText = "EXEC sp_releaseapplock @Resource = 'SCMS_Database_Migration_Lock', @LockOwner = 'Session'";
+        try { await releaseCommand.ExecuteNonQueryAsync(); } catch { }
+    }
 }
 
 if (app.Environment.IsDevelopment())
@@ -260,7 +300,38 @@ app.UseDefaultFiles();
 app.UseStaticFiles(new StaticFileOptions
 {
     ContentTypeProvider = mediaContentTypes,
-    OnPrepareResponse = context => context.Context.Response.Headers["X-Content-Type-Options"] = "nosniff"
+    OnPrepareResponse = context =>
+    {
+        context.Context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+
+        // The HTML document is the manifest for Vite's content-hashed chunks. It
+        // must be revalidated after a deployment so it never points at deleted chunks.
+        if (string.Equals(context.File.Name, "index.html", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Context.Response.Headers.CacheControl = "no-cache, no-store, max-age=0";
+        }
+    }
+});
+app.Use(async (context, next) =>
+{
+    await next();
+
+    // A browser can keep an old entry bundle while a new frontend build has removed
+    // its hashed lazy chunk. Return a one-shot ES module that reloads the current
+    // deployment instead of leaving the SPA broken on a permanent 404.
+    var isMissingJavaScriptChunk = context.Response.StatusCode == StatusCodes.Status404NotFound &&
+        !context.Response.HasStarted &&
+        HttpMethods.IsGet(context.Request.Method) &&
+        context.Request.Path.StartsWithSegments("/assets") &&
+        string.Equals(Path.GetExtension(context.Request.Path.Value), ".js", StringComparison.OrdinalIgnoreCase);
+
+    if (isMissingJavaScriptChunk)
+    {
+        context.Response.StatusCode = StatusCodes.Status200OK;
+        context.Response.ContentType = "application/javascript; charset=utf-8";
+        context.Response.Headers.CacheControl = "no-store";
+        await context.Response.WriteAsync("window.location.replace('/');");
+    }
 });
 app.UseRouting();
 app.UseCors();
@@ -298,6 +369,23 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 app.MapControllers();
+
+// BE-007: Health Check Endpoints
+app.MapHealthChecks("/health/live", new HealthCheckOptions
+{
+    Predicate = _ => false
+}).AllowAnonymous();
+
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+}).AllowAnonymous();
+
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+}).AllowAnonymous();
+
 app.MapGet("/payment-result", async context =>
 {
     var frontendIndex = Path.Combine(app.Environment.ContentRootPath, "wwwroot", "index.html");
@@ -311,3 +399,23 @@ app.MapGet("/payment-result", async context =>
     await context.Response.SendFileAsync(frontendIndex);
 }).AllowAnonymous();
 app.Run();
+
+public sealed class DatabaseHealthCheck(SportsCenterDbContext db) : Microsoft.Extensions.Diagnostics.HealthChecks.IHealthCheck
+{
+    public async Task<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult> CheckHealthAsync(
+        Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext context,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var canConnect = await db.Database.CanConnectAsync(cancellationToken);
+            return canConnect
+                ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Database connection is healthy.")
+                : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("Database connection failed.");
+        }
+        catch (Exception ex)
+        {
+            return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy("Database connection threw exception.", ex);
+        }
+    }
+}

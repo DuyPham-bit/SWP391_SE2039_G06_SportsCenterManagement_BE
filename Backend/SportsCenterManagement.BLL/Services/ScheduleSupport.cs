@@ -48,3 +48,13 @@ internal static class FlowStatuses
         string.Equals(status, ClassCancelled, StringComparison.OrdinalIgnoreCase) ||
         string.Equals(status, ClassCompleted, StringComparison.OrdinalIgnoreCase);
 }
+
+public static class BookingAccessRules
+{
+    /// <summary>
+    /// A member must be explicitly assigned to the center that owns the class.
+    /// Treating an unassigned profile as cross-center access leaks tenant scope.
+    /// </summary>
+    public static bool IsMemberAssignedToClassCenter(long? memberCenterId, long classCenterId) =>
+        memberCenterId.HasValue && memberCenterId.Value == classCenterId;
+}

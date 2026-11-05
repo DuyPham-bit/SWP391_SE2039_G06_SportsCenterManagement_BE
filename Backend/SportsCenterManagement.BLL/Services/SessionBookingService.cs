@@ -183,7 +183,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterMa
             && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow), ct);
         if (!activeUser)
             throw new InvalidOperationException("Tài khoản hội viên không hoạt động.") { Data = { ["StatusCode"] = 403 } };
-        if (member.CenterId.HasValue && member.CenterId.Value != cls.CenterId)
+        if (!BookingAccessRules.IsMemberAssignedToClassCenter(member.CenterId, cls.CenterId))
             throw new InvalidOperationException("Lớp học không thuộc trung tâm của hội viên.") { Data = { ["StatusCode"] = 403 } };
 
         if (member.BookingSuspendedUntil is { } until && until > DateTime.UtcNow)

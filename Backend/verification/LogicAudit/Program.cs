@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Http.Json;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -23,6 +23,7 @@ using SportsCenterManagement.BLL.Common;
 using SportsCenterManagement.BLL.DTOs.Payments;
 using SportsCenterManagement.BLL.DTOs.CoachProfessional;
 using SportsCenterManagement.BLL.Services;
+using SportsCenterManagement.BLL.Services.Interfaces;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
 using SportsCenterManagement.DAL.Repositories.Implementations;
@@ -32,14 +33,19 @@ var root = Path.Combine(Path.GetTempPath(), "SCMS-LogicAudit");
 Directory.CreateDirectory(root);
 var mdf = Path.Combine(root, name + ".mdf");
 var ldf = Path.Combine(root, name + ".ldf");
-var master = new Microsoft.Data.SqlClient.SqlConnection(@"Server=(localdb)\MSSQLLocalDB;Database=master;Integrated Security=true;Encrypt=false");
+var serverConnection = Environment.GetEnvironmentVariable("SCMS_AUDIT_SQL_CONNECTION") ?? @"Server=localhost;Database=master;Integrated Security=true;TrustServerCertificate=true";
+var master = new Microsoft.Data.SqlClient.SqlConnection(serverConnection);
+try {
+    } catch {
+    master = new Microsoft.Data.SqlClient.SqlConnection(@"Server=(localdb)\MSSQLLocalDB;Database=master;Integrated Security=true;Encrypt=false");
+    }
 await master.OpenAsync();
 await using (var command = master.CreateCommand()) {
-    command.CommandText = $"CREATE DATABASE [{name}] ON PRIMARY (NAME=N'{name}', FILENAME=N'{mdf.Replace("'", "''")}') LOG ON (NAME=N'{name}_log', FILENAME=N'{ldf.Replace("'", "''")}')";
+    command.CommandText = $"CREATE DATABASE [{name}]";
     await command.ExecuteNonQueryAsync();
 }
 var options = new DbContextOptionsBuilder<SportsCenterDbContext>()
-    .UseSqlServer($@"Server=(localdb)\MSSQLLocalDB;Database={name};Integrated Security=true;Encrypt=false").Options;
+    .UseSqlServer(master.ConnectionString.Replace("Database=master", $"Database={name}", StringComparison.OrdinalIgnoreCase)).Options;
 var failures = new List<string>();
 int count = 0;
 try {
@@ -76,6 +82,11 @@ try {
         var package = new MembershipPackage { CenterId = center.Id, Name = "Test package", DurationDays = 90, Price = 1000000, Status = "Active", CreatedAt = DateTime.UtcNow };
         db.AddRange(member, package, new StaffProfile { UserId = staff.Id, CenterId = other.Id, StaffCode = "AUDIT-STAFF", FullName = "Other staff", Position = "Receptionist", Status = "Active", CreatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync();
+
+        var unassignedMemberUser = User("unassigned-member", memberRole.Id);
+        db.Users.Add(unassignedMemberUser); await db.SaveChangesAsync();
+        var unassignedMember = new MemberProfile { UserId = unassignedMemberUser.Id, MemberCode = "AUDIT-UNASSIGNED", FullName = "Unassigned member", CreatedAt = DateTime.UtcNow };
+        db.MemberProfiles.Add(unassignedMember); await db.SaveChangesAsync();
         var core = new CoreFlowService(new UnitOfWork(db), new ConfigurationBuilder().Build());
         var pending = await core.CreatePendingMembershipAsync(member.Id, package.Id, owner.Id);
         Console.WriteLine($"FIXTURE {name}");
@@ -98,6 +109,22 @@ try {
             var unknown = await db.UploadedMedias.SingleAsync(m => m.DriveFileId == "upgrade-unowned");
             var expectedCenter = await db.Centers.Where(c => c.Name == "Media upgrade center").Select(c => c.Id).SingleAsync();
             return known.CenterId == expectedCenter && known.UploadedByUserId.HasValue && unknown.CenterId == null && unknown.UploadedByUserId == null;
+        });
+        await Check("unauthorized counter sale cannot assign an unowned member to a center", async () => {
+            try
+            {
+                await new MemberService(new UnitOfWork(db), null!, new BusinessClock(new ConfigurationBuilder().Build()))
+                    .EnsureCanSellToMemberAsync(staff.Id, unassignedMember.Id, package.Id);
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                db.ChangeTracker.Clear();
+                return await db.MemberProfiles.AsNoTracking()
+                    .Where(profile => profile.Id == unassignedMember.Id)
+                    .Select(profile => profile.CenterId)
+                    .SingleAsync() is null;
+            }
         });
         async Task<bool> Forbidden(Func<PaymentService, Task> action) {
             try { await action(new PaymentService(new UnitOfWork(db), null!, null!, new ConfigurationBuilder().Build())); return false; }
@@ -172,7 +199,11 @@ try {
             new ClassSession { ClassId = foreign.Id, SessionDate = today, StartTime = new TimeOnly(18, 0), EndTime = new TimeOnly(19, 0), SessionStatus = "Scheduled" });
         await db.SaveChangesAsync(); db.ChangeTracker.Clear();
         await Check("backend classifies scheduled membership using business date", async () => {
-            var list = await new MemberService(new UnitOfWork(db), null!).GetSubscriptionsAsync(owner.Id, member.Id);
+            var list = await new MemberService(
+                new UnitOfWork(db),
+                null!,
+                new BusinessClock(new ConfigurationBuilder().Build()))
+                .GetSubscriptionsAsync(owner.Id, member.Id);
             return list.Any(s => s.Status == "Active" && s.EffectiveStatus == "SCHEDULED");
         });
 
@@ -342,8 +373,10 @@ try {
         });
         var issuer = new JwtTokenIssuer(builder.Configuration);
         builder.Services.AddSingleton(issuer);
-        builder.Services.AddDbContext<SportsCenterDbContext>(o => o.UseSqlServer($@"Server=(localdb)\MSSQLLocalDB;Database={name};Integrated Security=true;Encrypt=false"));
+        builder.Services.AddDbContext<SportsCenterDbContext>(o => o.UseSqlServer(master.ConnectionString.Replace("Database=master", $"Database={name}", StringComparison.OrdinalIgnoreCase)));
         builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+        builder.Services.AddScoped<IUserRepository, UserRepository>();
+        builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
         builder.Services.AddScoped<JwtAccountValidator>();
         builder.Services.AddHttpClient();
         builder.Services.AddScoped<PasswordResetEmailSender>();
@@ -352,6 +385,7 @@ try {
         var objectStorage = new RecordingObjectStorage();
         builder.Services.AddSingleton<Amazon.S3.IAmazonS3>(objectStorage);
         builder.Services.AddSingleton(TimeProvider.System);
+        builder.Services.AddSingleton<IBusinessClock, BusinessClock>();
         builder.Services.AddHttpContextAccessor();
         builder.Services.Configure<SportsCenterManagement.API.Models.R2StorageOptions>(o => {
             o.BucketName = "audit-only"; o.PublicDomain = "https://media.example.test";
@@ -366,6 +400,7 @@ try {
         builder.Services.AddScoped<IPaymentService>(s => new PaymentService(s.GetRequiredService<IUnitOfWork>(), null!, null!, builder.Configuration));
         builder.Services.AddScoped<IMemberService, MemberService>();
         builder.Services.AddScoped<IAuthService, AuthService>();
+        builder.Services.AddScoped<IProfileService, ProfileService>();
         builder.Services.AddScoped<ICoreFlowService, CoreFlowService>();
         builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o => {
             o.MapInboundClaims = false; o.TokenValidationParameters = issuer.ValidationParameters();

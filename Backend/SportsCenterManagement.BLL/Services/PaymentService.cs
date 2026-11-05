@@ -1999,10 +1999,9 @@ public sealed class PaymentService(
                    row.Refund.ProcessedAt,
                    row.Refund.ReviewNote,
                    row.Refund.TransferProofUrl != null &&
-                       row.Refund.TransferProofUrl.StartsWith("refund-bills/") &&
-                       publicDomain != null
-                       ? publicDomain + "/" + row.Refund.TransferProofUrl
-                       : row.Refund.TransferProofUrl,
+                        row.Refund.TransferProofUrl.StartsWith("refund-bills/")
+                        ? "/api/payments/refunds/" + row.Refund.Id + "/proof"
+                        : row.Refund.TransferProofUrl,
                    row.Refund.ExternalReference);
     }
 
@@ -2417,4 +2416,44 @@ public sealed class PaymentService(
             );
         }).ToList();
     }
+
+    public async Task<string> GetRefundProofKeyAsync(
+        long refundId,
+        long actorUserId,
+        string actorRole,
+        long? actorCenterId,
+        CancellationToken cancellationToken = default)
+    {
+        var refundRepo = _unitOfWork.Repository<PaymentRefund>();
+        var refund = await refundRepo.GetByIdAsync(refundId, cancellationToken);
+        if (refund == null || string.IsNullOrWhiteSpace(refund.TransferProofUrl))
+            throw BusinessException.NotFound("Không tìm thấy chứng từ hoàn tiền.");
+
+        var payment = await _unitOfWork.Repository<Payment>().GetByIdAsync(refund.PaymentId, cancellationToken);
+        var invoice = payment != null ? await _unitOfWork.Repository<Invoice>().GetByIdAsync(payment.InvoiceId, cancellationToken) : null;
+
+        var normalizedRole = (actorRole ?? string.Empty).ToUpperInvariant();
+        var isAllowed = false;
+        if (normalizedRole is "ADMIN" or "SYSTEMADMIN")
+        {
+            isAllowed = true;
+        }
+        else if (normalizedRole == "MANAGER" && invoice != null && invoice.CenterId == actorCenterId)
+        {
+            isAllowed = true;
+        }
+        else if (normalizedRole == "MEMBER" && payment != null)
+        {
+            var members = await _unitOfWork.Repository<MemberProfile>().FindAsync(m => m.UserId == actorUserId, cancellationToken);
+            var member = members.FirstOrDefault();
+            if (member != null && member.Id == payment.MemberId)
+                isAllowed = true;
+        }
+
+        if (!isAllowed)
+            throw BusinessException.Forbidden("Không có quyền truy cập chứng từ hoàn tiền này.");
+
+        return refund.TransferProofUrl;
+    }
 }
+

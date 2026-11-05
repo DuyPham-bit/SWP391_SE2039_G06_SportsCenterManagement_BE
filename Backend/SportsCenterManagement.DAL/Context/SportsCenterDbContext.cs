@@ -201,6 +201,7 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
         modelBuilder.Entity<FoodDiaryEntry>().HasIndex(entity => new { entity.MemberId, entity.EntryDate });
         modelBuilder.Entity<CoachMessage>().HasIndex(entity => new { entity.CoachId, entity.MemberId, entity.CreatedAt });
         modelBuilder.Entity<CommunicationDelivery>().HasIndex(entity => new { entity.Status, entity.CreatedAt });
+        modelBuilder.Entity<CommunicationDelivery>().HasIndex(entity => new { entity.Status, entity.NextAttemptAt, entity.LeaseUntil });
         modelBuilder.Entity<CoachCompensationPolicy>().HasIndex(entity => new { entity.CoachId, entity.EffectiveFrom });
         modelBuilder.Entity<CoachReview>().HasIndex(entity => new { entity.CoachId, entity.MemberId, entity.WorkEventId })
             .IsUnique().HasFilter("[work_event_id] IS NOT NULL");

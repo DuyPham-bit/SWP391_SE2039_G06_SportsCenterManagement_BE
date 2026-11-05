@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Primitives;
+using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.DTOs.Training;
 using SportsCenterManagement.BLL.Services;
 
@@ -44,6 +47,13 @@ Check("active class enrollment states are explicit", () =>
     CoachWorkflowRules.IsActiveEnrollmentStatus("Enrolled") &&
     !CoachWorkflowRules.IsActiveEnrollmentStatus("Pending") &&
     !CoachWorkflowRules.IsActiveEnrollmentStatus("Cancelled"));
+
+Check("attendance dashboard recognizes the API's canonical status values", () =>
+    CoachWorkflowRules.CountsAsPresentAttendance("PRESENT") &&
+    CoachWorkflowRules.CountsAsPresentAttendance("LATE") &&
+    !CoachWorkflowRules.CountsAsPresentAttendance("ABSENT") &&
+    CoachWorkflowRules.CountsAsAbsentAttendance("ABSENT") &&
+    !CoachWorkflowRules.CountsAsAbsentAttendance("EXCUSED"));
 
 Check("overnight session ends on the following Vietnam business day", () =>
     CoachWorkflowRules.SessionEndVietnam(new DateOnly(2026, 10, 25), new TimeOnly(23, 30), new TimeOnly(1, 0)) ==
@@ -98,9 +108,67 @@ Check("broadcast rejects ambiguous and explicitly empty targets", () =>
     CoachWorkflowRules.BroadcastValidationError(null, [], "Thông báo", "Nội dung") is not null &&
     CoachWorkflowRules.BroadcastValidationError(null, null, "Thông báo", "Nội dung") is null);
 
+Check("session booking requires an explicit member-center assignment", () =>
+    BookingAccessRules.IsMemberAssignedToClassCenter(7, 7) &&
+    !BookingAccessRules.IsMemberAssignedToClassCenter(7, 8) &&
+    !BookingAccessRules.IsMemberAssignedToClassCenter(null, 7));
+
+Check("VNPay callback rejects a valid signature with a mismatched currency", () =>
+{
+    const string secret = "audit-vnpay-secret";
+    var configuration = new AuditConfiguration(new Dictionary<string, string?>
+    {
+        ["VnPay:HashSecret"] = secret,
+        ["VnPay:TmnCode"] = "AUDITTMN",
+        ["VnPay:CurrCode"] = "VND"
+    });
+    var signer = new VnPayLibrary();
+    foreach (var (key, value) in new Dictionary<string, string>
+    {
+        ["vnp_Amount"] = "100000",
+        ["vnp_CurrCode"] = "USD",
+        ["vnp_ResponseCode"] = "00",
+        ["vnp_TmnCode"] = "AUDITTMN",
+        ["vnp_TransactionNo"] = "123456",
+        ["vnp_TransactionStatus"] = "00",
+        ["vnp_TxnRef"] = "PAY-AUDIT"
+    }) signer.AddRequestData(key, value);
+
+    var signedUri = new Uri(signer.CreateRequestUrl("https://example.test/callback", secret));
+    var fields = signedUri.Query.TrimStart('?').Split('&').Select(pair => pair.Split('=', 2))
+        .ToDictionary(pair => Uri.UnescapeDataString(pair[0]), pair => Uri.UnescapeDataString(pair[1]), StringComparer.Ordinal);
+    var callback = new VnPayService(configuration, new HttpClient(), new BusinessClock(configuration)).ProcessCallback(fields);
+    return !callback.IsValidSignature && !callback.IsSuccess;
+});
+
 Console.WriteLine($"RESULT {checks - failures.Count}/{checks} checks passed");
 if (failures.Count > 0)
 {
     foreach (var failure in failures) Console.Error.WriteLine(failure);
     Environment.ExitCode = 1;
+}
+
+sealed class AuditConfiguration(Dictionary<string, string?> values) : IConfiguration
+{
+    public string? this[string key]
+    {
+        get => values.GetValueOrDefault(key);
+        set => values[key] = value;
+    }
+
+    public IEnumerable<IConfigurationSection> GetChildren() => [];
+    public IChangeToken GetReloadToken() => new AuditChangeToken();
+    public IConfigurationSection GetSection(string key) => throw new NotSupportedException();
+}
+
+sealed class AuditChangeToken : IChangeToken
+{
+    public bool HasChanged => false;
+    public bool ActiveChangeCallbacks => false;
+    public IDisposable RegisterChangeCallback(Action<object?> callback, object? state) => new NoopDisposable();
+
+    private sealed class NoopDisposable : IDisposable
+    {
+        public void Dispose() { }
+    }
 }

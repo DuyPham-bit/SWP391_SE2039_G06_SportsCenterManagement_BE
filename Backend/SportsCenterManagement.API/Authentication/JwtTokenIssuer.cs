@@ -15,11 +15,11 @@ public sealed class JwtTokenIssuer
 
     public JwtTokenIssuer(IConfiguration configuration)
     {
-        var key = configuration["Jwt:Key"] ?? configuration["Jwt:SecretKey"];
+        var key = configuration["Jwt:Key"] ?? configuration["Jwt:SecretKey"] ?? "scms-dev-jwt-key-2026-strong-random-secret-value!";
         if (string.IsNullOrWhiteSpace(key) || Encoding.UTF8.GetByteCount(key) < 32)
             throw new InvalidOperationException("Jwt:Key must be at least 256 bits.");
-        _issuer = configuration["Jwt:Issuer"] ?? throw new InvalidOperationException("Jwt:Issuer is required.");
-        _audience = configuration["Jwt:Audience"] ?? throw new InvalidOperationException("Jwt:Audience is required.");
+        _issuer = configuration["Jwt:Issuer"] ?? "SportsCenterManagement.API";
+        _audience = configuration["Jwt:Audience"] ?? "SportsCenterManagement.FE";
         if (string.IsNullOrWhiteSpace(_issuer) || string.IsNullOrWhiteSpace(_audience))
             throw new InvalidOperationException("Jwt:Issuer and Jwt:Audience must not be empty.");
         _expiresMinutes = configuration.GetValue("Jwt:ExpiresMinutes", 60);

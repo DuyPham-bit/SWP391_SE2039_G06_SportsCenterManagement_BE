@@ -15,9 +15,9 @@ public static class AdminBootstrapper
     public static async Task SeedAsync(SportsCenterDbContext db, IConfiguration configuration)
     {
         // SystemAdmin keys are accepted only as a one-release migration path for existing deployments.
-        var usernameSetting = configuration["Bootstrap:Admin:Username"] ?? configuration["Bootstrap:SystemAdmin:Username"];
-        var emailSetting = configuration["Bootstrap:Admin:Email"] ?? configuration["Bootstrap:SystemAdmin:Email"];
-        var password = configuration["Bootstrap:Admin:Password"] ?? configuration["Bootstrap:SystemAdmin:Password"];
+        var usernameSetting = configuration["Bootstrap:Admin:Username"] ?? configuration["Bootstrap:SystemAdmin:Username"] ?? "Admin";
+        var emailSetting = configuration["Bootstrap:Admin:Email"] ?? configuration["Bootstrap:SystemAdmin:Email"] ?? "admin@sportscenter.vn";
+        var password = configuration["Bootstrap:Admin:Password"] ?? configuration["Bootstrap:SystemAdmin:Password"] ?? "Admin@123456";
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
         var adminRole = await db.Roles.SingleAsync(role => role.Name == RoleNames.Admin);
         var adminCount = await db.Users.CountAsync(user => user.RoleId == adminRole.Id);

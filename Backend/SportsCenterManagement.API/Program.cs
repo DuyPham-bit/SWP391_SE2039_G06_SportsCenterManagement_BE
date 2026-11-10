@@ -27,8 +27,46 @@ using SportsCenterManagement.API.Services;
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
-var connectionString = builder.Configuration.GetConnectionString("SportsCenter")
-    ?? throw new InvalidOperationException("Connection string 'SportsCenter' is not configured.");
+var rawConn = builder.Configuration.GetConnectionString("SportsCenter")
+    ?? builder.Configuration["DATABASE_URL"]
+    ?? builder.Configuration["DATABASE_PRIVATE_URL"]
+    ?? builder.Configuration["POSTGRES_URL"]
+    ?? builder.Configuration["PGURL"];
+
+if (string.IsNullOrWhiteSpace(rawConn))
+{
+    var pgHost = builder.Configuration["PGHOST"] ?? builder.Configuration["POSTGRES_HOST"];
+    var pgPort = builder.Configuration["PGPORT"] ?? builder.Configuration["POSTGRES_PORT"] ?? "5432";
+    var pgDb = builder.Configuration["PGDATABASE"] ?? builder.Configuration["POSTGRES_DB"] ?? "railway";
+    var pgUser = builder.Configuration["PGUSER"] ?? builder.Configuration["POSTGRES_USER"] ?? "postgres";
+    var pgPass = builder.Configuration["PGPASSWORD"] ?? builder.Configuration["POSTGRES_PASSWORD"] ?? "";
+    if (!string.IsNullOrWhiteSpace(pgHost))
+    {
+        rawConn = $"Host={pgHost};Port={pgPort};Database={pgDb};Username={pgUser};Password={pgPass}";
+    }
+}
+
+if (string.IsNullOrWhiteSpace(rawConn))
+{
+    throw new InvalidOperationException("Connection string is not configured. Set 'ConnectionStrings:SportsCenter' or 'DATABASE_URL'.");
+}
+
+string connectionString = rawConn;
+if (Uri.TryCreate(rawConn, UriKind.Absolute, out var uri) && (uri.Scheme == "postgres" || uri.Scheme == "postgresql"))
+{
+    var userInfo = uri.UserInfo.Split(':');
+    var builderConn = new Npgsql.NpgsqlConnectionStringBuilder
+    {
+        Host = uri.Host,
+        Port = uri.Port > 0 ? uri.Port : 5432,
+        Username = userInfo.Length > 0 ? Uri.UnescapeDataString(userInfo[0]) : "postgres",
+        Password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "",
+        Database = uri.AbsolutePath.TrimStart('/'),
+        SslMode = Npgsql.SslMode.Prefer
+    };
+    connectionString = builderConn.ConnectionString;
+}
+
 var jwtIssuer = new JwtTokenIssuer(builder.Configuration);
 
 // Cấu hình HttpClient để gọi API ngoài (MoMo Sandbox...)
@@ -57,10 +95,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 builder.Services.AddAuthorization(options => options.FallbackPolicy =
     new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+if (allowedOrigins.Length == 0)
+{
+    allowedOrigins = ["https://olympic-sports-arena.vercel.app", "http://localhost:3004", "http://localhost:5173"];
+}
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
 {
-    if (allowedOrigins.Length > 0)
-        policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials().WithExposedHeaders("Retry-After");
+    policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials().WithExposedHeaders("Retry-After");
 }));
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();

@@ -7,16 +7,15 @@ namespace SportsCenterManagement.DAL.Context;
 /// <summary>Initializes schema and required authorization data only.</summary>
 public static class DbInitializer
 {
-    public static async Task SeedAsync(SportsCenterDbContext context, bool baselineLegacySchema = false)
+    public static async Task SeedAsync(SportsCenterDbContext context)
     {
-        if (baselineLegacySchema) await BaselineLegacySchemaAsync(context);
         if (context.Database.IsRelational()) await context.Database.MigrateAsync();
         else await context.Database.EnsureCreatedAsync();
         await EnsureRolesAndPermissionsAsync(context);
         await EnsureAuthAndReceptionPermissionsAsync(context);
         await EnsureCompleteSportsCatalogAsync(context);
         await EnsureMembershipPackageSportsAsync(context);
-        await EnsureCommunicationDeliverySchemaAsync(context);
+        await EnsureDemoBusinessDataAsync(context);
     }
 
     private static async Task EnsureRolesAndPermissionsAsync(SportsCenterDbContext context)
@@ -337,58 +336,6 @@ public static class DbInitializer
         await context.SaveChangesAsync();
     }
 
-    private static async Task BaselineLegacySchemaAsync(SportsCenterDbContext context)
-    {
-        var connection = context.Database.GetDbConnection();
-        if (connection.State != System.Data.ConnectionState.Open)
-        {
-            await connection.OpenAsync();
-        }
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT CASE WHEN OBJECT_ID(N'[dbo].[centers]', N'U') IS NULL THEN 0 ELSE 1 END
-            """;
-
-        var hasLegacySchema = Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
-        if (!hasLegacySchema)
-        {
-            return;
-        }
-
-        command.CommandText = """
-            SELECT CASE WHEN OBJECT_ID(N'[dbo].[__EFMigrationsHistory]', N'U') IS NULL THEN 0 ELSE 1 END
-            """;
-        var hasMigrationHistory = Convert.ToInt32(await command.ExecuteScalarAsync()) == 1;
-        if (!hasMigrationHistory)
-        {
-            await context.Database.ExecuteSqlRawAsync("""
-            CREATE TABLE [dbo].[__EFMigrationsHistory] (
-                [MigrationId] nvarchar(150) NOT NULL,
-                [ProductVersion] nvarchar(32) NOT NULL,
-                CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
-            );
-            """);
-        }
-
-        // A legacy database can have a partially populated history table; restore both baseline markers before applying later migrations.
-        await context.Database.ExecuteSqlRawAsync("""
-            IF NOT EXISTS (
-                SELECT 1 FROM [dbo].[__EFMigrationsHistory]
-                WHERE [MigrationId] = N'20260929152157_InitialCreate')
-            BEGIN
-                INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
-                VALUES (N'20260929152157_InitialCreate', N'10.0.12');
-            END
-
-            IF NOT EXISTS (
-                SELECT 1 FROM [dbo].[__EFMigrationsHistory]
-                WHERE [MigrationId] = N'20260929165224_CoreFlowUniqueness')
-            BEGIN
-                INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion])
-                VALUES (N'20260929165224_CoreFlowUniqueness', N'10.0.12');
-            END
-            """);
-    }
     private static async Task EnsureCompleteSportsCatalogAsync(SportsCenterDbContext context)
     {
         var center = await context.Centers.FirstOrDefaultAsync(c => c.Id == 15)
@@ -568,38 +515,489 @@ public static class DbInitializer
         }
     }
 
-    private static async Task EnsureCommunicationDeliverySchemaAsync(SportsCenterDbContext context)
+
+    private static async Task EnsureDemoBusinessDataAsync(SportsCenterDbContext context)
     {
-        await context.Database.ExecuteSqlRawAsync("""
-            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('communication_deliveries') AND name = 'attempt_count')
-            BEGIN
-                ALTER TABLE [communication_deliveries] ADD [attempt_count] INT NOT NULL CONSTRAINT DF_communication_deliveries_attempt_count DEFAULT 0;
-            END
+        const string markerKey = "seed.demo.business-data.v2";
+        if (await context.SystemSettings.AnyAsync(s => s.SettingKey == markerKey))
+        {
+            return;
+        }
 
-            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('communication_deliveries') AND name = 'next_attempt_at')
-            BEGIN
-                ALTER TABLE [communication_deliveries] ADD [next_attempt_at] DATETIME2 NULL;
-            END
+        var center = await context.Centers.FirstOrDefaultAsync();
+        if (center is null)
+        {
+            return;
+        }
 
-            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('communication_deliveries') AND name = 'lease_until')
-            BEGIN
-                ALTER TABLE [communication_deliveries] ADD [lease_until] DATETIME2 NULL;
-            END
+        var adminUser = await context.Users.FirstOrDefaultAsync(u => u.Username == "admin");
+        var receptionist = await context.Users.FirstOrDefaultAsync(u => u.Username == "flow2.reception" || u.Username == "reception01");
+        var primaryCoach = await context.CoachProfiles.FirstOrDefaultAsync();
 
-            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('communication_deliveries') AND name = 'locked_by')
-            BEGIN
-                ALTER TABLE [communication_deliveries] ADD [locked_by] NVARCHAR(100) NULL;
-            END
+        // 1. Ensure Standard Membership Packages (Basic, Pro, Elite, Olympic Pass)
+        var standardPackages = new (string Name, string Description, int DurationDays, decimal Price, int? MaxClasses, string AccessType, int AllowedSports, string Badge, string Features)[]
+        {
+            (
+                "Gói Basic Thể Thao",
+                "Khởi động lối sống năng động với 1 bộ môn tiêu chuẩn và đầy đủ tiện nghi cơ bản.",
+                30,
+                650000m,
+                10,
+                "1 môn cơ bản",
+                1,
+                "Cơ bản",
+                "[\"Tập luyện 1 bộ môn cơ bản\",\"Tủ locker tiêu chuẩn\",\"Miễn phí nước uống lọc và tắm nóng lạnh\"]"
+            ),
+            (
+                "Gói Pro Bứt Phá",
+                "Gói tập phổ biến nhất, tự chọn 3 bộ môn linh hoạt cùng quyền lợi đo InBody định kỳ.",
+                90,
+                1800000m,
+                30,
+                "3 môn tự chọn",
+                3,
+                "Phổ biến",
+                "[\"Tự chọn 3 bộ môn linh hoạt\",\"Đo chỉ số InBody định kỳ hàng tháng\",\"Tủ locker thông minh VIP\",\"Khăn tập kháng khuẩn mỗi buổi\"]"
+            ),
+            (
+                "Gói Elite Chuyên Nghiệp",
+                "Dành cho người tập luyện chuyên sâu với 6 bộ môn, kèm 2 buổi tư vấn HLV cá nhân và xông hơi Sauna.",
+                180,
+                3200000m,
+                70,
+                "6 môn chuyên sâu",
+                6,
+                "Chuyên nghiệp",
+                "[\"Toàn quyền 6 bộ môn chuyên sâu\",\"2 buổi tư vấn giáo án cùng HLV cá nhân\",\"Phòng xông hơi Sauna & Jacuzzi phục hồi\",\"Ưu tiên đặt chỗ trước giờ cao điểm\"]"
+            ),
+            (
+                "Gói All-Access Olympic Pass",
+                "Đặc quyền tối thượng toàn hệ thống: không giới hạn 10 môn thể thao Olympic, dịch vụ VIP và đưa đón.",
+                365,
+                5800000m,
+                150,
+                "Toàn quyền 10 môn",
+                10,
+                "VIP All-Access",
+                "[\"Toàn quyền 10 môn thể thao Olympic\",\"Không giới hạn số lượt check-in\",\"Miễn phí dịch vụ khăn, locker & nước ion cao cấp\",\"Mời 1 bạn tập trải nghiệm miễn phí mỗi tháng\"]"
+            )
+        };
 
-            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('communication_deliveries') AND name = 'last_error')
-            BEGIN
-                ALTER TABLE [communication_deliveries] ADD [last_error] NVARCHAR(1000) NULL;
-            END
+        foreach (var def in standardPackages)
+        {
+            var pkg = await context.MembershipPackages
+                .FirstOrDefaultAsync(p => p.CenterId == center.Id && p.Name == def.Name);
 
-            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('communication_deliveries') AND name = 'IX_communication_deliveries_status_lease')
-            BEGIN
-                CREATE INDEX [IX_communication_deliveries_status_lease] ON [communication_deliveries] ([status], [next_attempt_at], [lease_until]);
-            END
-        """);
+            if (pkg is null)
+            {
+                pkg = new MembershipPackage
+                {
+                    CenterId = center.Id,
+                    Name = def.Name,
+                    Description = def.Description,
+                    DurationDays = def.DurationDays,
+                    Price = def.Price,
+                    MaxClasses = def.MaxClasses,
+                    AccessType = def.AccessType,
+                    AllowedSports = def.AllowedSports,
+                    Badge = def.Badge,
+                    Features = def.Features,
+                    Status = "Active",
+                    CreatedAt = DateTime.UtcNow.AddMonths(-4)
+                };
+                await context.MembershipPackages.AddAsync(pkg);
+                await context.SaveChangesAsync();
+            }
+        }
+
+        // 2. Ensure Classes & Schedules across all active sports
+        var sports = await context.Sports.ToListAsync();
+        var rooms = await context.Rooms.Where(r => r.CenterId == center.Id).ToListAsync();
+        var allCoaches = await context.CoachProfiles.ToListAsync();
+
+        var classSeedDefs = new (string SportName, string ClassName, string RoomKeyword, int DayOfWeek, TimeOnly StartTime, TimeOnly EndTime, string Level)[]
+        {
+            ("Gym", "Powerlifting & Hypertrophy Foundation", "Gym", 2, new TimeOnly(18, 0), new TimeOnly(19, 0), "Intermediate"),
+            ("Yoga", "Hatha Yoga & Trị Liệu Cột Sống", "Yoga", 3, new TimeOnly(17, 30), new TimeOnly(18, 30), "All Levels"),
+            ("Bơi lội", "Kỹ thuật Bơi Sải & Sức bền Olympic", "Bơi", 4, new TimeOnly(18, 0), new TimeOnly(19, 0), "Beginner"),
+            ("Boxing", "Boxing Kháng Lực & Tự Vệ Thực Chiến", "Boxing", 5, new TimeOnly(19, 0), new TimeOnly(20, 0), "Intermediate"),
+            ("Golf", "Golf Simulator & Kỹ Thuật Swing Chuẩn PGA", "Golf", 6, new TimeOnly(15, 0), new TimeOnly(16, 30), "Intermediate"),
+            ("Cầu lông", "Cầu Lông Chiến Thuật & Footwork Nâng Cao", "Cầu lông", 2, new TimeOnly(19, 0), new TimeOnly(20, 30), "All Levels"),
+            ("Bóng đá", "Futsal Kỹ Thuật Chạm Bóng & Di Chuyển Không Bóng", "Bóng đá", 3, new TimeOnly(19, 0), new TimeOnly(20, 30), "Beginner"),
+            ("Bóng rổ", "Bóng Rổ Căn Bản & Ném Rổ Tầm Xa", "Bóng rổ", 4, new TimeOnly(18, 30), new TimeOnly(20, 0), "All Levels"),
+            ("Bóng bàn", "Bóng Bàn Giao Cầu Xoáy & Đỡ Bóng Cắt", "Bóng bàn", 5, new TimeOnly(18, 0), new TimeOnly(19, 30), "All Levels"),
+            ("Pickleball", "Pickleball Dinking & Phản Xạ Lưới Đỉnh Cao", "Pickleball", 6, new TimeOnly(17, 0), new TimeOnly(18, 30), "Beginner")
+        };
+
+        var nowUtc = DateTime.UtcNow;
+        var today = DateOnly.FromDateTime(nowUtc);
+        int classIndex = 0;
+
+        foreach (var def in classSeedDefs)
+        {
+            classIndex++;
+            var sport = sports.FirstOrDefault(s => s.Name.Contains(def.SportName, StringComparison.OrdinalIgnoreCase));
+            if (sport is null) continue;
+
+            var room = rooms.FirstOrDefault(r => r.Name.Contains(def.RoomKeyword, StringComparison.OrdinalIgnoreCase)) ?? rooms.FirstOrDefault();
+            var classEntity = await context.Classes.FirstOrDefaultAsync(c => c.CenterId == center.Id && c.Name == def.ClassName);
+
+            if (classEntity is null)
+            {
+                classEntity = new ClassEntity
+                {
+                    CenterId = center.Id,
+                    SportId = sport.Id,
+                    RoomId = room?.Id,
+                    Name = def.ClassName,
+                    Description = $"Chương trình đào tạo bộ môn {sport.Name} chuẩn quốc tế tại trung tâm, nâng cao thể lực và phản xạ thi đấu.",
+                    Level = def.Level,
+                    Capacity = 20,
+                    AllowWaitlist = true,
+                    DurationMinutes = (int)(def.EndTime - def.StartTime).TotalMinutes,
+                    Status = "Published",
+                    CreatedAt = nowUtc.AddMonths(-3)
+                };
+                await context.Classes.AddAsync(classEntity);
+                await context.SaveChangesAsync();
+
+                if (allCoaches.Count > 0)
+                {
+                    var assignedCoach = allCoaches[classIndex % allCoaches.Count];
+                    if (!await context.ClassCoaches.AnyAsync(cc => cc.ClassId == classEntity.Id && cc.CoachId == assignedCoach.Id))
+                    {
+                        context.ClassCoaches.Add(new ClassCoach
+                        {
+                            ClassId = classEntity.Id,
+                            CoachId = assignedCoach.Id,
+                            AssignedDate = today.AddMonths(-3),
+                            IsPrimary = true
+                        });
+                        await context.SaveChangesAsync();
+                    }
+                }
+
+                var schedule = new ClassSchedule
+                {
+                    ClassId = classEntity.Id,
+                    RoomId = room?.Id,
+                    DayOfWeek = def.DayOfWeek,
+                    StartTime = def.StartTime,
+                    EndTime = def.EndTime,
+                    StartDate = today.AddMonths(-2),
+                    EndDate = today.AddMonths(4),
+                    Status = "Active"
+                };
+                await context.ClassSchedules.AddAsync(schedule);
+                await context.SaveChangesAsync();
+
+                for (var curDate = today.AddDays(-30); curDate <= today.AddDays(30); curDate = curDate.AddDays(1))
+                {
+                    if ((int)curDate.DayOfWeek == schedule.DayOfWeek)
+                    {
+                        var exists = await context.ClassSessions
+                            .AnyAsync(s => s.ClassId == classEntity.Id && s.SessionDate == curDate && s.StartTime == schedule.StartTime);
+                        if (!exists)
+                        {
+                            context.ClassSessions.Add(new ClassSession
+                            {
+                                ClassId = classEntity.Id,
+                                ScheduleId = schedule.Id,
+                                RoomId = schedule.RoomId,
+                                CoachId = allCoaches.Count > 0 ? allCoaches[classIndex % allCoaches.Count].Id : null,
+                                SessionDate = curDate,
+                                StartTime = schedule.StartTime,
+                                EndTime = schedule.EndTime,
+                                SessionStatus = "Scheduled",
+                                Notes = "Buổi học định kỳ theo giáo trình chuẩn",
+                                CreatedAt = nowUtc.AddMonths(-2)
+                            });
+                        }
+                    }
+                }
+                await context.SaveChangesAsync();
+            }
+        }
+
+        // 3. Attach Subscriptions, Invoices, Payments, Bookings, Attendance, Checkins to EXISTING MEMBERS ONLY
+        var activeUserIds = await context.Users
+            .Where(u => u.Status == "Active")
+            .Select(u => u.Id)
+            .ToListAsync();
+
+        var existingMembers = await context.MemberProfiles
+            .Where(m => activeUserIds.Contains(m.UserId))
+            .ToListAsync();
+
+        if (existingMembers.Count > 0)
+        {
+            var allPackages = await context.MembershipPackages
+                .Where(p => p.CenterId == center.Id && p.Status == "Active")
+                .ToListAsync();
+
+            var allPublishedClasses = await context.Classes
+                .Where(c => c.CenterId == center.Id && c.Status == "Published")
+                .ToListAsync();
+
+            var staffUser = receptionist ?? adminUser;
+
+            int memberCounter = 0;
+            foreach (var member in existingMembers)
+            {
+                memberCounter++;
+                var chosenPkg = allPackages[memberCounter % allPackages.Count];
+
+                var pastStart = today.AddDays(-75);
+                var pastEnd = pastStart.AddDays(chosenPkg.DurationDays > 60 ? 60 : chosenPkg.DurationDays);
+                var activeStart = today.AddDays(-15);
+                var activeEnd = activeStart.AddDays(chosenPkg.DurationDays);
+
+                var subPairs = new[]
+                {
+                    (Start: pastStart, End: pastEnd, Status: "Expired", Created: nowUtc.AddDays(-75), IsRenewal: false),
+                    (Start: activeStart, End: activeEnd, Status: "Active", Created: nowUtc.AddDays(-15), IsRenewal: true)
+                };
+
+                foreach (var subDef in subPairs)
+                {
+                    var existingSub = await context.MemberSubscriptions
+                        .FirstOrDefaultAsync(s => s.MemberId == member.Id && s.StartDate == subDef.Start && s.PackageId == chosenPkg.Id);
+
+                    MemberSubscription sub;
+                    if (existingSub is null)
+                    {
+                        sub = new MemberSubscription
+                        {
+                            MemberId = member.Id,
+                            PackageId = chosenPkg.Id,
+                            StartDate = subDef.Start,
+                            EndDate = subDef.End,
+                            DurationDays = chosenPkg.DurationDays,
+                            Price = chosenPkg.Price,
+                            Status = subDef.Status,
+                            AutoRenew = false,
+                            CreatedAt = subDef.Created,
+                            UpdatedAt = subDef.Created
+                        };
+                        await context.MemberSubscriptions.AddAsync(sub);
+                        await context.SaveChangesAsync();
+                    }
+                    else
+                    {
+                        sub = existingSub;
+                    }
+
+                    var existingInvoiceItem = await context.InvoiceItems
+                        .FirstOrDefaultAsync(ii => ii.SubscriptionId == sub.Id);
+
+                    if (existingInvoiceItem is null)
+                    {
+                        var hexSuffix = Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+                        var invNumber = $"INV-{subDef.Created:yyyyMMdd}-{member.Id:D3}-{hexSuffix}";
+
+                        var invoice = new Invoice
+                        {
+                            InvoiceNumber = invNumber,
+                            MemberId = member.Id,
+                            CenterId = center.Id,
+                            CreatedBy = staffUser?.Id ?? member.UserId,
+                            Subtotal = chosenPkg.Price,
+                            Discount = 0,
+                            Tax = 0,
+                            TotalAmount = chosenPkg.Price,
+                            Status = "Paid",
+                            IssuedAt = subDef.Created,
+                            PaidAt = subDef.Created,
+                            IdempotencyKey = Guid.NewGuid().ToString("N")
+                        };
+                        await context.Invoices.AddAsync(invoice);
+                        await context.SaveChangesAsync();
+
+                        var invoiceItem = new InvoiceItem
+                        {
+                            InvoiceId = invoice.Id,
+                            PackageId = chosenPkg.Id,
+                            SubscriptionId = sub.Id,
+                            Description = subDef.IsRenewal ? $"Gia hạn gói tập: {chosenPkg.Name}" : $"Đăng ký gói tập: {chosenPkg.Name}",
+                            Quantity = 1,
+                            UnitPrice = chosenPkg.Price,
+                            Amount = chosenPkg.Price
+                        };
+                        await context.InvoiceItems.AddAsync(invoiceItem);
+
+                        string method = ((member.Id + sub.Id) % 3) switch
+                        {
+                            0 => "VNPAY",
+                            1 => "MOMO",
+                            _ => "CASH"
+                        };
+
+                        var payment = new Payment
+                        {
+                            InvoiceId = invoice.Id,
+                            MemberId = member.Id,
+                            ProcessedBy = method == "CASH" ? staffUser?.Id : null,
+                            PaymentMethod = method,
+                            TransactionCode = $"{method}:TXN-{subDef.Created:yyyyMMdd}-{invoice.Id}-{hexSuffix}",
+                            Amount = chosenPkg.Price,
+                            AmountReceived = chosenPkg.Price,
+                            PaymentStatus = "Succeeded",
+                            PaidAt = subDef.Created,
+                            AttemptedAt = subDef.Created.AddSeconds(-25),
+                            CreatedAt = subDef.Created,
+                            Note = method == "CASH" ? "Thu tiền mặt tại quầy lễ tân" : $"Thanh toán trực tuyến thành công qua cổng {method}"
+                        };
+                        await context.Payments.AddAsync(payment);
+                        await context.SaveChangesAsync();
+                    }
+
+                    if (subDef.Status == "Active" && allPublishedClasses.Count > 0)
+                    {
+                        var assignedClasses = allPublishedClasses
+                            .OrderBy(c => (c.Id * member.Id) % 17)
+                            .Take(2)
+                            .ToList();
+
+                        foreach (var cls in assignedClasses)
+                        {
+                            var enrollment = await context.ClassEnrollments
+                                .FirstOrDefaultAsync(e => e.ClassId == cls.Id && e.MemberId == member.Id);
+
+                            if (enrollment is null)
+                            {
+                                enrollment = new ClassEnrollment
+                                {
+                                    ClassId = cls.Id,
+                                    MemberId = member.Id,
+                                    SubscriptionId = sub.Id,
+                                    RegisteredBy = staffUser?.Id ?? member.UserId,
+                                    RegisteredAt = subDef.Created,
+                                    Status = "Active"
+                                };
+                                await context.ClassEnrollments.AddAsync(enrollment);
+                                await context.SaveChangesAsync();
+                            }
+
+                            var sessions = await context.ClassSessions
+                                .Where(s => s.ClassId == cls.Id && s.SessionDate >= subDef.Start && s.SessionDate <= today.AddDays(21))
+                                .ToListAsync();
+
+                            foreach (var sess in sessions)
+                            {
+                                var booking = await context.SessionBookings
+                                    .FirstOrDefaultAsync(b => b.SessionId == sess.Id && b.MemberId == member.Id);
+
+                                if (booking is null)
+                                {
+                                    booking = new SessionBooking
+                                    {
+                                        SessionId = sess.Id,
+                                        MemberId = member.Id,
+                                        EnrollmentId = enrollment.Id,
+                                        SubscriptionId = sub.Id,
+                                        RegisteredBy = staffUser?.Id,
+                                        BookedAt = sess.SessionDate < today ? sess.SessionDate.ToDateTime(new TimeOnly(8, 0)).AddDays(-2) : nowUtc,
+                                        Status = "Booked"
+                                    };
+                                    await context.SessionBookings.AddAsync(booking);
+                                    await context.SaveChangesAsync();
+                                }
+
+                                if (sess.SessionDate < today)
+                                {
+                                    var hasAtt = await context.Attendances
+                                        .AnyAsync(a => a.SessionId == sess.Id && a.MemberId == member.Id);
+
+                                    if (!hasAtt)
+                                    {
+                                        bool isLate = (sess.Id + member.Id) % 5 == 0;
+                                        var sessionStartDt = sess.SessionDate.ToDateTime(sess.StartTime);
+                                        var checkIn = isLate ? sessionStartDt.AddMinutes(10) : sessionStartDt.AddMinutes(-5);
+                                        var checkOut = sess.SessionDate.ToDateTime(sess.EndTime).AddMinutes(5);
+
+                                        context.Attendances.Add(new Attendance
+                                        {
+                                            SessionId = sess.Id,
+                                            MemberId = member.Id,
+                                            CheckedInBy = allCoaches.FirstOrDefault()?.UserId ?? staffUser?.Id,
+                                            AttendanceStatus = isLate ? "LATE" : "PRESENT",
+                                            CheckInTime = checkIn,
+                                            CheckOutTime = checkOut,
+                                            Note = isLate ? "Đến trễ 10 phút do kẹt xe" : "Điểm danh đúng giờ",
+                                            CreatedAt = checkIn
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                for (int i = 1; i <= 10; i++)
+                {
+                    var checkDate = today.AddDays(-i * 2);
+                    var cinTime = checkDate.ToDateTime(new TimeOnly(17, 30)).AddMinutes((int)((member.Id * 7) % 60));
+                    var coutTime = cinTime.AddMinutes(75);
+
+                    if (!await context.CenterCheckins.AnyAsync(c => c.MemberId == member.Id && c.CheckInTime == cinTime))
+                    {
+                        context.CenterCheckins.Add(new CenterCheckin
+                        {
+                            MemberId = member.Id,
+                            CenterId = center.Id,
+                            CheckedInBy = staffUser?.Id,
+                            CheckInTime = cinTime,
+                            CheckOutTime = coutTime,
+                            CreatedAt = cinTime
+                        });
+                    }
+                }
+                await context.SaveChangesAsync();
+            }
+        }
+
+        // 4. Equipment issues
+        if (!await context.EquipmentIssues.AnyAsync(e => e.CenterId == center.Id))
+        {
+            var reportUser = allCoaches.FirstOrDefault()?.UserId ?? adminUser?.Id ?? 1;
+            context.EquipmentIssues.AddRange(
+                new EquipmentIssue
+                {
+                    CenterId = center.Id,
+                    ReportedByUserId = reportUser,
+                    Title = "Dây cáp máy kéo xô đa năng có dấu hiệu sờn",
+                    Description = "Dây cáp bên trái máy kéo lat pulldown tại tầng 2 bị sờn vỏ bọc, cần bảo dưỡng định kỳ.",
+                    Severity = "Medium",
+                    Status = "InProgress",
+                    ReportedAt = nowUtc.AddDays(-4),
+                    ResolutionNote = "Đã liên hệ nhà cung cấp phụ tùng thay thế."
+                },
+                new EquipmentIssue
+                {
+                    CenterId = center.Id,
+                    ReportedByUserId = reportUser,
+                    Title = "Hệ thống lọc nước hồ bơi tầng 1",
+                    Description = "Cảm biến pH báo chỉ số nhẹ cần cân bằng Clo và lọc tuần hoàn ban đêm.",
+                    Severity = "Low",
+                    Status = "Resolved",
+                    ReportedAt = nowUtc.AddDays(-10),
+                    ResolvedAt = nowUtc.AddDays(-9),
+                    ResolvedBy = adminUser?.Id,
+                    ResolutionNote = "Đã sục rửa bình lọc cát và cân bằng nồng độ nước đạt chuẩn thi đấu."
+                }
+            );
+            await context.SaveChangesAsync();
+        }
+
+        // 5. System setting marker
+        context.SystemSettings.Add(new SystemSetting
+        {
+            SettingKey = markerKey,
+            SettingValue = "applied",
+            Description = "Demo business data for existing members: packages, classes, invoices, payments, sessions, bookings, attendance, checkins.",
+            UpdatedAt = nowUtc
+        });
+        await context.SaveChangesAsync();
     }
+
 }

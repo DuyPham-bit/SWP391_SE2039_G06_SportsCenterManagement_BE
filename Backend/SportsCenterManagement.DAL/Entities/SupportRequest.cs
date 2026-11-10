@@ -31,6 +31,11 @@ public class SupportRequest : Common.BaseEntity
     [Column("status")]
     public string Status { get; set; } = null!;
 
+    /// <summary>Low | Normal | High | Urgent — chosen by the requester, adjustable by staff.</summary>
+    [MaxLength(20)]
+    [Column("priority")]
+    public string Priority { get; set; } = "Normal";
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }
 

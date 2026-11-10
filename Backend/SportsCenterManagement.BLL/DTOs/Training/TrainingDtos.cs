@@ -32,6 +32,18 @@ public sealed record RecordProgressRequest(
     [param: Range(1, long.MaxValue)] long? SessionId = null,
     bool NotifyMember = true);
 
+/// <summary>Coach-entered biometrics for a member of an assigned class (manual profile input).</summary>
+public sealed record UpdateMemberBiometricsRequest(
+    [param: Range(80, 250)] decimal? HeightCm,
+    [param: Range(25, 300)] decimal? WeightKg,
+    [param: StringLength(20)] string? Gender,
+    DateOnly? DateOfBirth,
+    [param: StringLength(50)] string? FitnessLevel,
+    [param: StringLength(1000)] string? MedicalNote);
+
+/// <summary>Weight chosen for AI context and where it came from ("training_result" or "profile").</summary>
+public sealed record WeightPick(decimal? Weight, string? Source, DateOnly? MeasuredOn);
+
 public sealed record SendNotificationRequest(
     [param: Range(1, long.MaxValue)] long? ClassId,
     [param: Required, StringLength(200)] string Title,
@@ -67,5 +79,8 @@ public sealed record RecommendationContext(
     int? Age = null,
     decimal? Bmi = null,
     string? BmiCategory = null,
-    HealthRecordSummary[]? HealthRecords = null
+    HealthRecordSummary[]? HealthRecords = null,
+    string? WeightSource = null,
+    DateOnly? WeightMeasuredOn = null,
+    decimal? ProfileWeightKg = null
 );

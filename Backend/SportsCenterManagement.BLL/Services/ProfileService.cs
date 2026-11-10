@@ -14,7 +14,8 @@ public sealed class ProfileService(
     IUserRepository userRepository,
     IUnitOfWork unitOfWork,
     IObjectStorageClient? storageClient = null,
-    ILogger<ProfileService>? logger = null) : IProfileService
+    ILogger<ProfileService>? logger = null,
+    SportsCenterManagement.BLL.Common.MediaUrlBuilder? mediaUrls = null) : IProfileService
 {
     public async Task<UserProfileResponse?> GetProfileAsync(long userId, CancellationToken ct = default)
     {
@@ -38,8 +39,12 @@ public sealed class ProfileService(
             throw BusinessException.BadRequest("Họ và tên không được để trống.");
         }
 
-        var avatarKey = request.AvatarKey?.Trim();
-        if (avatarKey is not null &&
+        // null = keep the current photo (profile edits that don't touch the avatar must not erase it),
+        // "" = remove the photo, otherwise a key previously uploaded under avatars/{userId}/.
+        var avatarKey = request.AvatarKey is null ? user.AvatarKey
+            : string.IsNullOrWhiteSpace(request.AvatarKey) ? null
+            : request.AvatarKey.Trim();
+        if (request.AvatarKey is not null && avatarKey is not null &&
             (!avatarKey.StartsWith($"avatars/{user.Id}/", StringComparison.Ordinal) ||
              avatarKey.Contains("../", StringComparison.Ordinal)))
         {
@@ -157,8 +162,10 @@ public sealed class ProfileService(
             memberProfile?.MemberCode,
             user.CreatedAt,
             centerId,
+            mediaUrls?.PublicUrl(user.AvatarKey),
             user.AvatarKey,
-            user.AvatarKey);
+            user.MustChangePassword,
+            user.IsEmailVerified);
     }
 }
 

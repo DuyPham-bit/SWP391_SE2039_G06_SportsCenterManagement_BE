@@ -9,11 +9,16 @@ public sealed class CatalogRepository(SportsCenterDbContext db) : ICatalogReposi
 {
     public async Task<Center?> GetActiveCenterByIdAsync(long centerId, CancellationToken ct = default)
     {
-        return await db.Centers
-            .AsNoTracking()
-            .Where(x => x.Id == centerId && x.Status == "Active")
-            .SingleOrDefaultAsync(ct);
+        return await ActiveCenter(centerId).AsNoTracking().SingleOrDefaultAsync(ct);
     }
+
+    public Task<bool> IsActiveCenterAsync(long centerId, CancellationToken ct = default)
+    {
+        return ActiveCenter(centerId).AnyAsync(ct);
+    }
+
+    private IQueryable<Center> ActiveCenter(long centerId) =>
+        db.Centers.Where(x => x.Id == centerId && x.Status == "Active");
 
     public async Task<IReadOnlyList<Sport>> GetActiveSportsByCenterIdAsync(long centerId, CancellationToken ct = default)
     {

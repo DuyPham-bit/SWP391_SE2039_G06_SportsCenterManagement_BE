@@ -19,5 +19,6 @@ public static class Responses
         int? ExperienceYears,
         string? Bio,
         IReadOnlyList<long> SportIds,
-        int? ActiveClassCount = null);
+        int? ActiveClassCount = null,
+        string? AvatarUrl = null);
 }

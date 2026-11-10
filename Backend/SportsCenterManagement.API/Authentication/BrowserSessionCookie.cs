@@ -49,7 +49,7 @@ public static class BrowserSessionCookie
 
     private static CookieOptions Options(HttpRequest request)
     {
-        // A Vercel site and a trycloudflare.com API are cross-site. This opt-in is
+        // Cross-domain frontends and APIs require SameSite=None. This opt-in is
         // required only for that deployment shape; named subdomains keep Strict.
         var allowCrossSiteCookies = request.HttpContext.RequestServices
             .GetRequiredService<IConfiguration>()

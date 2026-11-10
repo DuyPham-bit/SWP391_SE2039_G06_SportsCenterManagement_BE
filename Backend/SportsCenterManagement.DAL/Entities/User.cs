@@ -51,6 +51,14 @@ public class User : Common.BaseEntity
     [Column("locked_until")]
     public DateTime? LockedUntil { get; set; }
 
+    // Existing accounts are treated as verified; only counter-created accounts start unverified.
+    [Column("is_email_verified")]
+    public bool IsEmailVerified { get; set; } = true;
+
+    // Set when the account was issued a known default password (e.g. the phone number).
+    [Column("must_change_password")]
+    public bool MustChangePassword { get; set; }
+
     [Column("created_at")]
     public DateTime CreatedAt { get; set; }
 

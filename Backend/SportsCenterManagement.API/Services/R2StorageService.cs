@@ -67,6 +67,47 @@ public sealed class R2StorageService(
         }
         else if (!scope.IsAdmin && (!scope.IsManager || !scope.CenterId.HasValue))
             throw BusinessException.Forbidden("Tài khoản chưa được giao quyền tại trung tâm.");
+        return await StoreImageAsync(file, folder, maxFileSize, scope, cancellationToken);
+    }
+
+    /// <summary>
+    /// Counter staff upload a member's photo into the member's own avatar folder. The caller MUST have
+    /// authorized the actor for this member first (MemberService: active staff of the member's center).
+    /// </summary>
+    public async Task<string> UploadMemberAvatarAsync(IFormFile file, long memberUserId, long maxFileSize, CancellationToken cancellationToken = default)
+    {
+        var scope = await CurrentScope(cancellationToken);
+        if (!scope.IsAdmin && !scope.CenterId.HasValue)
+            throw BusinessException.Forbidden("Tài khoản chưa được giao quyền tại trung tâm.");
+        return await StoreImageAsync(file, $"avatars/{memberUserId}", maxFileSize, scope, cancellationToken);
+    }
+
+    /// <summary>Deletes a member photo replaced by counter staff; same pre-authorization contract as the upload.</summary>
+    public async Task DeleteMemberAvatarAsync(string key, long memberUserId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(key) || key.Length > 250
+            || !key.StartsWith($"avatars/{memberUserId}/", StringComparison.Ordinal)
+            || !Regex.IsMatch(key, @"\Aavatars/[a-zA-Z0-9/_.-]+\z")
+            || key.Split('/').Any(part => part is "" or "." or ".."))
+            throw BusinessException.BadRequest("Đường dẫn ảnh hội viên không hợp lệ.");
+        var fileId = MediaAccessScope.R2FileIdPrefix + key;
+        var metadata = await db.UploadedMedias.SingleOrDefaultAsync(m =>
+            m.DriveFileId == fileId, cancellationToken);
+        await S3Client.DeleteObjectAsync(new DeleteObjectRequest
+        {
+            BucketName = Required(_options.BucketName, nameof(_options.BucketName)),
+            Key = key
+        }, cancellationToken);
+        if (metadata is not null)
+        {
+            db.UploadedMedias.Remove(metadata);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    private async Task<string> StoreImageAsync(
+        IFormFile file, string folder, long maxFileSize, MediaAccessScope scope, CancellationToken cancellationToken)
+    {
         if (file.Length <= 0)
             throw BusinessException.BadRequest("Vui lòng chọn ảnh để tải lên.");
         if (file.Length > maxFileSize)
@@ -243,10 +284,10 @@ public sealed class R2StorageService(
         }
 
         var scope = await CurrentScope(cancellationToken);
-        // Object keys are case-sensitive even when SQL Server's default collation is not.
+        // Object keys are case-sensitive; these columns use text (not citext).
         var fileId = MediaAccessScope.R2FileIdPrefix + key;
         var metadata = await db.UploadedMedias.SingleOrDefaultAsync(m =>
-            EF.Functions.Collate(m.DriveFileId, "Latin1_General_100_BIN2") == fileId, cancellationToken);
+            m.DriveFileId == fileId, cancellationToken);
         if (key.StartsWith("avatars/", StringComparison.Ordinal))
         {
             // Legacy avatars already encode their owner; no other route may use this as a business-image delete.
@@ -264,8 +305,8 @@ public sealed class R2StorageService(
                 var publicUrl = $"{_options.PublicDomain.TrimEnd('/')}/{key}";
                 var centers = await (from refund in db.PaymentRefunds join payment in db.Payments on refund.PaymentId equals payment.Id
                     join invoice in db.Invoices on payment.InvoiceId equals invoice.Id
-                    where EF.Functions.Collate(refund.TransferProofUrl!, "Latin1_General_100_BIN2") == key
-                        || EF.Functions.Collate(refund.TransferProofUrl!, "Latin1_General_100_BIN2") == publicUrl
+                    where refund.TransferProofUrl! == key
+                        || refund.TransferProofUrl! == publicUrl
                     select invoice.CenterId).Distinct().ToListAsync(cancellationToken);
                 if (centers.Any(center => center != scope.CenterId)) allowed = false;
                 else if (metadata is null) allowed = centers.Count > 0;

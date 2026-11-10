@@ -79,6 +79,41 @@ Check("blank result and unsafe metric ranges are rejected", () =>
     CoachWorkflowRules.ProgressValidationError(Progress(bodyFat: 66)) is not null &&
     CoachWorkflowRules.ProgressValidationError(Progress(muscleMass: 121)) is not null);
 
+UpdateMemberBiometricsRequest Bio(decimal? height = 170, decimal? weight = 65, string? gender = "Female",
+    DateOnly? dob = null, string? level = "Beginner") =>
+    new(height, weight, gender, dob ?? new DateOnly(2000, 1, 1), level, "Đau gối nhẹ");
+
+Check("valid manual biometrics pass validation", () =>
+    CoachWorkflowRules.BiometricsValidationError(Bio(), new DateOnly(2026, 11, 9)) is null);
+
+Check("unsafe manual biometrics are rejected", () =>
+    CoachWorkflowRules.BiometricsValidationError(Bio(height: 50), new DateOnly(2026, 11, 9)) is not null &&
+    CoachWorkflowRules.BiometricsValidationError(Bio(weight: 301), new DateOnly(2026, 11, 9)) is not null &&
+    CoachWorkflowRules.BiometricsValidationError(Bio(gender: "Robot"), new DateOnly(2026, 11, 9)) is not null &&
+    CoachWorkflowRules.BiometricsValidationError(Bio(level: "Godlike"), new DateOnly(2026, 11, 9)) is not null &&
+    CoachWorkflowRules.BiometricsValidationError(Bio(dob: new DateOnly(2027, 1, 1)), new DateOnly(2026, 11, 9)) is not null);
+
+Check("newer training_results weight overrides older profile weight", () =>
+{
+    var pick = CoachWorkflowRules.ResolveLatestWeight(55, new DateTime(2026, 10, 1, 3, 0, 0, DateTimeKind.Utc),
+        new DateOnly(2026, 11, 5), 57.5m, new DateTime(2026, 11, 5, 12, 0, 0, DateTimeKind.Utc));
+    return pick.Weight == 57.5m && pick.Source == "training_result" && pick.MeasuredOn == new DateOnly(2026, 11, 5);
+});
+
+Check("manual profile weight entered after the last session wins", () =>
+{
+    var pick = CoachWorkflowRules.ResolveLatestWeight(60, new DateTime(2026, 11, 8, 3, 0, 0, DateTimeKind.Utc),
+        new DateOnly(2026, 11, 5), 57.5m, new DateTime(2026, 11, 5, 12, 0, 0, DateTimeKind.Utc));
+    return pick.Weight == 60 && pick.Source == "profile";
+});
+
+Check("profile weight is used when no session weight was measured", () =>
+{
+    var pick = CoachWorkflowRules.ResolveLatestWeight(55, null, null, null, null);
+    var none = CoachWorkflowRules.ResolveLatestWeight(null, null, null, null, null);
+    return pick.Weight == 55 && pick.Source == "profile" && none.Weight is null;
+});
+
 Check("multi-class notification target is normalized and accepted", () =>
 {
     var request = new SendNotificationRequest(null, "Lịch tập", "Nội dung", null, [3, 3, 4]);

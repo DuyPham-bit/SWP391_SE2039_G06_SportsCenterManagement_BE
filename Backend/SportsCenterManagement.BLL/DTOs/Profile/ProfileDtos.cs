@@ -11,7 +11,9 @@ public sealed record UserProfileResponse(
     DateTimeOffset CreatedAt,
     long? CenterId = null,
     string? Avatar = null,
-    string? AvatarKey = null);
+    string? AvatarKey = null,
+    bool MustChangePassword = false,
+    bool IsEmailVerified = true);
 
 public sealed record UpdateUserProfileRequest(
     string FullName,

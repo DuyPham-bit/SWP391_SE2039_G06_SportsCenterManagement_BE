@@ -1,63 +1,38 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateRange(1024, 65535)]
     [int]$Port = 5000,
-    [string]$SqlServer,
-    [string]$Database = 'SportsCenterManagement',
     [switch]$SkipFrontendBuild,
-    [string]$SqlServiceName = 'MSSQLSERVER',
-    [switch]$SkipSqlServerCheck
+    [int]$DatabasePort = 5432,
+    [switch]$SkipDatabaseCheck
 )
 
 $ErrorActionPreference = 'Stop'
 
-function Test-IsAdministrator {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+function Test-PortOpen([int]$TcpPort) {
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try { return $client.ConnectAsync('127.0.0.1', $TcpPort).Wait(1000) } catch { return $false } finally { $client.Dispose() }
 }
 
-function Ensure-SqlServerReady {
-    param([string]$ServiceName)
-
-    $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-    if (-not $service) {
-        Write-Warning "Khong tim thay dich vu SQL Server '$ServiceName'. Bo qua kiem tra vi co the ban dang dung SQL Server tu xa hoac LocalDB."
+function Ensure-PostgresReady {
+    if (Test-PortOpen $DatabasePort) {
+        Write-Host "PostgreSQL dang chay tren cong $DatabasePort."
         return
     }
-
-    if ($service.Status -eq 'Running') {
-        Write-Host "SQL Server ($ServiceName) dang chay."
-        return
+    $root = Split-Path $PSScriptRoot -Parent
+    Write-Host 'Dang khoi dong container PostgreSQL (docker compose)...'
+    docker compose -f (Join-Path $root 'docker/docker-compose.yml') --env-file (Join-Path $root 'docker/.env') up -d postgres
+    if ($LASTEXITCODE -ne 0) { throw 'Khong the khoi dong PostgreSQL. Kiem tra Docker Desktop hoac chay start-postgres.bat.' }
+    $deadline = (Get-Date).AddSeconds(60)
+    while (-not (Test-PortOpen $DatabasePort)) {
+        if ((Get-Date) -gt $deadline) { throw "PostgreSQL khong san sang tren cong $DatabasePort sau 60 giay." }
+        Start-Sleep -Seconds 1
     }
-
-    if (-not (Test-IsAdministrator)) {
-        $starter = Join-Path (Split-Path $PSScriptRoot -Parent) 'start-sql-server.bat'
-        throw "SQL Server ($ServiceName) dang dung nen API se khong mo cong $Port. Hay chay '$starter' bang quyen Administrator, sau do chay lai script nay."
-    }
-
-    Write-Host "Dang khoi dong SQL Server ($ServiceName)..."
-    try {
-        Start-Service -Name $ServiceName -ErrorAction Stop
-        $deadline = (Get-Date).AddSeconds(30)
-        do {
-            Start-Sleep -Seconds 1
-            $service.Refresh()
-        } while ($service.Status -ne 'Running' -and (Get-Date) -lt $deadline)
-    }
-    catch {
-        throw "Khong the khoi dong SQL Server ($ServiceName): $($_.Exception.Message)"
-    }
-
-    if ($service.Status -ne 'Running') {
-        throw "SQL Server ($ServiceName) khong san sang sau 30 giay. Kiem tra Windows Event Viewer va cau hinh SQL Server."
-    }
-
-    Write-Host "SQL Server ($ServiceName) da san sang."
+    Write-Host 'PostgreSQL da san sang.'
 }
 
-if (-not $SkipSqlServerCheck) {
-    Ensure-SqlServerReady -ServiceName $SqlServiceName
+if (-not $SkipDatabaseCheck) {
+    Ensure-PostgresReady
 }
 
 $projectRoot = if (Test-Path (Join-Path $PSScriptRoot 'Frontend')) {
@@ -94,10 +69,6 @@ try {
     # Load this machine's existing Development configuration and User Secrets.
     $env:ASPNETCORE_ENVIRONMENT = 'Development'
     $env:Database__SeedDemoData = 'false'
-    if ($SqlServer) {
-        # Credentials are supplied outside the script; Windows Authentication is the default.
-        $env:ConnectionStrings__SportsCenter = "Server=$SqlServer;Database=$Database;Integrated Security=True;TrustServerCertificate=True"
-    }
     $existingConns = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
     if ($existingConns) {
         $pids = $existingConns.OwningProcess | Select-Object -Unique
@@ -113,7 +84,7 @@ try {
 
     Write-Host "May nay: http://localhost:$Port"
     Write-Host "May khac trong cung mang: http://${env:COMPUTERNAME}:$Port (hoac dia chi IP cua may nay)."
-    Write-Host 'Dung cung URL backend de moi may doc/ghi chung SQL. Ctrl+C de dung.'
+    Write-Host 'Dung cung URL backend de moi may doc/ghi chung PostgreSQL. Ctrl+C de dung.'
     dotnet run --project $apiProject --no-launch-profile --urls "http://0.0.0.0:$Port"
     if ($LASTEXITCODE -ne 0) { throw 'Backend stopped with an error. Check port availability and SQL/JWT configuration.' }
 }

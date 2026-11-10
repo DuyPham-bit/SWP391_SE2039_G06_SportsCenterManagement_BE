@@ -444,16 +444,16 @@ public sealed class ReportService(
         ) AS personnel;
 
         SELECT
-            (SELECT COUNT(1) FROM dbo.classes WHERE center_id = @CenterId) AS TotalClasses,
-            (SELECT COUNT(1) FROM dbo.classes WHERE center_id = @CenterId
-                AND status NOT IN (N'Cancelled', N'Completed')) AS ActiveClasses,
-            (SELECT COUNT(1) FROM dbo.rooms WHERE center_id = @CenterId) AS TotalRooms,
-            (SELECT COUNT(1) FROM dbo.rooms WHERE center_id = @CenterId AND status = N'Active') AS ActiveRooms;
+            (SELECT COUNT(1)::int FROM dbo.classes WHERE center_id = @CenterId) AS TotalClasses,
+            (SELECT COUNT(1)::int FROM dbo.classes WHERE center_id = @CenterId
+                AND status NOT IN ('Cancelled', 'Completed')) AS ActiveClasses,
+            (SELECT COUNT(1)::int FROM dbo.rooms WHERE center_id = @CenterId) AS TotalRooms,
+            (SELECT COUNT(1)::int FROM dbo.rooms WHERE center_id = @CenterId AND status = 'Active') AS ActiveRooms;
 
         WITH booked AS (
-            SELECT session_id, COUNT(1) AS Booked
+            SELECT session_id, COUNT(1)::int AS Booked
             FROM dbo.session_bookings
-            WHERE status = N'Booked'
+            WHERE status = 'Booked'
             GROUP BY session_id
         )
         SELECT
@@ -466,28 +466,29 @@ public sealed class ReportService(
             room.name AS RoomName,
             room.room_type AS RoomType,
             room.location_description AS RoomLocation,
-            ISNULL(room.capacity, 0) AS RoomCapacity,
+            COALESCE(room.capacity, 0) AS RoomCapacity,
             COALESCE(session_row.coach_id, primary_coach.Id) AS CoachId,
-            COALESCE(session_coach.full_name, primary_coach.FullName, N'Chưa có Coach') AS CoachName,
+            COALESCE(session_coach.full_name, primary_coach.FullName, 'Chưa có Coach') AS CoachName,
             class_row.capacity AS Capacity,
-            ISNULL(booked.Booked, 0) AS Booked
+            COALESCE(booked.Booked, 0) AS Booked
         FROM dbo.class_sessions AS session_row
         INNER JOIN dbo.classes AS class_row ON class_row.id = session_row.class_id
         INNER JOIN dbo.sports AS sport ON sport.id = class_row.sport_id
         LEFT JOIN dbo.rooms AS room ON room.id = COALESCE(session_row.room_id, class_row.room_id)
-        OUTER APPLY (
-            SELECT TOP (1) coach.id AS Id, coach.full_name AS FullName
+        LEFT JOIN LATERAL (
+            SELECT coach.id AS Id, coach.full_name AS FullName
             FROM dbo.class_coaches AS assignment
             INNER JOIN dbo.coach_profiles AS coach ON coach.id = assignment.coach_id
-            WHERE assignment.class_id = class_row.id AND assignment.is_primary = 1
+            WHERE assignment.class_id = class_row.id AND assignment.is_primary
             ORDER BY assignment.coach_id
-        ) AS primary_coach
+            LIMIT 1
+        ) AS primary_coach ON TRUE
         LEFT JOIN dbo.coach_profiles AS session_coach ON session_coach.id = session_row.coach_id
         LEFT JOIN booked ON booked.session_id = session_row.id
         WHERE class_row.center_id = @CenterId
           AND session_row.session_date >= @FromDate
           AND session_row.session_date <= @ToDate
-          AND session_row.session_status <> N'Cancelled';
+          AND session_row.session_status <> 'Cancelled';
 
         SELECT id AS Id, full_name AS FullName, coach_code AS CoachCode,
                specialization AS Specialization, status AS Status

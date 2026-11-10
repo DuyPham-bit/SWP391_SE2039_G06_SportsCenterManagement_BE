@@ -45,14 +45,14 @@ static class RegistrationChecks
             finally { configuration["ExternalCommunications:Email:WebhookUrl"] = endpoint; }
         });
         string code = "";
-        await check("registration emails a hashed single-purpose OTP and never returns it to the client", async () => {
+        await check("registration emails a hashed single-purpose 5-minute OTP and never returns it to the client", async () => {
             var response = await Issue("  REGISTRATION@example.test  ");
             if (response.StatusCode != HttpStatusCode.OK) return false;
             code = mail.Otp;
             var token = await Latest();
             var body = await response.Content.ReadAsStringAsync();
             return code.Length == 6 && token.Token != code && BCrypt.Net.BCrypt.Verify(code, token.Token)
-                && token.ExpiresAt > DateTime.UtcNow.AddMinutes(9) && !body.Contains(code)
+                && token.ExpiresAt > DateTime.UtcNow.AddMinutes(4) && token.ExpiresAt <= DateTime.UtcNow.AddMinutes(5) && !body.Contains(code)
                 && mail.Messages[^1].GetProperty("notificationType").GetString() == "EmailVerification"
                 && mail.IdempotencyKey == $"email-verification-{token.Id}"
                 && !await db.Users.AnyAsync(u => u.Email == email);

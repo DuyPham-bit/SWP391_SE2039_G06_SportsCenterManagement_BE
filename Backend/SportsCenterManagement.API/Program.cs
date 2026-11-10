@@ -4,6 +4,7 @@ using SportsCenterManagement.BLL.Services.Interfaces;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.OpenApi;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
@@ -22,6 +23,9 @@ using SportsCenterManagement.DAL.Repositories.Interfaces;
 using SportsCenterManagement.API.Models;
 using SportsCenterManagement.API.Services;
 
+// DateTime values are stored as "timestamp without time zone" (same semantics as SQL Server datetime2).
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 var builder = WebApplication.CreateBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("SportsCenter")
     ?? throw new InvalidOperationException("Connection string 'SportsCenter' is not configured.");
@@ -32,7 +36,7 @@ builder.Services.AddHttpClient();
 
 // Layer 3: DAL (DbContext & Repository / Unit of Work Pattern)
 builder.Services.AddDbContext<SportsCenterDbContext>(options =>
-    options.UseSqlServer(connectionString)
+    options.UseNpgsql(connectionString)
            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning)));
 
 builder.Services.AddSingleton(jwtIssuer);
@@ -77,10 +81,12 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<ICenterScopeService, CenterScopeService>();
 builder.Services.AddScoped<IClassEnrollmentService, ClassEnrollmentService>();
+builder.Services.AddScoped<IMemberEnrollmentOptionsService, MemberEnrollmentOptionsService>();
 builder.Services.AddScoped<IPublicCatalogService, PublicCatalogService>();
 builder.Services.AddScoped<IMemberService, MemberService>();
+builder.Services.AddScoped<IMemberActivationService, MemberActivationService>();
+builder.Services.AddSingleton<SportsCenterManagement.BLL.Common.MediaUrlBuilder>();
 builder.Services.AddScoped<IAccessControlService, AccessControlService>();
-builder.Services.AddScoped<ICenterAccessService, CenterAccessService>();
 builder.Services.AddScoped<IStaffManagementService, StaffManagementService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<ICenterNotificationService, CenterNotificationService>();
@@ -164,23 +170,24 @@ if (autoMigrateOnStartup)
 {
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<SportsCenterDbContext>();
-    var baselineLegacySchema = app.Configuration.GetValue<bool>("Database:BaselineLegacySchema");
+    var databaseCreator = dbContext.GetService<Microsoft.EntityFrameworkCore.Storage.IRelationalDatabaseCreator>();
+    if (!await databaseCreator.ExistsAsync()) await databaseCreator.CreateAsync();
 
     await using var connection = dbContext.Database.GetDbConnection();
     await connection.OpenAsync();
     await using var lockCommand = connection.CreateCommand();
-    lockCommand.CommandText = "EXEC sp_getapplock @Resource = 'SCMS_Database_Migration_Lock', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 60000";
+    lockCommand.CommandText = "SET lock_timeout = '60s'; SELECT pg_advisory_lock(hashtext('SCMS_Database_Migration_Lock')); RESET lock_timeout;";
     await lockCommand.ExecuteNonQueryAsync();
 
     try
     {
-        await DbInitializer.SeedAsync(dbContext, baselineLegacySchema);
+        await DbInitializer.SeedAsync(dbContext);
         await AdminBootstrapper.SeedAsync(dbContext, app.Configuration);
     }
     finally
     {
         await using var releaseCommand = connection.CreateCommand();
-        releaseCommand.CommandText = "EXEC sp_releaseapplock @Resource = 'SCMS_Database_Migration_Lock', @LockOwner = 'Session'";
+        releaseCommand.CommandText = "SELECT pg_advisory_unlock(hashtext('SCMS_Database_Migration_Lock'))";
         try { await releaseCommand.ExecuteNonQueryAsync(); } catch { }
     }
 }
@@ -221,7 +228,7 @@ app.Use(async (context, next) =>
         });
     }
     catch (Exception exception) when (
-        exception.GetBaseException() is Microsoft.Data.SqlClient.SqlException { Number: 2601 or 2627 })
+        exception.GetBaseException() is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation })
     {
         if (context.Response.HasStarted)
         {
@@ -245,7 +252,7 @@ app.Use(async (context, next) =>
         });
     }
     catch (Exception exception) when (
-        exception.GetBaseException() is Microsoft.Data.SqlClient.SqlException { Number: 1205 })
+        exception.GetBaseException() is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.DeadlockDetected or Npgsql.PostgresErrorCodes.SerializationFailure })
     {
         if (context.Response.HasStarted)
         {

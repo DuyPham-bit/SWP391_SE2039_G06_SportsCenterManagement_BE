@@ -349,7 +349,14 @@ public sealed class TrainingService(SportsCenterDbContext db)
             if (profile.DateOfBirth.Value > today.AddYears(-age.Value)) age--;
         }
 
-        var latestWeight = history.FirstOrDefault()?.Weight ?? profile.WeightKg;
+        // Newest measured body weight from session logs (any class), even if the latest log skipped the scale.
+        var measured = await db.TrainingResults.AsNoTracking()
+            .Where(r => r.MemberId == memberId && r.Weight != null && r.Weight > 0)
+            .OrderByDescending(r => r.ResultDate).ThenByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id)
+            .Select(r => new { r.ResultDate, r.Weight, r.CreatedAt }).FirstOrDefaultAsync(ct);
+        var weightPick = CoachWorkflowRules.ResolveLatestWeight(profile.WeightKg, profile.UpdatedAt,
+            measured?.ResultDate, measured?.Weight, measured?.CreatedAt);
+        var latestWeight = weightPick.Weight;
         decimal? bmi = null;
         string? bmiCategory = null;
         if (profile.HeightCm.HasValue && profile.HeightCm.Value > 0 && latestWeight.HasValue && latestWeight.Value > 0)
@@ -384,8 +391,37 @@ public sealed class TrainingService(SportsCenterDbContext db)
             age,
             bmi,
             bmiCategory,
-            healthRecords
+            healthRecords,
+            weightPick.Source,
+            weightPick.MeasuredOn,
+            profile.WeightKg
         );
+    }
+
+    /// <summary>Coach manually enters biometrics for a member of a class they are assigned to.</summary>
+    public async Task<RecommendationContext> UpdateMemberBiometricsAsync(long userId, long classId, long memberId,
+        UpdateMemberBiometricsRequest request, CancellationToken ct)
+    {
+        var validationError = CoachWorkflowRules.BiometricsValidationError(request, ScheduleTime.VietnamToday);
+        if (validationError is not null)
+            throw new InvalidOperationException(validationError) { Data = { ["StatusCode"] = 400, ["Code"] = "CO-04" } };
+        var coach = await EnsureCoachAsync(userId, classId, memberId, ct);
+        var profile = await db.MemberProfiles.SingleAsync(m => m.Id == memberId, ct);
+
+        static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        string? Canon(string? value, string[] allowed) => Clean(value) is { } v
+            ? allowed.First(a => a.Equals(v, StringComparison.OrdinalIgnoreCase)) : null;
+
+        profile.HeightCm = request.HeightCm;
+        profile.WeightKg = request.WeightKg;
+        profile.Gender = Canon(request.Gender, CoachWorkflowRules.BiometricGenders);
+        profile.DateOfBirth = request.DateOfBirth;
+        profile.FitnessLevel = Canon(request.FitnessLevel, CoachWorkflowRules.BiometricLevels);
+        profile.MedicalNote = Clean(request.MedicalNote);
+        profile.UpdatedAt = DateTime.UtcNow;
+        AddAudit(userId, coach.CenterId, "MEMBER_BIOMETRICS_UPDATED", "MemberProfile", profile.Id);
+        await db.SaveChangesAsync(ct);
+        return await GetRecommendationContextAsync(userId, classId, memberId, ct);
     }
 
     public async Task SendNotificationAsync(long userId, SendNotificationRequest request, CancellationToken ct)

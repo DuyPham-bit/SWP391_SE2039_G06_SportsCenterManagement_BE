@@ -10,8 +10,21 @@ namespace SportsCenterManagement.API.Controllers;
 [ApiController]
 [Authorize(Roles = "MEMBER")]
 [Route("api")]
-public sealed class ClassEnrollmentsController(IClassEnrollmentService enrollmentService) : ControllerBase
+public sealed class ClassEnrollmentsController(
+    IClassEnrollmentService enrollmentService,
+    IMemberEnrollmentOptionsService enrollmentOptionsService) : ControllerBase
 {
+    /// <summary>Sport → coach → class choices for self-enrollment, with package eligibility per class.</summary>
+    [HttpGet("members/me/enrollment-options")]
+    public async Task<IActionResult> GetOptions([FromQuery] long centerId, CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId <= 0) return Unauthorized();
+        if (centerId <= 0) return BadRequest(new { message = "Thiếu mã trung tâm." });
+
+        return Ok(await enrollmentOptionsService.GetOptionsAsync(userId, centerId, cancellationToken));
+    }
+
     [HttpGet("members/me/enrollments")]
     public async Task<IActionResult> GetMine(CancellationToken cancellationToken)
     {

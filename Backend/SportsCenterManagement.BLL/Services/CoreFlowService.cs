@@ -261,18 +261,15 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
                 && (booking.Status == "Booked" || booking.Status == "CANCELLED_LATE_CHARGED")
             select new { ClassId = session.ClassId, bookedClass.SportId }).ToListAsync(cancellationToken);
         var usedEntitlements = enrolledEntitlements.Concat(bookedEntitlements)
-            .DistinctBy(item => item.ClassId).ToArray();
-        var classAlreadyUsed = usedEntitlements.Any(item => item.ClassId == classId);
-        var sportAlreadyUsed = usedEntitlements.Any(item => item.SportId == classEntity.SportId);
-        if (!classAlreadyUsed && membershipPackage.MaxClasses is int maxClasses
-            && usedEntitlements.Length >= maxClasses)
+            .DistinctBy(item => item.ClassId)
+            .Select(item => (item.ClassId, item.SportId)).ToArray();
+        switch (EnrollmentEntitlementRules.Evaluate(membershipPackage.MaxClasses, membershipPackage.AllowedSports,
+                    usedEntitlements, classId, classEntity.SportId))
         {
-            throw new InvalidOperationException("Membership class allowance has been reached.");
-        }
-        if (!sportAlreadyUsed && usedEntitlements.Select(item => item.SportId).Distinct().Count()
-            >= membershipPackage.AllowedSports)
-        {
-            throw new InvalidOperationException("Membership sport allowance has been reached.");
+            case EnrollmentEntitlementVerdict.ClassLimitReached:
+                throw new InvalidOperationException("Membership class allowance has been reached.");
+            case EnrollmentEntitlementVerdict.SportLimitReached:
+                throw new InvalidOperationException("Membership sport allowance has been reached.");
         }
 
         var existing = await _unitOfWork.Repository<ClassEnrollment>().Find(

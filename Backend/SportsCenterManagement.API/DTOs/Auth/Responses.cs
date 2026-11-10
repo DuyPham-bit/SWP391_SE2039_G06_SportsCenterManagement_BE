@@ -15,7 +15,9 @@ public sealed record ProfileResponse(
     DateTimeOffset CreatedAt,
     long? CenterId = null,
     string? Avatar = null,
-    string? AvatarKey = null);
+    string? AvatarKey = null,
+    bool MustChangePassword = false,
+    bool IsEmailVerified = true);
 
 /// <summary>Result of requesting a password reset code.</summary>
 public sealed record PasswordResetRequestResponse(string Message, string? DevelopmentOtp);

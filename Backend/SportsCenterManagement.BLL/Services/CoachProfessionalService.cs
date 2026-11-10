@@ -17,7 +17,7 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
     private DateTime UtcNow => timeProvider.GetUtcNow().UtcDateTime;
     private DateOnly Today => DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(UtcNow, VietnamTimeZone));
 
-    // SQL Server datetime2 does not retain DateTime.Kind. These values are stored as UTC,
+    // "timestamp without time zone" does not retain DateTime.Kind. These values are stored as UTC,
     // so restore the UTC marker before JSON serialization to emit an unambiguous trailing Z.
     private static DateTime AsUtc(DateTime value) => value.Kind == DateTimeKind.Utc
         ? value
@@ -1054,7 +1054,30 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
         }
         var policies = await db.CoachCompensationPolicies.AsNoTracking().Where(x => coachIds.Contains(x.CoachId) && x.Status == "Active")
             .OrderByDescending(x => x.EffectiveFrom).ToArrayAsync(ct);
-        return new { Coaches = coaches, Leaves = leaves, Policies = policies };
+        // Restored: the Resources / Equipment issues / Delivery tabs read these from the DB again.
+        var sales = await db.CoachSalesCredits.AsNoTracking().Where(x => coachIds.Contains(x.CoachId))
+            .OrderByDescending(x => x.CreditedAt).Take(200).ToArrayAsync(ct);
+        var resources = await db.FacilityResources.AsNoTracking().Where(x => x.CenterId == manager.CenterId).OrderBy(x => x.Name).ToArrayAsync(ct);
+        var resourceIds = resources.Select(x => x.Id).ToArray();
+        var bookings = await (from booking in db.ResourceBookings.AsNoTracking()
+            join coach in db.CoachProfiles on booking.CoachId equals coach.Id join resource in db.FacilityResources on booking.ResourceId equals resource.Id
+            where resourceIds.Contains(booking.ResourceId) && booking.EndAt >= UtcNow.AddDays(-30)
+            orderby booking.StartAt descending select new { booking.Id, booking.ResourceId, ResourceName = resource.Name,
+                booking.CoachId, CoachName = coach.FullName, booking.StartAt, booking.EndAt, booking.Purpose, booking.Status }).ToArrayAsync(ct);
+        var issues = await (from issue in db.EquipmentIssues.AsNoTracking()
+            join resource in db.FacilityResources on issue.ResourceId equals resource.Id into resourceJoin
+            from resource in resourceJoin.DefaultIfEmpty()
+            where issue.CenterId == manager.CenterId orderby issue.ReportedAt descending
+            select new { issue.Id, issue.ResourceId, ResourceName = resource == null ? null : resource.Name,
+                issue.Title, issue.Description, issue.Severity, issue.PhotoUrl, issue.Status, issue.ResolutionNote,
+                issue.ReportedAt, issue.ResolvedAt }).ToArrayAsync(ct);
+        var deliveries = await db.CommunicationDeliveries.AsNoTracking().Where(x =>
+                db.Users.Any(u => u.Id == x.RecipientUserId &&
+                    (db.MemberProfiles.Any(m => m.UserId == u.Id && m.CenterId == manager.CenterId) ||
+                     db.CoachProfiles.Any(c => c.UserId == u.Id && c.CenterId == manager.CenterId))))
+            .GroupBy(x => new { x.Channel, x.Status }).Select(g => new { g.Key.Channel, g.Key.Status, Count = g.Count() }).ToArrayAsync(ct);
+        return new { Coaches = coaches, Leaves = leaves, Policies = policies, SalesCredits = sales,
+            Resources = resources, ResourceBookings = bookings, EquipmentIssues = issues, DeliverySummary = deliveries };
     }
 
     public async Task ReviewLeave(long userId, long leaveId, ReviewLeaveRequest request, CancellationToken ct)

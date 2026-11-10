@@ -27,5 +27,5 @@ catch {
 }
 
 Write-Host 'API da san sang. Cloudflare se in URL https://*.trycloudflare.com ben duoi.' -ForegroundColor Green
-Write-Host 'Dat URL do kem /api vao VITE_API_BASE_URL tren Vercel, sau do redeploy Frontend.' -ForegroundColor Yellow
+Write-Host 'Dat URL do kem /api vao VITE_API_BASE_URL tren Frontend.' -ForegroundColor Yellow
 & $cloudflaredPath tunnel --url $ApiUrl

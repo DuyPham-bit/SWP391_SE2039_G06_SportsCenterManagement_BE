@@ -22,6 +22,11 @@ public interface IMemberService
         CancellationToken cancellationToken = default);
     Task<MembersResponses.MemberProfileResponse> CreateAtCenterAsync(long actorUserId, long centerId, AuthRequests.RegisterRequest request, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<MembersResponses.MemberSubscriptionResponse>> GetSubscriptionsAsync(long actorUserId, long memberId, CancellationToken cancellationToken = default);
+    /// <summary>Counter staff of the member's center may change the member's photo; returns the member's user id.</summary>
+    Task<long> GetMemberUserIdForStaffAsync(long actorUserId, long centerId, long memberId, CancellationToken cancellationToken = default);
+    /// <summary>Stores the photo key (null removes it); returns the updated member and the replaced key to delete.</summary>
+    Task<(MembersResponses.MemberProfileResponse Member, string? PreviousKey)> SetMemberAvatarAsync(
+        long actorUserId, long centerId, long memberId, string? avatarKey, CancellationToken cancellationToken = default);
     Task EnsureCanBuyPackageAsync(long userId, long packageId, CancellationToken cancellationToken = default);
     Task EnsureCanProcessInvoiceAsync(long actorUserId, long invoiceId, CancellationToken cancellationToken = default);
     Task EnsureCanSellToMemberAsync(long actorUserId, long memberId, long packageId, CancellationToken cancellationToken = default);

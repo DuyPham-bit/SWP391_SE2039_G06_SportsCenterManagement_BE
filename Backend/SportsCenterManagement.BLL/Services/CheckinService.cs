@@ -23,6 +23,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork, IBusinessClock clock)
 
         var searchId = request.MemberId;
         var term = request.Identifier?.Trim();
+        var phoneTerm = term is null ? null : SportsCenterManagement.BLL.Common.Helpers.PhoneNumberNormalization.SearchTerm(term);
 
         if (!searchId.HasValue && string.IsNullOrWhiteSpace(term))
         {
@@ -44,7 +45,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork, IBusinessClock clock)
                 join u in unitOfWork.Context.Users.AsNoTracking() on m.UserId equals u.Id
                 where m.CenterId == centerId && (
                     m.MemberCode == term
-                    || u.Phone == term
+                    || u.Phone == phoneTerm
                     || u.Email == term
                     || u.Username == term
                 )

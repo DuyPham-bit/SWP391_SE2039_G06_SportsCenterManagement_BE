@@ -40,7 +40,7 @@ public class MembershipPackage : Common.BaseEntity
     [Column("badge")]
     public string? Badge { get; set; }
 
-    [Column("features", TypeName = "nvarchar(max)")]
+    [Column("features")]
     public string? Features { get; set; }
     [MaxLength(30)]
     [Column("status")]

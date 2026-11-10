@@ -48,7 +48,7 @@ public interface IClassRepository
     Task<bool> IsCoachAssignedToSessionAsync(long coachUserId, long sessionId, CancellationToken ct = default);
     Task<IReadOnlyList<SessionRosterItem>> GetSessionRosterAsync(long sessionId, CancellationToken ct = default);
     Task<ClassSession?> GetSessionByIdAsync(long sessionId, CancellationToken ct = default);
-    Task<long> GetCenterIdByClassIdAsync(long classId, CancellationToken ct = default);
+    Task<long?> GetCenterIdByClassIdAsync(long classId, CancellationToken ct = default);
     Task<IReadOnlyList<long>> GetEligibleAttendanceMemberIdsAsync(long sessionId, long classId, IEnumerable<long> memberIds, CancellationToken ct = default);
     Task UpsertAttendancesAsync(long sessionId, long actorUserId, IReadOnlyList<(long MemberId, string Status, string? Note)> records, CancellationToken ct = default);
 }

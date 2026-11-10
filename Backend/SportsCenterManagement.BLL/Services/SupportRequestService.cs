@@ -65,7 +65,14 @@ public sealed class SupportRequestService(IUnitOfWork unitOfWork)
             request.CreatedAt, request.ResolvedAt, request.RequesterId,
             member != null ? member.FullName : unitOfWork.Context.CoachProfiles.Where(item => item.UserId == request.RequesterId)
                 .Select(item => item.FullName).FirstOrDefault() ?? user.Username,
-            request.MemberId.HasValue ? "MEMBER" : "COACH", request.CenterId);
+            request.MemberId.HasValue ? "MEMBER" : "COACH", request.CenterId, request.Priority);
+
+    private static readonly string[] Priorities = ["Low", "Normal", "High", "Urgent"];
+
+    private static string ValidPriority(string? priority) =>
+        priority is null ? "Normal"
+        : Priorities.Contains(priority) ? priority
+        : throw new FlowException(400, "Mức ưu tiên chỉ nhận Low, Normal, High hoặc Urgent.");
 
     private static void Validate(string subject, string description)
     {
@@ -136,6 +143,7 @@ public sealed class SupportRequestService(IUnitOfWork unitOfWork)
         Validate(body.Subject, body.Description);
         await using var tx = await unitOfWork.Context.Database.BeginTransactionAsync(ct);
         var request = NewRequest(actorId, requester.CenterId, requester.MemberId, body.Subject, body.Description);
+        request.Priority = ValidPriority(body.Priority);
         unitOfWork.Context.SupportRequests.Add(request);
         await unitOfWork.SaveChangesAsync(ct);
         Audit(actorId, request, "Support.Submitted");
@@ -154,6 +162,7 @@ public sealed class SupportRequestService(IUnitOfWork unitOfWork)
             ?? throw new FlowException(404, "Không tìm thấy thành viên tại trung tâm này.");
         await using var tx = await unitOfWork.Context.Database.BeginTransactionAsync(ct);
         var request = NewRequest(requesterId, centerId, body.MemberId, body.Subject, body.Description);
+        request.Priority = ValidPriority(body.Priority);
         request.HandledBy = actorId;
         unitOfWork.Context.SupportRequests.Add(request);
         await unitOfWork.SaveChangesAsync(ct);
@@ -176,6 +185,7 @@ public sealed class SupportRequestService(IUnitOfWork unitOfWork)
         var statusChanged = request.Status != body.Status;
         request.ResolvedAt = body.Status == "Resolved" ? request.ResolvedAt ?? DateTime.UtcNow : null;
         request.Status = body.Status;
+        if (body.Priority is not null) request.Priority = ValidPriority(body.Priority);
         request.HandledBy = actorId;
         if (!string.IsNullOrWhiteSpace(body.Note)) AddMessage(actorId, id, body.Note);
         Audit(actorId, request, "Support.Updated");

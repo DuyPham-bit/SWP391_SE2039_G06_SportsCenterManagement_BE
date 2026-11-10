@@ -26,6 +26,13 @@ public sealed class PermissionAuthorizationHandler(IUnitOfWork unitOfWork)
             return;
         }
 
+        // Accounts still on a known default password (phone number) may only reach the
+        // unguarded profile/auth endpoints until they set their own password.
+        if (user.MustChangePassword)
+        {
+            return;
+        }
+
         var hasPermission = await (
             from rolePermission in unitOfWork.Context.RolePermissions.AsNoTracking()
             join permission in unitOfWork.Context.Permissions.AsNoTracking()

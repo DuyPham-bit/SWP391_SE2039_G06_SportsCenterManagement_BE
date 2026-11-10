@@ -28,13 +28,16 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
         centerId ??= request.CenterId;
 
         // Normalize to detect duplicates regardless of letter casing or whitespace
-        var username = request.Username.Trim().ToLowerInvariant();
+        var requestedUsername = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim().ToLowerInvariant();
         var email = request.Email.Trim().ToLowerInvariant();
 
-        // Validate username format (letters, numbers, dot, underscore, hyphen)
-        if (username.Length is < 3 or > 100 || !Regex.IsMatch(username, @"^[a-z0-9._-]+$"))
+        // Validate an explicitly chosen username (letters, numbers, dot, underscore, hyphen).
+        // Web self-registration sends none: the server derives one below, so the email's local part
+        // (which may contain '+' or collide across domains) never blocks a registration.
+        if (requestedUsername is not null
+            && (requestedUsername.Length is < 3 or > 100 || !Regex.IsMatch(requestedUsername, @"^[a-z0-9._-]+$")))
         {
-            throw new ValidationException("Username can only contain letters, numbers, dots, underscores, or hyphens.");
+            throw new ValidationException("Tên đăng nhập chỉ gồm chữ thường không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang (3–100 ký tự).");
         }
 
         // Validate email format
@@ -96,10 +99,13 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
         }
 
         // Only disclose duplicate account details after mailbox verification (or authenticated staff creation).
-        if (await users.AnyAsync(user => user.Username == username || user.Email == email, cancellationToken))
-            throw new InvalidOperationException("Username or email is already in use.");
+        if (await users.AnyAsync(user => user.Email == email, cancellationToken))
+            throw new InvalidOperationException("Email đã được sử dụng cho một tài khoản khác.");
         if (phone is not null && await users.AnyAsync(user => user.Phone == phone, cancellationToken))
-            throw new InvalidOperationException("Phone number is already in use.");
+            throw new InvalidOperationException("Số điện thoại đã được sử dụng cho một tài khoản khác.");
+        if (requestedUsername is not null && await users.AnyAsync(user => user.Username == requestedUsername, cancellationToken))
+            throw new InvalidOperationException("Tên đăng nhập đã được sử dụng.");
+        var username = requestedUsername ?? await GenerateUsernameAsync(email, cancellationToken);
 
         // Create new user entity with hashed password
         var user = new User
@@ -146,10 +152,17 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
         // Normalize login identifier (username or email)
         var login = request.Login.Trim().ToLowerInvariant();
 
-        // Search for user by either username or email
-        var user = await unitOfWork.Repository<User>()
-            .Find(item => item.Username == login || item.Email == login)
-            .SingleOrDefaultAsync(cancellationToken);
+        // Search by email, then username, then phone (stored in the normalized 0… form, so "+84 912…"
+        // also matches). A fixed precedence keeps the result deterministic: these columns are each unique
+        // but one account's username could equal another account's phone.
+        var users = unitOfWork.Repository<User>();
+        var user = await users.Find(item => item.Email == login).SingleOrDefaultAsync(cancellationToken)
+            ?? await users.Find(item => item.Username == login).SingleOrDefaultAsync(cancellationToken);
+        if (user is null && PhoneNumberNormalization.Normalize(login) is { } phone
+            && phone.TrimStart('+').All(char.IsAsciiDigit))
+        {
+            user = await users.Find(item => item.Phone == phone).SingleOrDefaultAsync(cancellationToken);
+        }
 
         // If user is not found, execute dummy hash verification to protect against timing attacks
         if (user is null)
@@ -229,30 +242,25 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
     }
 
     /// <summary>
-    /// Validates password complexity: minimum 6 characters, including uppercase, lowercase, numbers, and special characters.
+    /// Readable, valid and unique login name from the email local part: invalid characters
+    /// ('+', accents, …) become '-', and a numeric suffix resolves collisions such as
+    /// duy@gmail.com vs duy@yahoo.com. Runs inside the registration transaction.
     /// </summary>
-    /// <param name="password">Plain text password to be validated.</param>
-    private static void ValidatePassword(string password)
+    private async Task<string> GenerateUsernameAsync(string email, CancellationToken cancellationToken)
     {
-        // 1. Kiểm tra chuỗi rỗng hoặc độ dài tối thiểu 6 ký tự / Check null or minimum length of 6 characters
-        if (string.IsNullOrWhiteSpace(password) || password.Length < 6
-            // 2. Phải chứa ít nhất 1 chữ hoa / Must contain at least one uppercase letter (A-Z)
-            || !Regex.IsMatch(password, "[A-Z]")
-            // 3. Phải chứa ít nhất 1 chữ thường / Must contain at least one lowercase letter (a-z)
-            || !Regex.IsMatch(password, "[a-z]")
-            // 4. Phải chứa ít nhất 1 chữ số / Must contain at least one number (0-9)
-            || !Regex.IsMatch(password, "[0-9]")
-            // 5. Phải chứa ít nhất 1 ký tự đặc biệt / Must contain at least one special character (non-alphanumeric)
-            || !Regex.IsMatch(password, "[^a-zA-Z0-9]"))
-        {
-            // Ném ngoại lệ nếu không thỏa mãn bất kỳ điều kiện bảo mật nào / Throw validation exception if any rule fails
-            throw new ValidationException("Password must be at least 6 characters long and contain uppercase letters, lowercase letters, numbers, and special characters.");
-        }
-    }
+        var local = email.Split('@')[0].ToLowerInvariant();
+        var stem = Regex.Replace(local, "[^a-z0-9._-]+", "-").Trim('-', '.', '_');
+        if (stem.Length > 80) stem = stem[..80].TrimEnd('-', '.', '_');
+        if (stem.Length < 3) stem = ("user-" + stem).TrimEnd('-');
 
-    private static string? NormalizeOptional(string? value)
-    {
-        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        var users = unitOfWork.Repository<User>();
+        if (!await users.AnyAsync(user => user.Username == stem, cancellationToken)) return stem;
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            var candidate = $"{stem}-{System.Security.Cryptography.RandomNumberGenerator.GetInt32(1000, 100000)}";
+            if (!await users.AnyAsync(user => user.Username == candidate, cancellationToken)) return candidate;
+        }
+        return $"{stem}-{Guid.NewGuid():N}"[..Math.Min(100, stem.Length + 33)];
     }
 
     private static void ValidatePhone(string? phone)

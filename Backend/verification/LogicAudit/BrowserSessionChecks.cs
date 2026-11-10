@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.API.Authentication;
 using SportsCenterManagement.BLL.Common.Helpers;
@@ -66,14 +68,32 @@ static class BrowserSessionChecks
             using var tampered = await Send(raw, "api/profile/me", first, cookie: "scms.session." + first + "=invalid.jwt.value");
             return new[] { noHeader, forged, invalidId, tampered }.All(r => r.StatusCode == HttpStatusCode.Unauthorized);
         });
-        await check("HTTPS browser cookies have Secure, HttpOnly, SameSite and no Domain attribute", () => {
-            var context = new DefaultHttpContext(); context.Request.Scheme = "https";
+        // Cookie options read Authentication:AllowCrossSiteCookies from the request's configuration.
+        string IssueCookie(string scheme, bool allowCrossSite) {
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Authentication:AllowCrossSiteCookies"] = allowCrossSite.ToString() })
+                .Build();
+            var context = new DefaultHttpContext {
+                RequestServices = new ServiceCollection().AddSingleton<IConfiguration>(configuration).BuildServiceProvider()
+            };
+            context.Request.Scheme = scheme;
             context.Request.Headers[BrowserSessionCookie.HeaderName] = first;
             BrowserSessionCookie.Issue(context, "audit-only", alice.Id, "MEMBER", DateTimeOffset.UtcNow.AddMinutes(5));
-            var header = context.Response.Headers.SetCookie.ToString();
+            return context.Response.Headers.SetCookie.ToString();
+        }
+        await check("HTTPS browser cookies have Secure, HttpOnly, SameSite and no Domain attribute", () => {
+            var header = IssueCookie("https", allowCrossSite: false);
             return Task.FromResult(header.Contains("secure", StringComparison.OrdinalIgnoreCase)
                 && header.Contains("httponly", StringComparison.OrdinalIgnoreCase)
                 && header.Contains("samesite=strict", StringComparison.OrdinalIgnoreCase)
+                && !header.Contains("domain=", StringComparison.OrdinalIgnoreCase));
+        });
+        await check("cross-domain deployments get SameSite=None cookies that are always Secure and HttpOnly", () => {
+            // SameSite=None must never be sent without Secure, even if the API itself is reached over HTTP behind a proxy.
+            var header = IssueCookie("http", allowCrossSite: true);
+            return Task.FromResult(header.Contains("samesite=none", StringComparison.OrdinalIgnoreCase)
+                && header.Contains("secure", StringComparison.OrdinalIgnoreCase)
+                && header.Contains("httponly", StringComparison.OrdinalIgnoreCase)
                 && !header.Contains("domain=", StringComparison.OrdinalIgnoreCase));
         });
         await check("changing a password rotates its HttpOnly JWT and keeps the other account's tab usable", async () => {
@@ -112,6 +132,10 @@ sealed class UnusedAuditStorage : SportsCenterManagement.API.Services.IR2Storage
     public Task<SportsCenterManagement.API.Services.LegacyMediaMigrationResult> MigrateLegacyMediaAsync(CancellationToken cancellationToken = default)
         => throw new InvalidOperationException("Media writes are outside this isolated audit.");
     public Task DeleteAsync(string key, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Media writes are outside this isolated audit.");
+    public Task<string> UploadMemberAvatarAsync(IFormFile file, long memberUserId, long maxFileSize, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Media writes are outside this isolated audit.");
+    public Task DeleteMemberAvatarAsync(string key, long memberUserId, CancellationToken cancellationToken = default)
         => throw new InvalidOperationException("Media writes are outside this isolated audit.");
     public string GetPresignedUrl(string key, TimeSpan expiresIn)
         => throw new InvalidOperationException("Media reads are outside this isolated audit.");

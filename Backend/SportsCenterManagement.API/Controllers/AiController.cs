@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.API.Authorization;
+using SportsCenterManagement.BLL.DTOs.Training;
 using SportsCenterManagement.BLL.Services;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
@@ -74,6 +75,21 @@ public sealed class AiController(SportsCenterDbContext db, GeminiService ai, Tra
             new AiMessage { ConversationId = conversation.Id, SenderType = "AI", Message = reply, CreatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);
         return Ok(new { ConversationId = conversation.Id, Reply = reply });
+    }
+
+    /// <summary>The member's most recent assistant conversation with its messages (history survives new tabs and devices).</summary>
+    [HttpGet("ai/conversations/latest")]
+    [Authorize(Roles = "MEMBER")]
+    [CenterCapability("ask_ai_assistant")]
+    public async Task<IActionResult> LatestConversation(CancellationToken ct)
+    {
+        var conversationId = await db.AiConversations
+            .Where(c => c.UserId == CurrentUserId && c.ConversationType == "MemberAssistant")
+            .OrderByDescending(c => c.Id).Select(c => (long?)c.Id).FirstOrDefaultAsync(ct);
+        if (conversationId is null) return Ok(new { conversationId = (long?)null, messages = Array.Empty<object>() });
+        var messages = await db.AiMessages.Where(m => m.ConversationId == conversationId).OrderBy(m => m.Id)
+            .Select(m => new { m.Id, Sender = m.SenderType == "User" ? "user" : "ai", Text = m.Message, m.CreatedAt }).ToListAsync(ct);
+        return Ok(new { conversationId, messages });
     }
 
     [HttpGet("ai/conversations/{conversationId:long}/messages")]
@@ -208,6 +224,13 @@ public sealed class AiController(SportsCenterDbContext db, GeminiService ai, Tra
     [CenterCapability("get_ai_recommendation")]
     public async Task<IActionResult> Context(long classId, long memberId, CancellationToken ct) =>
         Ok(await training.GetRecommendationContextAsync(CurrentUserId, classId, memberId, ct));
+
+    [HttpPut("coaches/me/classes/{classId:long}/members/{memberId:long}/biometrics")]
+    [Authorize(Roles = "COACH")]
+    [CenterCapability("get_ai_recommendation")]
+    public async Task<IActionResult> UpdateBiometrics(long classId, long memberId,
+        UpdateMemberBiometricsRequest request, CancellationToken ct) =>
+        Ok(await training.UpdateMemberBiometricsAsync(CurrentUserId, classId, memberId, request, ct));
 
     [NonAction]
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)

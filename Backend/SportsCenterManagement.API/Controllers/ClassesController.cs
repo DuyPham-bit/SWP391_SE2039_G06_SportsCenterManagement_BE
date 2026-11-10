@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SportsCenterManagement.BLL.Common;
 using SportsCenterManagement.BLL.DTOs.Classes;
 using SportsCenterManagement.BLL.Interfaces;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -7,17 +8,17 @@ using Microsoft.AspNetCore.Mvc.Filters;
 namespace SportsCenterManagement.API.Controllers;
 
 [Authorize(Roles = "MEMBER,MANAGER,ADMIN,RECEPTIONIST")]
-public sealed class ClassesController(IClassService classService, ICenterAccessService centerAccessService) : FlowControllerBase, IAsyncActionFilter
+public sealed class ClassesController(IClassService classService, ICenterScopeService centerScopeService) : FlowControllerBase, IAsyncActionFilter
 {
     [AllowAnonymous]
     [HttpGet("centers/{centerId:long}/classes")]
     [ProducesResponseType(typeof(IReadOnlyList<ClassCatalogResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<ClassCatalogResponse>>> GetPublished(long centerId, CancellationToken cancellationToken)
     {
-        if (!await centerAccessService.IsActiveCenterAsync(centerId, cancellationToken))
-            throw new InvalidOperationException("Cơ sở không tồn tại hoặc đã ngừng hoạt động.") { Data = { ["StatusCode"] = 404 } };
+        if (!await centerScopeService.IsActiveCenterAsync(centerId, cancellationToken))
+            throw BusinessException.NotFound("Cơ sở không tồn tại hoặc đã ngừng hoạt động.");
         if (User.Identity?.IsAuthenticated == true && (User.IsInRole("MANAGER") || User.IsInRole("RECEPTIONIST")))
-            await centerAccessService.EnsureCenterAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), centerId, cancellationToken);
+            await centerScopeService.EnsureCenterAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), centerId, cancellationToken);
         return Ok(await classService.GetPublishedClassesAsync(centerId, cancellationToken));
     }
 
@@ -25,7 +26,7 @@ public sealed class ClassesController(IClassService classService, ICenterAccessS
     [HttpPost("classes/{classId:long}/coaches")]
     public async Task<ActionResult<ClassCoachResponse>> AssignCoach(long classId, [FromBody] AssignCoachRequest request, CancellationToken cancellationToken)
     {
-        await centerAccessService.EnsureClassAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), classId, cancellationToken);
+        await centerScopeService.EnsureClassAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), classId, cancellationToken);
         try { return Ok(await classService.AssignCoachToClassAsync(CurrentUserId, classId, request, cancellationToken)); }
         catch (InvalidOperationException ex) when (ex.Data["StatusCode"] is int) { return StatusCode((int)ex.Data["StatusCode"]!, new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
@@ -35,7 +36,7 @@ public sealed class ClassesController(IClassService classService, ICenterAccessS
     [HttpGet("classes/{classId:long}/coaches")]
     public async Task<ActionResult<IReadOnlyList<ClassCoachResponse>>> GetAssignedCoaches(long classId, CancellationToken cancellationToken)
     {
-        await centerAccessService.EnsureClassAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), classId, cancellationToken);
+        await centerScopeService.EnsureClassAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), classId, cancellationToken);
         try { return Ok(await classService.GetAssignedCoachesAsync(classId, cancellationToken)); }
         catch (InvalidOperationException ex) when (ex.Data["StatusCode"] is int) { return StatusCode((int)ex.Data["StatusCode"]!, new { message = ex.Message }); }
         catch (InvalidOperationException ex) { return BadRequest(new { message = ex.Message }); }
@@ -45,7 +46,7 @@ public sealed class ClassesController(IClassService classService, ICenterAccessS
     [HttpDelete("classes/{classId:long}/coaches/{coachId:long}")]
     public async Task<IActionResult> UnassignCoach(long classId, long coachId, CancellationToken cancellationToken)
     {
-        await centerAccessService.EnsureClassAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), classId, cancellationToken);
+        await centerScopeService.EnsureClassAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), classId, cancellationToken);
         try
         {
             await classService.UnassignCoachFromClassAsync(CurrentUserId, classId, coachId, cancellationToken);

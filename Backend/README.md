@@ -1,12 +1,12 @@
 # Sports Center Management — Backend
 
-Backend cho hệ thống quản lý trung tâm thể thao. Repository hiện dùng ASP.NET Core Web API theo kiến trúc 3 tầng chuẩn (3-Layer Architecture), EF Core và SQL Server LocalDB.
+Backend cho hệ thống quản lý trung tâm thể thao. Repository hiện dùng ASP.NET Core Web API theo kiến trúc 3 tầng chuẩn (3-Layer Architecture), EF Core và PostgreSQL.
 
 ## Stack và cấu trúc 3 tầng chuẩn (3-Layer Architecture)
 
 - .NET 10 / ASP.NET Core Web API
-- Entity Framework Core 10 + SQL Server
-- SQL Server LocalDB cho môi trường phát triển mặc định
+- Entity Framework Core 10 + PostgreSQL (Npgsql)
+- PostgreSQL 17 chạy bằng Docker (`start-postgres.bat`) cho môi trường phát triển mặc định
 - Mô hình 3 tầng (Presentation - Business Logic - Data Access) kết hợp Repository Pattern & Unit of Work
 
 ```text
@@ -32,7 +32,7 @@ Backend cho hệ thống quản lý trung tâm thể thao. Repository hiện dù
 
 ## Chạy local
 
-Yêu cầu .NET SDK 10 và SQL Server LocalDB hoặc SQL Server tương thích.
+Yêu cầu .NET SDK 10 và PostgreSQL 13+ (khuyến nghị container `postgres` trong `docker/docker-compose.yml`).
 
 Trước khi chạy các lệnh, cần cấu hình `Jwt__Key` riêng dài tối thiểu 32 byte (không có JWT secret mặc định trong source). Với database chưa có System Admin, cấu hình thêm ba biến `Bootstrap__SystemAdmin__Username`, `Bootstrap__SystemAdmin__Email`, `Bootstrap__SystemAdmin__Password` như mục **Bootstrap System Admin đầu tiên** bên dưới.
 
@@ -126,17 +126,17 @@ Cổng được in ra khi chạy ứng dụng.
 
 ## Cấu hình database
 
-Connection string key là `ConnectionStrings:SportsCenter`. Môi trường Development dùng SQL Server LocalDB như cấu hình và lệnh bên dưới. `.env.example` chỉ là mẫu vì .NET không tự nạp file `.env`; đặt các biến cần thiết trong terminal, User Secrets hoặc cấu hình môi trường của nơi triển khai.
+Connection string key là `ConnectionStrings:SportsCenter`. Môi trường Development dùng PostgreSQL tại `localhost:5432` (xem `appsettings.Development.json`). `.env.example` chỉ là mẫu vì .NET không tự nạp file `.env`; đặt các biến cần thiết trong terminal, User Secrets hoặc cấu hình môi trường của nơi triển khai.
 
 PowerShell, chỉ cho phiên terminal hiện tại:
 
 ```powershell
-$env:ConnectionStrings__SportsCenter = "Server=(localdb)\MSSQLLocalDB;Database=SportsCenterManagement;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True"
+$env:ConnectionStrings__SportsCenter = "Host=localhost;Port=5432;Database=SportsCenterDB;Username=postgres;Password=<mat-khau>"
 ```
 
 Không commit thông tin đăng nhập hoặc secret thật. Dùng User Secrets hoặc environment variables ngoài máy local.
 
-Để dùng database đã có, đặt `ConnectionStrings:SportsCenter` tới đúng instance/database của bạn. Frontend gọi API, không kết nối SQL Server trực tiếp. Mã seed dữ liệu nghiệp vụ đã được gỡ; ứng dụng chỉ đồng bộ schema/quyền, không tự thêm tài khoản, lớp, gói tập hoặc tài nguyên demo. Cấu hình local đã kiểm tra cho workspace này và hướng dẫn chạy: [Kết nối DB thật](../Frontend/docs/real-database.md).
+Để dùng database đã có, đặt `ConnectionStrings:SportsCenter` tới đúng instance/database của bạn. Frontend gọi API, không kết nối database trực tiếp. Mã seed dữ liệu nghiệp vụ đã được gỡ; ứng dụng chỉ đồng bộ schema/quyền, không tự thêm tài khoản, lớp, gói tập hoặc tài nguyên demo. Cấu hình local đã kiểm tra cho workspace này và hướng dẫn chạy: [Kết nối DB thật](../Frontend/docs/real-database.md).
 
 JWT cần secret riêng dài tối thiểu 32 byte. Cấu hình bắt buộc `Jwt__Key` trước khi chạy. Có thể tạo nhanh cho phiên PowerShell hiện tại:
 

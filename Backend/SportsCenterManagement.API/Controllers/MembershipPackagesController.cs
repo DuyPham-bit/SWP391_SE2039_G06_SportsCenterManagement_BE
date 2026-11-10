@@ -14,7 +14,7 @@ namespace SportsCenterManagement.API.Controllers;
 [Route("api/centers/{centerId:long}/membership-packages")]
 public sealed class MembershipPackagesController(
     IMembershipPackageService packageService,
-    ICenterAccessService centerAccessService) : ControllerBase, IAsyncActionFilter
+    ICenterScopeService centerScopeService) : ControllerBase, IAsyncActionFilter
 {
     [HttpGet]
     [AllowAnonymous]
@@ -23,7 +23,7 @@ public sealed class MembershipPackagesController(
         long centerId,
         CancellationToken cancellationToken)
     {
-        if (!await centerAccessService.IsActiveCenterAsync(centerId, cancellationToken))
+        if (!await centerScopeService.IsActiveCenterAsync(centerId, cancellationToken))
             return NotFound(new { message = "Cơ sở không tồn tại hoặc đã ngừng hoạt động." });
         var packages = await packageService.GetActivePackagesAsync(centerId, cancellationToken);
         return Ok(packages);
@@ -36,7 +36,7 @@ public sealed class MembershipPackagesController(
         long centerId,
         CancellationToken cancellationToken)
     {
-        await centerAccessService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
+        await centerScopeService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
         var packages = await packageService.GetPackagesAsync(centerId, cancellationToken);
         return Ok(packages);
     }
@@ -51,7 +51,7 @@ public sealed class MembershipPackagesController(
         [FromBody] SaveMembershipPackageRequest request,
         CancellationToken cancellationToken)
     {
-        await centerAccessService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
+        await centerScopeService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
         try
         {
             var package = await packageService.CreatePackageAsync(CenterScope.GetUserId(User), centerId, request, cancellationToken);
@@ -86,7 +86,7 @@ public sealed class MembershipPackagesController(
         [FromBody] SaveMembershipPackageRequest request,
         CancellationToken cancellationToken)
     {
-        await centerAccessService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
+        await centerScopeService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
         try
         {
             return Ok(await packageService.UpdatePackageAsync(
@@ -121,7 +121,7 @@ public sealed class MembershipPackagesController(
         [FromBody] Requests.SetMembershipPackageStatusRequest request,
         CancellationToken cancellationToken)
     {
-        await centerAccessService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
+        await centerScopeService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
         try
         {
             return Ok(await packageService.SetPackageStatusAsync(

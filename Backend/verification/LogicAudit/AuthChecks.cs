@@ -114,7 +114,7 @@ static class AuthChecks
                 var response = await http.PostAsJsonAsync("api/auth/login", new { email = owner.Email, password = "Wrong_Password42!" });
                 var body = await response.Content.ReadFromJsonAsync<JsonElement>();
                 return response.StatusCode == HttpStatusCode.Unauthorized
-                    && body.GetProperty("message").GetString() == "Email hoặc mật khẩu không chính xác.";
+                    && body.GetProperty("message").GetString() == "Email/số điện thoại hoặc mật khẩu không chính xác.";
             } finally {
                 await db.Users.Where(u => u.Id == owner.Id)
                     .ExecuteUpdateAsync(s => s.SetProperty(u => u.Status, "Active"));

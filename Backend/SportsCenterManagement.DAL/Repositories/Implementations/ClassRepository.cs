@@ -150,9 +150,9 @@ public sealed class ClassRepository(SportsCenterDbContext db) : IClassRepository
         return await db.ClassSessions.SingleOrDefaultAsync(s => s.Id == sessionId, ct);
     }
 
-    public async Task<long> GetCenterIdByClassIdAsync(long classId, CancellationToken ct = default)
+    public async Task<long?> GetCenterIdByClassIdAsync(long classId, CancellationToken ct = default)
     {
-        return await db.Classes.Where(c => c.Id == classId).Select(c => c.CenterId).SingleAsync(ct);
+        return await db.Classes.Where(c => c.Id == classId).Select(c => (long?)c.CenterId).SingleOrDefaultAsync(ct);
     }
 
     public async Task<IReadOnlyList<long>> GetEligibleAttendanceMemberIdsAsync(long sessionId, long classId, IEnumerable<long> memberIds, CancellationToken ct = default)

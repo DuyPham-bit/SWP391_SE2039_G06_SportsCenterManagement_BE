@@ -1174,7 +1174,7 @@ public sealed class PaymentService(
             {
                 var fileId = MediaAccessScope.R2FileIdPrefix + transferProofUrl;
                 var media = await _unitOfWork.Context.UploadedMedias.AsNoTracking()
-                    .Where(m => EF.Functions.Collate(m.DriveFileId, "Latin1_General_100_BIN2") == fileId)
+                    .Where(m => m.DriveFileId == fileId)
                     .Select(m => new { m.CenterId }).SingleOrDefaultAsync(cancellationToken);
                 if (!scope.IsManager || scope.CenterId != invoice.CenterId || media?.CenterId != invoice.CenterId)
                     throw BusinessException.NotFound("Không tìm thấy ảnh trong phạm vi được phép. Vui lòng tải lại ảnh chứng từ.");

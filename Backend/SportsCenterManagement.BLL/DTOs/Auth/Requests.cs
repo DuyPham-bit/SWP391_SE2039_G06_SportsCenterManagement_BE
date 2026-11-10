@@ -9,7 +9,8 @@ namespace SportsCenterManagement.BLL.DTOs.Auth
             [param: Required, StringLength(150)] string Password);
 
         public sealed record RegisterRequest(
-            [param: Required, StringLength(100, MinimumLength = 3)] string Username,
+            // Optional: when omitted (web self-registration) the server generates a unique login name.
+            [param: StringLength(100, MinimumLength = 3)] string? Username,
             [param: Required, StringLength(150)] string Email,
             [param: Required, StringLength(128, MinimumLength = 6)] string Password,
             [param: Required, StringLength(150, MinimumLength = 1)] string FullName,

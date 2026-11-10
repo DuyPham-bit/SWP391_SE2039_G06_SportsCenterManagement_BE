@@ -15,7 +15,8 @@ using SportsCenterManagement.DAL.Repositories.Interfaces;
 
 namespace SportsCenterManagement.BLL.Services;
 
-public sealed class StaffManagementService(IUnitOfWork unitOfWork, IBusinessClock clock) : IStaffManagementService
+public sealed class StaffManagementService(IUnitOfWork unitOfWork, IBusinessClock clock,
+    SportsCenterManagement.BLL.Common.MediaUrlBuilder? mediaUrls = null) : IStaffManagementService
 {
     public async Task<StaffResponses.CenterStaffResponse[]> SearchAtCenterAsync(
         long actorUserId,
@@ -534,11 +535,12 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork, IBusinessCloc
             unitOfWork.Context.CoachSports.Add(new CoachSport { CoachId = coach.Id, SportId = sport.Id });
     }
 
-    private static StaffResponses.CenterStaffResponse Map(StaffProfile staff, User user, string roleName, CoachProfile? coach,
+    private StaffResponses.CenterStaffResponse Map(StaffProfile staff, User user, string roleName, CoachProfile? coach,
         IReadOnlyList<long>? sportIds = null, int? activeClassCount = null) =>
         new(user.Id, staff.CenterId, staff.StaffCode, coach?.CoachCode, user.Username, user.Email, user.Phone,
             roleName, staff.FullName, user.Status, staff.HireDate, coach?.Specialization,
-            coach?.Certification, coach?.ExperienceYears, coach?.Bio, sportIds ?? [], activeClassCount);
+            coach?.Certification, coach?.ExperienceYears, coach?.Bio, sportIds ?? [], activeClassCount,
+            mediaUrls?.PublicUrl(user.AvatarKey));
 
     private static string MakeCode(string prefix) => $"{prefix}{Guid.NewGuid():N}"[..12].ToUpperInvariant();
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

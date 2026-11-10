@@ -22,8 +22,85 @@ public sealed class AuthController(
     SportsCenterDbContext dbContext,
     JwtTokenIssuer tokenIssuer,
     IAuthService authService,
-    PasswordResetEmailSender resetEmail) : ControllerBase
+    PasswordResetEmailSender resetEmail,
+    IMemberActivationService activationService,
+    IConfiguration configuration) : ControllerBase
 {
+    /// <summary>Validates an activation link and returns the greeting details for the verify page.</summary>
+    [HttpPost("verify-email/preview")]
+    [EnableRateLimiting("password-reset")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(SportsCenterManagement.BLL.DTOs.Members.Activation.ActivationPreviewResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> PreviewActivation(
+        [FromBody] SportsCenterManagement.BLL.DTOs.Members.Activation.ActivationPreviewRequest request,
+        CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store";
+        try
+        {
+            return Ok(await activationService.PreviewAsync(request.Token, cancellationToken));
+        }
+        catch (ValidationException exception)
+        {
+            return BadRequest(new { code = "ACTIVATION_LINK_INVALID", message = exception.Message });
+        }
+    }
+
+    /// <summary>Verifies the member's email and replaces the default (phone) password in one step.</summary>
+    [HttpPost("verify-and-change-password")]
+    [EnableRateLimiting("password-reset")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> VerifyAndChangePassword(
+        [FromBody] SportsCenterManagement.BLL.DTOs.Members.Activation.VerifyAndChangePasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store";
+        try
+        {
+            await activationService.CompleteAsync(request, cancellationToken);
+            return NoContent();
+        }
+        catch (ValidationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+    }
+
+    /// <summary>First-login fallback for accounts still using the default password.</summary>
+    [Authorize]
+    [HttpPost("initial-password")]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ChangeInitialPassword(
+        [FromBody] SportsCenterManagement.BLL.DTOs.Members.Activation.InitialPasswordChangeRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId))
+            return Unauthorized(new { message = "JWT không chứa UserID hợp lệ." });
+        try
+        {
+            var user = await activationService.ChangeInitialPasswordAsync(userId, request, cancellationToken);
+            // AuthVersion was bumped, so the old session is revoked: issue a fresh one.
+            return Ok(await CreateAuthResponseAsync(user, cancellationToken));
+        }
+        catch (ValidationException exception)
+        {
+            return BadRequest(new { message = exception.Message });
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Conflict(new { message = exception.Message });
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = exception.Message });
+        }
+    }
+
     [HttpPost("register")]
     [EnableRateLimiting("password-reset")]
     [AllowAnonymous]
@@ -49,7 +126,7 @@ public sealed class AuthController(
         }
         catch (DbUpdateException)
         {
-            return Conflict(new { message = "Username, email, or phone number is already in use." });
+            return Conflict(new { message = "Email hoặc số điện thoại đã được sử dụng cho một tài khoản khác." });
         }
     }
 
@@ -91,7 +168,7 @@ public sealed class AuthController(
         dbContext.EmailVerificationTokens.Add(verification);
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        if (!await resetEmail.SendVerificationAsync(verification, otp, cancellationToken))
+        if (!await resetEmail.SendVerificationAsync(verification, otp, cancellationToken, RequestLocation.Describe(Request, configuration)))
             return StatusCode(503, new { message = "Chưa gửi được email xác thực. Vui lòng thử lại sau." });
         return Ok(new { message = "Vui lòng kiểm tra hộp thư và thư rác để tiếp tục đăng ký. Mã xác thực có hạn 5 phút." });
     }
@@ -108,7 +185,7 @@ public sealed class AuthController(
         var loginIdentifier = request.Email.Trim();
         if (string.IsNullOrWhiteSpace(loginIdentifier))
         {
-            return Unauthorized(new { message = "Email hoặc mật khẩu không chính xác." });
+            return Unauthorized(new { message = "Email/số điện thoại hoặc mật khẩu không chính xác." });
         }
 
         SportsCenterManagement.BLL.DTOs.Auth.Responses.AuthenticatedUser authenticated;
@@ -129,7 +206,7 @@ public sealed class AuthController(
         catch (InvalidOperationException)
         {
             // Keep unknown accounts and invalid credentials indistinguishable to callers.
-            return Unauthorized(new { message = "Email hoặc mật khẩu không chính xác." });
+            return Unauthorized(new { message = "Email/số điện thoại hoặc mật khẩu không chính xác." });
         }
 
         return Ok(CreateAuthResponse(authenticated));
@@ -191,7 +268,7 @@ public sealed class AuthController(
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        if (resetEmail.IsConfigured && !await resetEmail.SendAsync(user, reset, otp, cancellationToken))
+        if (resetEmail.IsConfigured && !await resetEmail.SendAsync(user, reset, otp, cancellationToken, location: RequestLocation.Describe(Request, configuration)))
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Chưa gửi được mã xác thực. Vui lòng thử lại sau." });
 
         return Ok(new PasswordResetRequestResponse(
@@ -335,7 +412,7 @@ public sealed class AuthController(
         await dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        if (!await resetEmail.SendAsync(user, reset, otp, cancellationToken, "approve password change"))
+        if (!await resetEmail.SendAsync(user, reset, otp, cancellationToken, "approve password change", RequestLocation.Describe(Request, configuration)))
         {
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new
             {

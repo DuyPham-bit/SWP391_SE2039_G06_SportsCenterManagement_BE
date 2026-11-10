@@ -14,6 +14,8 @@ public sealed record LandingContentResponse(JsonElement? Content, DateTime? Upda
 public sealed class LandingContentService(SportsCenterDbContext db, IConfiguration configuration)
 {
     private const string SettingKey = "site.landing-content";
+    // Unpublished editor work, shared by every Manager/Admin and kept across devices.
+    private const string DraftKey = "site.landing-content.draft";
     private static readonly string[] RequiredSections = ["heroBanner", "whyUs", "coursesSection", "facilitiesSection", "zonesLayout", "ctaAndFooter"];
     private static readonly string[] Sections = ["heroBanner", "whyUs", "coursesSection", "facilitiesSection", "zonesLayout", "ctaAndFooter", "authShowcase"];
     private static readonly HashSet<string> ObjectArrays = ["metrics", "features", "stats", "sportsList", "facilitiesList", "zones", "serviceAmenities", "specs", "trustBadges"];
@@ -42,8 +44,40 @@ public sealed class LandingContentService(SportsCenterDbContext db, IConfigurati
         setting.UpdatedBy = userId;
         setting.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
+        // Publishing consumes the draft — only once the published content is safely stored.
+        await db.SystemSettings.Where(s => s.SettingKey == DraftKey).ExecuteDeleteAsync(ct);
         return new(TransformR2Urls(storedContent, toPublicUrl: true), setting.UpdatedAt);
     }
+
+    public async Task<LandingContentResponse> GetDraftAsync(CancellationToken ct)
+    {
+        var draft = await db.SystemSettings.AsNoTracking().SingleOrDefaultAsync(s => s.SettingKey == DraftKey, ct);
+        if (draft?.SettingValue is null) return new(null, null);
+        using var document = JsonDocument.Parse(draft.SettingValue);
+        return new(TransformR2Urls(document.RootElement, toPublicUrl: true), draft.UpdatedAt);
+    }
+
+    /// <summary>Autosaved, possibly incomplete content: only shape-checked, never shown publicly.</summary>
+    public async Task<LandingContentResponse> SaveDraftAsync(JsonElement content, long userId, CancellationToken ct)
+    {
+        if (content.ValueKind != JsonValueKind.Object)
+            throw new FlowException(400, "Bản nháp trang chủ phải là một đối tượng JSON.");
+        var stored = TransformR2Urls(content, toPublicUrl: false);
+        var draft = await db.SystemSettings.SingleOrDefaultAsync(s => s.SettingKey == DraftKey, ct);
+        if (draft is null)
+        {
+            draft = new SystemSetting { SettingKey = DraftKey, Description = "Bản nháp nội dung trang chủ (chưa xuất bản)" };
+            db.SystemSettings.Add(draft);
+        }
+        draft.SettingValue = stored.GetRawText();
+        draft.UpdatedBy = userId;
+        draft.UpdatedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return new(TransformR2Urls(stored, toPublicUrl: true), draft.UpdatedAt);
+    }
+
+    public Task DiscardDraftAsync(CancellationToken ct) =>
+        db.SystemSettings.Where(s => s.SettingKey == DraftKey).ExecuteDeleteAsync(ct);
 
     private JsonElement TransformR2Urls(JsonElement content, bool toPublicUrl)
     {

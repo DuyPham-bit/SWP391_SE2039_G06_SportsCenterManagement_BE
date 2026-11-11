@@ -32,13 +32,13 @@ public sealed record RecordProgressRequest(
     [param: Range(1, long.MaxValue)] long? SessionId = null,
     bool NotifyMember = true);
 
-/// <summary>Coach-entered biometrics for a member of an assigned class (manual profile input).</summary>
+/// <summary>
+/// Coach-entered biometrics for a member of an assigned class (manual input).
+/// Gender, date of birth and fitness level are owned by the member's own profile and are not editable here.
+/// </summary>
 public sealed record UpdateMemberBiometricsRequest(
     [param: Range(80, 250)] decimal? HeightCm,
     [param: Range(25, 300)] decimal? WeightKg,
-    [param: StringLength(20)] string? Gender,
-    DateOnly? DateOfBirth,
-    [param: StringLength(50)] string? FitnessLevel,
     [param: StringLength(1000)] string? MedicalNote);
 
 /// <summary>Weight chosen for AI context and where it came from ("training_result" or "profile").</summary>
@@ -82,5 +82,7 @@ public sealed record RecommendationContext(
     HealthRecordSummary[]? HealthRecords = null,
     string? WeightSource = null,
     DateOnly? WeightMeasuredOn = null,
-    decimal? ProfileWeightKg = null
+    decimal? ProfileWeightKg = null,
+    // Newest training result of this member across all classes; takes priority over manual entry.
+    RecommendationHistory? LatestResult = null
 );

@@ -349,13 +349,19 @@ public sealed class TrainingService(SportsCenterDbContext db)
             if (profile.DateOfBirth.Value > today.AddYears(-age.Value)) age--;
         }
 
-        // Newest measured body weight from session logs (any class), even if the latest log skipped the scale.
-        var measured = await db.TrainingResults.AsNoTracking()
-            .Where(r => r.MemberId == memberId && r.Weight != null && r.Weight > 0)
+        // Newest training result of this member (any class): it takes priority over manually entered metrics.
+        var latestResult = await db.TrainingResults.AsNoTracking().Where(r => r.MemberId == memberId)
             .OrderByDescending(r => r.ResultDate).ThenByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id)
-            .Select(r => new { r.ResultDate, r.Weight, r.CreatedAt }).FirstOrDefaultAsync(ct);
+            .Select(r => new RecommendationHistory(r.ResultDate, r.Weight, r.BodyFatPercentage, r.MuscleMass,
+                r.WorkoutResult ?? r.Notes, r.CoachFeedback)).FirstOrDefaultAsync(ct);
+        // Newest measured body weight from session logs (any class), even if the latest log skipped the scale.
+        var measured = latestResult?.Weight is > 0 ? new { ResultDate = latestResult.Date, latestResult.Weight }
+            : await db.TrainingResults.AsNoTracking()
+                .Where(r => r.MemberId == memberId && r.Weight != null && r.Weight > 0)
+                .OrderByDescending(r => r.ResultDate).ThenByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id)
+                .Select(r => new { r.ResultDate, r.Weight }).FirstOrDefaultAsync(ct);
         var weightPick = CoachWorkflowRules.ResolveLatestWeight(profile.WeightKg, profile.UpdatedAt,
-            measured?.ResultDate, measured?.Weight, measured?.CreatedAt);
+            measured?.ResultDate, measured?.Weight);
         var latestWeight = weightPick.Weight;
         decimal? bmi = null;
         string? bmiCategory = null;
@@ -394,30 +400,27 @@ public sealed class TrainingService(SportsCenterDbContext db)
             healthRecords,
             weightPick.Source,
             weightPick.MeasuredOn,
-            profile.WeightKg
+            profile.WeightKg,
+            latestResult
         );
     }
 
-    /// <summary>Coach manually enters biometrics for a member of a class they are assigned to.</summary>
+    /// <summary>
+    /// Coach manually enters height, weight and medical note for a member of an assigned class.
+    /// Gender, date of birth and fitness level stay owned by the member's own profile.
+    /// </summary>
     public async Task<RecommendationContext> UpdateMemberBiometricsAsync(long userId, long classId, long memberId,
         UpdateMemberBiometricsRequest request, CancellationToken ct)
     {
-        var validationError = CoachWorkflowRules.BiometricsValidationError(request, ScheduleTime.VietnamToday);
+        var validationError = CoachWorkflowRules.BiometricsValidationError(request);
         if (validationError is not null)
             throw new InvalidOperationException(validationError) { Data = { ["StatusCode"] = 400, ["Code"] = "CO-04" } };
         var coach = await EnsureCoachAsync(userId, classId, memberId, ct);
         var profile = await db.MemberProfiles.SingleAsync(m => m.Id == memberId, ct);
 
-        static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-        string? Canon(string? value, string[] allowed) => Clean(value) is { } v
-            ? allowed.First(a => a.Equals(v, StringComparison.OrdinalIgnoreCase)) : null;
-
         profile.HeightCm = request.HeightCm;
         profile.WeightKg = request.WeightKg;
-        profile.Gender = Canon(request.Gender, CoachWorkflowRules.BiometricGenders);
-        profile.DateOfBirth = request.DateOfBirth;
-        profile.FitnessLevel = Canon(request.FitnessLevel, CoachWorkflowRules.BiometricLevels);
-        profile.MedicalNote = Clean(request.MedicalNote);
+        profile.MedicalNote = string.IsNullOrWhiteSpace(request.MedicalNote) ? null : request.MedicalNote.Trim();
         profile.UpdatedAt = DateTime.UtcNow;
         AddAudit(userId, coach.CenterId, "MEMBER_BIOMETRICS_UPDATED", "MemberProfile", profile.Id);
         await db.SaveChangesAsync(ct);

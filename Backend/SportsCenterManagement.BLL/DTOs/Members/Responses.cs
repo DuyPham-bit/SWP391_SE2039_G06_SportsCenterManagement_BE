@@ -22,7 +22,8 @@ public static class Responses
         long? SubscriptionId = null,
         DateOnly? PackageStartDate = null,
         bool IsEmailVerified = true,
-        string? AvatarUrl = null);
+        string? AvatarUrl = null,
+        string? FitnessLevel = null);
 
     public sealed record MemberSubscriptionResponse(
         long SubscriptionId,

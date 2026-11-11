@@ -76,6 +76,11 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             throw new ValidationException("Giới tính không hợp lệ.");
         }
 
+        if (!CoachWorkflowRules.TryCanonicalFitnessLevel(request.FitnessLevel, out var fitnessLevel))
+        {
+            throw new ValidationException("Trình độ không hợp lệ (Beginner, Intermediate, Advanced, Athlete).");
+        }
+
         var phone = PhoneNumberNormalization.Normalize(request.Phone);
         if (phone is not null && !Regex.IsMatch(phone, @"^\+?[0-9]{8,15}$"))
         {
@@ -123,6 +128,8 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             profile.Gender = Normalize(request.Gender);
         if (request.Address is not null)
             profile.Address = Normalize(request.Address);
+        if (fitnessLevel is not null)
+            profile.FitnessLevel = fitnessLevel;
         profile.UpdatedAt = DateTime.UtcNow;
         if (email is not null)
         {
@@ -450,7 +457,7 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             select new MembersResponses.MemberProfileResponse(profile.Id, user.Id, profile.MemberCode, user.Username,
                 user.Email, user.Phone, profile.FullName, profile.DateOfBirth, profile.Gender,
                 profile.Address, profile.CreatedAt, user.Status, null, null, null, null, null, null,
-                user.IsEmailVerified, user.AvatarKey))
+                user.IsEmailVerified, user.AvatarKey, profile.FitnessLevel))
             .SingleOrDefaultAsync(cancellationToken);
 
         if (item == null) return null;
@@ -548,8 +555,10 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
     {
         return new MembersResponses.MemberProfileResponse(profile.Id, user.Id, profile.MemberCode, user.Username,
             user.Email, user.Phone, profile.FullName, profile.DateOfBirth, profile.Gender,
-            profile.Address, profile.CreatedAt, user.Status, IsEmailVerified: user.IsEmailVerified,
-            AvatarUrl: mediaUrls?.PublicUrl(user.AvatarKey));
+            profile.Address, profile.CreatedAt, user.Status,
+            IsEmailVerified: user.IsEmailVerified,
+            AvatarUrl: mediaUrls?.PublicUrl(user.AvatarKey),
+            FitnessLevel: profile.FitnessLevel);
     }
 
     private static string? Normalize(string? value)

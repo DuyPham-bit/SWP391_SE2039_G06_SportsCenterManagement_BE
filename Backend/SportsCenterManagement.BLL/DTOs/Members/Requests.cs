@@ -13,7 +13,8 @@ namespace SportsCenterManagement.BLL.DTOs.Members
             [param: StringLength(20)] string? Phone,
             DateOnly? DateOfBirth,
             [param: StringLength(20)] string? Gender,
-            [param: StringLength(255)] string? Address);
+            [param: StringLength(255)] string? Address,
+            [param: StringLength(50)] string? FitnessLevel = null);
 
         [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
         public sealed record UpdateMemberAtCenterRequest(

@@ -71,40 +71,35 @@ public static class CoachWorkflowRules
         return null;
     }
 
-    public static readonly string[] BiometricGenders = ["Male", "Female", "Other"];
-    public static readonly string[] BiometricLevels = ["Beginner", "Intermediate", "Advanced", "Athlete"];
+    public static readonly string[] FitnessLevels = ["Beginner", "Intermediate", "Advanced", "Athlete"];
 
-    public static string? BiometricsValidationError(UpdateMemberBiometricsRequest request, DateOnly today)
+    /// <summary>Blank means "not set" (true, null); otherwise returns the canonical level or false if unknown.</summary>
+    public static bool TryCanonicalFitnessLevel(string? value, out string? canonical)
+    {
+        canonical = null;
+        if (string.IsNullOrWhiteSpace(value)) return true;
+        canonical = FitnessLevels.FirstOrDefault(l => l.Equals(value.Trim(), StringComparison.OrdinalIgnoreCase));
+        return canonical is not null;
+    }
+
+    public static string? BiometricsValidationError(UpdateMemberBiometricsRequest request)
     {
         if (request.HeightCm is < 80 or > 250)
             return "Chiều cao chỉ chấp nhận từ 80 đến 250 cm.";
         if (request.WeightKg is < 25 or > 300)
             return "Cân nặng chỉ chấp nhận từ 25 đến 300 kg.";
-        if (!string.IsNullOrWhiteSpace(request.Gender) &&
-            !BiometricGenders.Contains(request.Gender.Trim(), StringComparer.OrdinalIgnoreCase))
-            return "Giới tính không hợp lệ (Male, Female, Other).";
-        if (!string.IsNullOrWhiteSpace(request.FitnessLevel) &&
-            !BiometricLevels.Contains(request.FitnessLevel.Trim(), StringComparer.OrdinalIgnoreCase))
-            return "Trình độ không hợp lệ (Beginner, Intermediate, Advanced, Athlete).";
-        if (request.DateOfBirth is { } dob && (dob > today.AddYears(-3) || dob < today.AddYears(-110)))
-            return "Ngày sinh không hợp lệ (học viên phải từ 3 đến 110 tuổi).";
         return null;
     }
 
     /// <summary>
-    /// Prefers the newest body weight measured in training_results over the stored profile weight.
-    /// A profile weight wins only when it was saved (manually) after that session result was recorded.
+    /// The newest body weight measured in training_results always takes priority; the manually entered
+    /// profile weight is only a fallback when no session has recorded a weight yet.
     /// </summary>
     public static WeightPick ResolveLatestWeight(decimal? profileWeight, DateTime? profileUpdatedAtUtc,
-        DateOnly? resultDate, decimal? resultWeight, DateTime? resultCreatedAtUtc)
+        DateOnly? resultDate, decimal? resultWeight)
     {
         if (resultWeight is > 0 && resultDate.HasValue)
-        {
-            var profileIsNewer = profileWeight is > 0 && profileUpdatedAtUtc.HasValue &&
-                DateOnly.FromDateTime(profileUpdatedAtUtc.Value.AddHours(7)) >= resultDate.Value &&
-                (!resultCreatedAtUtc.HasValue || profileUpdatedAtUtc.Value > resultCreatedAtUtc.Value);
-            if (!profileIsNewer) return new(resultWeight, "training_result", resultDate);
-        }
+            return new(resultWeight, "training_result", resultDate);
         return profileWeight is > 0
             ? new(profileWeight, "profile", profileUpdatedAtUtc.HasValue ? DateOnly.FromDateTime(profileUpdatedAtUtc.Value.AddHours(7)) : null)
             : new(null, null, null);

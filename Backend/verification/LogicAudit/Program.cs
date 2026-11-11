@@ -30,8 +30,39 @@ using SportsCenterManagement.DAL.Repositories.Implementations;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 var name = "scms_logicaudit_" + Guid.NewGuid().ToString("N");
+var defaultPassword = "73cfbcd74a8a6c226c50f8257d3a6bff140432857ca86452";
+var auditPgPassword = Environment.GetEnvironmentVariable("POSTGRES_PASSWORD");
+if (string.IsNullOrWhiteSpace(auditPgPassword))
+{
+    try
+    {
+        var envCandidates = new[]
+        {
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../docker/.env")),
+            Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "docker/.env"))
+        };
+        foreach (var envFile in envCandidates)
+        {
+            if (File.Exists(envFile))
+            {
+                foreach (var line in File.ReadAllLines(envFile))
+                {
+                    var trimmed = line.Trim();
+                    if (trimmed.StartsWith("POSTGRES_PASSWORD="))
+                    {
+                        auditPgPassword = trimmed.Substring("POSTGRES_PASSWORD=".Length).Trim('"', '\'');
+                        break;
+                    }
+                }
+                if (!string.IsNullOrWhiteSpace(auditPgPassword)) break;
+            }
+        }
+    }
+    catch { }
+}
+var pgPass = !string.IsNullOrWhiteSpace(auditPgPassword) ? auditPgPassword : defaultPassword;
 var serverConnection = Environment.GetEnvironmentVariable("SCMS_AUDIT_PG_CONNECTION")
-    ?? "Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=12345";
+    ?? $"Host=localhost;Port=5432;Database=postgres;Username=postgres;Password={pgPass}";
 var master = new Npgsql.NpgsqlConnection(serverConnection);
 await master.OpenAsync();
 await using (var command = master.CreateCommand()) {

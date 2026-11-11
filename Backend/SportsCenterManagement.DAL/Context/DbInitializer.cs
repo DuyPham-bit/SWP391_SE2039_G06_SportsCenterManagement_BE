@@ -7,6 +7,9 @@ namespace SportsCenterManagement.DAL.Context;
 /// <summary>Initializes schema and required authorization data only.</summary>
 public static class DbInitializer
 {
+    // Timestamps are stored as UTC; session dates/times are Vietnam business time (UTC+7, no DST).
+    private static DateTime BusinessToUtc(DateTime businessTime) => businessTime.AddHours(-7);
+
     public static async Task SeedAsync(SportsCenterDbContext context)
     {
         if (context.Database.IsRelational()) await context.Database.MigrateAsync();
@@ -911,9 +914,9 @@ public static class DbInitializer
                                     if (!hasAtt)
                                     {
                                         bool isLate = (sess.Id + member.Id) % 5 == 0;
-                                        var sessionStartDt = sess.SessionDate.ToDateTime(sess.StartTime);
+                                        var sessionStartDt = BusinessToUtc(sess.SessionDate.ToDateTime(sess.StartTime));
                                         var checkIn = isLate ? sessionStartDt.AddMinutes(10) : sessionStartDt.AddMinutes(-5);
-                                        var checkOut = sess.SessionDate.ToDateTime(sess.EndTime).AddMinutes(5);
+                                        var checkOut = BusinessToUtc(sess.SessionDate.ToDateTime(sess.EndTime)).AddMinutes(5);
 
                                         context.Attendances.Add(new Attendance
                                         {
@@ -936,7 +939,7 @@ public static class DbInitializer
                 for (int i = 1; i <= 10; i++)
                 {
                     var checkDate = today.AddDays(-i * 2);
-                    var cinTime = checkDate.ToDateTime(new TimeOnly(17, 30)).AddMinutes((int)((member.Id * 7) % 60));
+                    var cinTime = BusinessToUtc(checkDate.ToDateTime(new TimeOnly(17, 30))).AddMinutes((int)((member.Id * 7) % 60));
                     var coutTime = cinTime.AddMinutes(75);
 
                     if (!await context.CenterCheckins.AnyAsync(c => c.MemberId == member.Id && c.CheckInTime == cinTime))

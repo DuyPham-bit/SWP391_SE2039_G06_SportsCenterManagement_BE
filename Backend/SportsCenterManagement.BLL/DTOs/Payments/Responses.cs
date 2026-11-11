@@ -174,7 +174,10 @@ public sealed record RefundEligiblePaymentResponse(
     decimal PaidAmount,
     decimal RefundableAmount,
     string PaymentMethod,
-    DateTime? PaidAtUtc);
+    DateTime? PaidAtUtc,
+    string? PackageName = null,
+    DateOnly? PackageStartDate = null,
+    DateOnly? PackageEndDate = null);
 }
 
 namespace SportsCenterManagement.BLL.DTOs.Payments

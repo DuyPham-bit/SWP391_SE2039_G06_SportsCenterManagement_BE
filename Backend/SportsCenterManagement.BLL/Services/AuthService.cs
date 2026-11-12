@@ -93,7 +93,10 @@ public sealed class AuthService(IUnitOfWork unitOfWork) : IAuthService
                 if (verification.FailedAttempts >= 5) verification.UsedAt = now;
                 await unitOfWork.SaveChangesAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
-                throw new ValidationException("Mã xác thực email không đúng. Sau 5 lần nhập sai, bạn cần yêu cầu mã mới.");
+                var remaining = Math.Max(0, 5 - verification.FailedAttempts);
+                throw new OtpAttemptException(remaining > 0
+                    ? $"Mã xác thực không đúng. Bạn còn {remaining} lần thử."
+                    : "Bạn đã nhập sai 5 lần. Mã này đã bị khóa, cần gửi mã mới.", remaining);
             }
             verification.UsedAt = now;
         }

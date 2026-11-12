@@ -116,6 +116,10 @@ public sealed class AuthController(
             var profile = await authService.RegisterAsync(request, cancellationToken: cancellationToken);
             return Created("/api/members/me", profile);
         }
+        catch (SportsCenterManagement.BLL.Common.OtpAttemptException exception)
+        {
+            return BadRequest(new { message = exception.Message, code = "OTP_INVALID", remainingAttempts = exception.RemainingAttempts });
+        }
         catch (InvalidOperationException exception)
         {
             return Conflict(new { message = exception.Message });

@@ -64,7 +64,11 @@ static class RegistrationChecks
             && (await Register(code, "other-registration@example.test", "other-registration")).StatusCode == HttpStatusCode.BadRequest);
         await check("registration records wrong attempts and locks the OTP after five failures", async () => {
             for (var i = 0; i < 5; i++)
-                if ((await Register("000000")).StatusCode != HttpStatusCode.BadRequest) return false;
+            {
+                var wrong = await Register("000000");
+                if (wrong.StatusCode != HttpStatusCode.BadRequest
+                    || !(await wrong.Content.ReadAsStringAsync()).Contains($"\"remainingAttempts\":{4 - i}")) return false;
+            }
             var token = await Latest();
             return token.FailedAttempts == 5 && token.UsedAt != null && (await Register(code)).StatusCode == HttpStatusCode.BadRequest;
         });

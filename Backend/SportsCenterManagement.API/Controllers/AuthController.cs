@@ -144,11 +144,15 @@ public sealed class AuthController(
         if (phone is not null && !System.Text.RegularExpressions.Regex.IsMatch(phone, @"^\+?[0-9]{8,15}$"))
             return BadRequest(new { message = "Số điện thoại phải gồm từ 8 đến 15 chữ số." });
 
+        // Product decision: report duplicates before sending an OTP (rate-limited by "password-reset").
+        if (await dbContext.Users.AnyAsync(user => user.Email == email, cancellationToken))
+            return Conflict(new { field = "email", message = "Email đã được sử dụng cho một tài khoản khác." });
+        if (phone is not null && await dbContext.Users.AnyAsync(user => user.Phone == phone, cancellationToken))
+            return Conflict(new { field = "phone", message = "Số điện thoại đã được sử dụng cho một tài khoản khác." });
+
         var now = DateTime.UtcNow;
         await using var transaction = await dbContext.Database.BeginTransactionAsync(
             System.Data.IsolationLevel.Serializable, cancellationToken);
-        // Issue the same challenge for every mailbox, regardless of existing accounts or phone numbers.
-        // Duplicate-account details are only available after the caller proves mailbox ownership.
         var latest = await dbContext.EmailVerificationTokens
             .Where(token => token.Email == email && token.UsedAt == null)
             .OrderByDescending(token => token.Id).FirstOrDefaultAsync(cancellationToken);

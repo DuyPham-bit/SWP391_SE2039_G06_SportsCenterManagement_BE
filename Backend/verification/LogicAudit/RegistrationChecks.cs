@@ -108,19 +108,14 @@ static class RegistrationChecks
             return results.Count(r => r.StatusCode == HttpStatusCode.Created) == 1
                 && await db.Users.CountAsync(u => u.Email == email) == 1 && (await Latest()).UsedAt != null;
         });
-        await check("verification requests and resend limits do not reveal whether an email is registered", async () => {
-            const string known = "owner@example.test", unknown = "privacy-check@example.test";
+        await check("verification request rejects an already registered email before sending an OTP", async () => {
+            const string known = "owner@example.test", unknown = "precheck-fresh@example.test";
             var existing = await Issue(known);
-            var fresh = await Issue(unknown);
-            if (existing.StatusCode != HttpStatusCode.OK || fresh.StatusCode != existing.StatusCode
-                || await existing.Content.ReadAsStringAsync() != await fresh.Content.ReadAsStringAsync()) return false;
-            if (!await db.EmailVerificationTokens.AnyAsync(t => t.Email == known && t.UsedAt == null)
-                || !await db.EmailVerificationTokens.AnyAsync(t => t.Email == unknown && t.UsedAt == null)) return false;
-            var existingRetry = await Issue(known);
-            var freshRetry = await Issue(unknown);
-            return existingRetry.StatusCode == HttpStatusCode.TooManyRequests && freshRetry.StatusCode == existingRetry.StatusCode
-                && existingRetry.Headers.RetryAfter?.Delta == freshRetry.Headers.RetryAfter?.Delta
-                && await existingRetry.Content.ReadAsStringAsync() == await freshRetry.Content.ReadAsStringAsync();
+            var body = await existing.Content.ReadAsStringAsync();
+            if (existing.StatusCode != HttpStatusCode.Conflict || !body.Contains("\"field\":\"email\"")
+                || await db.EmailVerificationTokens.AnyAsync(t => t.Email == known && t.UsedAt == null)) return false;
+            return (await Issue(unknown)).StatusCode == HttpStatusCode.OK
+                && await db.EmailVerificationTokens.AnyAsync(t => t.Email == unknown && t.UsedAt == null);
         });
         await using (var smtp = new FakeSmtpServer())
         {

@@ -527,7 +527,10 @@ public static class DbInitializer
             return;
         }
 
-        var center = await context.Centers.FirstOrDefaultAsync();
+        var center = await context.Centers
+            .OrderByDescending(c => c.Status == "Active")
+            .ThenBy(c => c.Id)
+            .FirstOrDefaultAsync();
         if (center is null)
         {
             return;
@@ -616,7 +619,8 @@ public static class DbInitializer
         // 2. Ensure Classes & Schedules across all active sports
         var sports = await context.Sports.ToListAsync();
         var rooms = await context.Rooms.Where(r => r.CenterId == center.Id).ToListAsync();
-        var allCoaches = await context.CoachProfiles.ToListAsync();
+        var allCoaches = await context.CoachProfiles.Where(c => c.CenterId == center.Id && c.Status == "Active").ToListAsync();
+        var coachSportLinks = await context.CoachSports.AsNoTracking().ToListAsync();
 
         var classSeedDefs = new (string SportName, string ClassName, string RoomKeyword, int DayOfWeek, TimeOnly StartTime, TimeOnly EndTime, string Level)[]
         {
@@ -645,6 +649,10 @@ public static class DbInitializer
             var room = rooms.FirstOrDefault(r => r.Name.Contains(def.RoomKeyword, StringComparison.OrdinalIgnoreCase)) ?? rooms.FirstOrDefault();
             var classEntity = await context.Classes.FirstOrDefaultAsync(c => c.CenterId == center.Id && c.Name == def.ClassName);
 
+            var assignedCoach = allCoaches
+                .FirstOrDefault(c => coachSportLinks.Any(cs => cs.CoachId == c.Id && cs.SportId == sport.Id))
+                ?? (allCoaches.Count > 0 ? allCoaches[classIndex % allCoaches.Count] : null);
+
             if (classEntity is null)
             {
                 classEntity = new ClassEntity
@@ -655,7 +663,7 @@ public static class DbInitializer
                     Name = def.ClassName,
                     Description = $"Chương trình đào tạo bộ môn {sport.Name} chuẩn quốc tế tại trung tâm, nâng cao thể lực và phản xạ thi đấu.",
                     Level = def.Level,
-                    Capacity = 20,
+                    Capacity = room is not null ? Math.Min(20, room.Capacity) : 20,
                     AllowWaitlist = true,
                     DurationMinutes = (int)(def.EndTime - def.StartTime).TotalMinutes,
                     Status = "Published",
@@ -664,9 +672,8 @@ public static class DbInitializer
                 await context.Classes.AddAsync(classEntity);
                 await context.SaveChangesAsync();
 
-                if (allCoaches.Count > 0)
+                if (assignedCoach is not null)
                 {
-                    var assignedCoach = allCoaches[classIndex % allCoaches.Count];
                     if (!await context.ClassCoaches.AnyAsync(cc => cc.ClassId == classEntity.Id && cc.CoachId == assignedCoach.Id))
                     {
                         context.ClassCoaches.Add(new ClassCoach
@@ -707,7 +714,7 @@ public static class DbInitializer
                                 ClassId = classEntity.Id,
                                 ScheduleId = schedule.Id,
                                 RoomId = schedule.RoomId,
-                                CoachId = allCoaches.Count > 0 ? allCoaches[classIndex % allCoaches.Count].Id : null,
+                                CoachId = assignedCoach?.Id,
                                 SessionDate = curDate,
                                 StartTime = schedule.StartTime,
                                 EndTime = schedule.EndTime,

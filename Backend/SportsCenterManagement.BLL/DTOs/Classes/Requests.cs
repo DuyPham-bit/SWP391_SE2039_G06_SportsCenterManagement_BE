@@ -69,5 +69,6 @@ namespace SportsCenterManagement.BLL.DTOs.Classes
         DateOnly? To,
         int Page = 1,
         int PageSize = 20,
-        long? CenterId = null);
+        long? CenterId = null,
+        long? MemberUserId = null);
 }

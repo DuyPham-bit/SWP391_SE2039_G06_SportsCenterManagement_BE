@@ -119,8 +119,12 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
             AutoRenew = false,
             CreatedAt = now
         };
+        // Downgrade guard + renewal inherits the current sport selection.
+        var sportIds = await MembershipEntitlements.ResolvePurchaseSportsAsync(_unitOfWork.Context, memberId, package,
+            null, ToBusinessDate(now), cancellationToken);
         await _unitOfWork.Repository<MemberSubscription>().AddAsync(subscription, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        MembershipEntitlements.AddSports(_unitOfWork.Context, subscription.Id, sportIds);
 
         var invoiceNumber = $"SC-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..31];
         var invoice = new Invoice
@@ -446,19 +450,8 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
                 }
                 var package = await _unitOfWork.Repository<MembershipPackage>().Find(item => item.Id == subscription.PackageId)
                     .SingleAsync(cancellationToken);
-                var durationDays = subscription.DurationDays;
-                if (durationDays <= 0)
-                {
-                    durationDays = package.DurationDays;
-                }
                 var today = ToBusinessDate(now);
-                var currentEnd = await _unitOfWork.Repository<MemberSubscription>()
-                    .Find(item => item.MemberId == subscription.MemberId && item.PackageId == subscription.PackageId && item.Status == "Active" && item.EndDate >= today)
-                    .MaxAsync(item => (DateOnly?)item.EndDate, cancellationToken);
-                subscription.StartDate = currentEnd.HasValue ? currentEnd.Value.AddDays(1) : today;
-                subscription.EndDate = subscription.StartDate.Value.AddDays(durationDays - 1);
-                subscription.Status = "Active";
-                subscription.UpdatedAt = now;
+                await MembershipEntitlements.ActivateAsync(db, subscription, package, today, now, cancellationToken);
                 await FlowNotificationWriter.MembershipPaidAsync(db, processedBy, subscription,
                     package.Name, today, cancellationToken);
             }

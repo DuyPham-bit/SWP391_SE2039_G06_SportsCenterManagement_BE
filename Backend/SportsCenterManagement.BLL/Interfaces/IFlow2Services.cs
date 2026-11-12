@@ -44,6 +44,7 @@ public interface ICoachAssignmentQueryService
 public interface IClassScheduleQueryService
 {
     Task<PagedResult<SessionScheduleItemResponse>> GetSessionsAsync(SessionScheduleQuery query, CancellationToken cancellationToken = default);
+    Task<MemberEntitlementResponse> GetMyEntitlementsAsync(long currentUserId, CancellationToken cancellationToken = default);
 
     /// <summary>The coach is always resolved from <paramref name="currentUserId"/>, never from client input.</summary>
     Task<IReadOnlyList<TeachingScheduleItemResponse>> GetTeachingScheduleAsync(

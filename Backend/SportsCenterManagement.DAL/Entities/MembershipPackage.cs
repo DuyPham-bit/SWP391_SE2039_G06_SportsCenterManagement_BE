@@ -36,6 +36,20 @@ public class MembershipPackage : Common.BaseEntity
     [Column("allowed_sports")]
     public int AllowedSports { get; set; } = 1;
 
+    /// <summary>1 = Basic ... 4 = Olympic; higher means more premium (upgrade ordering).</summary>
+    [Column("tier_level")]
+    public int TierLevel { get; set; } = 1;
+
+    [Column("is_all_access")]
+    public bool IsAllAccess { get; set; }
+
+    /// <summary>Minimum hours before class start a booking may be cancelled; 0 = legacy late-cancel rule.</summary>
+    [Column("cancel_before_hours")]
+    public int CancelBeforeHours { get; set; }
+
+    [Column("max_freeze_days")]
+    public int MaxFreezeDays { get; set; }
+
     [MaxLength(50)]
     [Column("badge")]
     public string? Badge { get; set; }

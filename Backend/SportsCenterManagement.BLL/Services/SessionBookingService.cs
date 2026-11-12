@@ -120,6 +120,19 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterMa
         if (start <= now) // UH04
             throw new InvalidOperationException("Không thể hủy buổi đã qua.") { Data = { ["StatusCode"] = 400 } };
 
+        // Package rule: block cancellation inside the package window; 0 keeps the legacy late-cancel penalty.
+        var cancelBeforeHours = booking.SubscriptionId is { } subscriptionId
+            ? await (from subscription in Db.MemberSubscriptions
+                     join package in Db.MembershipPackages on subscription.PackageId equals package.Id
+                     where subscription.Id == subscriptionId
+                     select package.CancelBeforeHours).FirstOrDefaultAsync(cancellationToken)
+            : 0;
+        if (cancelBeforeHours > 0 && start - now < TimeSpan.FromHours(cancelBeforeHours))
+            throw new InvalidOperationException($"Gói của bạn yêu cầu hủy lịch trước ít nhất {cancelBeforeHours} giờ.")
+            {
+                Data = { ["StatusCode"] = 409, ["Code"] = "BOOK-CANCEL-WINDOW" }
+            };
+
         var late = start - now < CancelCutoff; // BR-BOOK-02
         booking.Status = late ? FlowStatuses.BookingCancelledLate : FlowStatuses.BookingCancelled;
         AuditLogWriter.Add(unitOfWork, actorUserId ?? currentUserId, cls.CenterId, "CANCEL_SESSION_BOOKING", "SessionBooking", bookingId, newValues: new { IsLateCancellation = late });
@@ -223,7 +236,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterMa
                 && subscription.StartDate <= session.SessionDate && subscription.EndDate >= session.SessionDate
                 && package.CenterId == cls.CenterId
             orderby package.AllowedSports descending, subscription.EndDate descending
-            select new { Subscription = subscription, package.MaxClasses, package.AllowedSports }).ToListAsync(ct);
+            select new { Subscription = subscription, package.MaxClasses, package.AllowedSports, package.IsAllAccess }).ToListAsync(ct);
         if (eligibleSubscriptions.Count == 0)
             throw new InvalidOperationException("Bạn cần có gói tập còn hiệu lực tại trung tâm để đặt lịch buổi học này.")
             {
@@ -249,9 +262,16 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterMa
                     || booking.Status == FlowStatuses.BookingCancelledLate)
             select new { ClassId = bookedSession.ClassId, bookedClass.SportId, booking.SubscriptionId }).ToListAsync(ct);
 
+        var candidateIds = eligibleSubscriptions.Select(row => row.Subscription.Id).ToList();
+        var selectedSports = await Db.SubscriptionSports.Where(row => candidateIds.Contains(row.SubscriptionId))
+            .Select(row => new { row.SubscriptionId, row.SportId }).ToListAsync(ct);
+
         MemberSubscription? selectedSubscription = null;
+        var sportExcluded = true;
         foreach (var candidate in eligibleSubscriptions)
         {
+            var picked = selectedSports.Where(row => row.SubscriptionId == candidate.Subscription.Id)
+                .Select(row => row.SportId).ToHashSet();
             var entitlements = enrollmentEntitlements
                 .Where(row => row.SubscriptionId == candidate.Subscription.Id)
                 .Concat(bookedEntitlements.Where(row => row.SubscriptionId == candidate.Subscription.Id))
@@ -261,8 +281,12 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterMa
             var enrolledSportIds = entitlements.Select(row => row.SportId).ToHashSet();
             var classLimitAvailable = candidate.MaxClasses is null || enrolledClassIds.Contains(cls.Id)
                 || enrolledClassIds.Count < candidate.MaxClasses.Value;
-            var sportLimitAvailable = enrolledSportIds.Contains(cls.SportId)
-                || enrolledSportIds.Count < candidate.AllowedSports;
+            // Explicit selection (bought after sport picking existed) wins; older subscriptions keep the implicit rule.
+            var sportLimitAvailable = candidate.IsAllAccess
+                || (picked.Count > 0
+                    ? picked.Contains(cls.SportId)
+                    : enrolledSportIds.Contains(cls.SportId) || enrolledSportIds.Count < candidate.AllowedSports);
+            if (sportLimitAvailable) sportExcluded = false;
             if (classLimitAvailable && sportLimitAvailable)
             {
                 selectedSubscription = candidate.Subscription;
@@ -270,7 +294,9 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterMa
             }
         }
         if (selectedSubscription is null)
-            throw new InvalidOperationException("Gói tập đã sử dụng hết số lớp hoặc môn thể thao được phép.")
+            throw new InvalidOperationException(sportExcluded
+                ? "Bộ môn này không nằm trong gói tập của bạn."
+                : "Gói tập đã sử dụng hết số lớp được phép.")
             {
                 Data =
                 {

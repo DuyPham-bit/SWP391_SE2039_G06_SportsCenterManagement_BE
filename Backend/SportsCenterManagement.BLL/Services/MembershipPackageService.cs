@@ -50,6 +50,7 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
             Status = "Active",
             CreatedAt = now
         };
+        ApplyEntitlements(package, request, isNew: true);
 
         await unitOfWork.Repository<MembershipPackage>().AddAsync(package, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -122,6 +123,7 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
         package.AllowedSports = request.AllowedSports;
         package.Badge = Normalize(request.Badge);
         package.Features = JsonSerializer.Serialize(request.Features ?? []);
+        ApplyEntitlements(package, request, isNew: false);
         package.UpdatedAt = DateTime.UtcNow;
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -349,7 +351,21 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
         ParseFeatures(package.Features),
         subscriberCount,
         hasOrders,
-        isEditable);
+        isEditable,
+        package.TierLevel,
+        package.IsAllAccess,
+        package.CancelBeforeHours,
+        package.MaxFreezeDays);
+
+    /// <summary>Applies explicit entitlement values, deriving defaults from AllowedSports when absent.</summary>
+    private static void ApplyEntitlements(MembershipPackage package, SaveMembershipPackageRequest request, bool isNew)
+    {
+        var derivedTier = request.AllowedSports >= 10 ? 4 : request.AllowedSports >= 6 ? 3 : request.AllowedSports >= 3 ? 2 : 1;
+        package.TierLevel = request.TierLevel ?? (isNew ? derivedTier : package.TierLevel);
+        package.IsAllAccess = request.IsAllAccess ?? (isNew ? request.AllowedSports >= 10 : package.IsAllAccess);
+        package.CancelBeforeHours = request.CancelBeforeHours ?? package.CancelBeforeHours;
+        package.MaxFreezeDays = request.MaxFreezeDays ?? package.MaxFreezeDays;
+    }
 
     private static IReadOnlyList<string> ParseFeatures(string? features)
     {

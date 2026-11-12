@@ -23,6 +23,7 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
     public DbSet<MemberProfile> MemberProfiles => Set<MemberProfile>();
     public DbSet<CoachProfile> CoachProfiles => Set<CoachProfile>();
     public DbSet<CoachSport> CoachSports => Set<CoachSport>();
+    public DbSet<SubscriptionSport> SubscriptionSports => Set<SubscriptionSport>();
     public DbSet<CoachLeave> CoachLeaves => Set<CoachLeave>();
     public DbSet<StaffProfile> StaffProfiles => Set<StaffProfile>();
     public DbSet<StaffCompensationPolicy> StaffCompensationPolicies => Set<StaffCompensationPolicy>();
@@ -154,6 +155,17 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .HasForeignKey(entity => entity.UpdatedBy)
             .OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<CoachSport>()
+            .HasOne<Sport>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SportId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<SubscriptionSport>().HasKey(entity => new { entity.SubscriptionId, entity.SportId });
+        modelBuilder.Entity<SubscriptionSport>()
+            .HasOne<MemberSubscription>()
+            .WithMany()
+            .HasForeignKey(entity => entity.SubscriptionId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<SubscriptionSport>()
             .HasOne<Sport>()
             .WithMany()
             .HasForeignKey(entity => entity.SportId)

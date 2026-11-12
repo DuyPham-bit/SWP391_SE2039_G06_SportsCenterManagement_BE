@@ -396,6 +396,9 @@ public sealed class PaymentService(
             }
         }
 
+        var sportIds = await MembershipEntitlements.ResolvePurchaseSportsAsync(_unitOfWork.Context, member.Id, package,
+            request.SportIds, ToBusinessDate(DateTime.UtcNow), cancellationToken);
+
         var received = request.AmountReceived;
         if (method == "POS" && received == 0)
         {
@@ -438,6 +441,7 @@ public sealed class PaymentService(
         };
         _unitOfWork.Context.MemberSubscriptions.Add(subscription);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        MembershipEntitlements.AddSports(_unitOfWork.Context, subscription.Id, sportIds);
 
         var invoice = new Invoice
         {
@@ -1429,6 +1433,8 @@ public sealed class PaymentService(
                         $"Hội viên đã có hóa đơn chờ thanh toán cho gói này ({pendingInvoiceNumber}); hãy tiếp tục thanh toán hóa đơn đó.");
                 }
             }
+            var sportIds = await MembershipEntitlements.ResolvePurchaseSportsAsync(_unitOfWork.Context, member.Id, package,
+                request.SportIds, ToBusinessDate(now), cancellationToken);
             if (!member.CenterId.HasValue)
             {
                 member.CenterId = package.CenterId;
@@ -1448,6 +1454,7 @@ public sealed class PaymentService(
             };
             _unitOfWork.Context.MemberSubscriptions.Add(subscription);
             await _unitOfWork.Context.SaveChangesAsync(cancellationToken);
+            MembershipEntitlements.AddSports(_unitOfWork.Context, subscription.Id, sportIds);
             invoice = new Invoice
             {
                 InvoiceNumber = CreateInvoiceNumber(now),
@@ -1796,17 +1803,7 @@ public sealed class PaymentService(
             var package = await _unitOfWork.Context.MembershipPackages
                 .SingleAsync(candidate => candidate.Id == subscription.PackageId, cancellationToken);
             var today = ToBusinessDate(now);
-            var currentEnd = await _unitOfWork.Context.MemberSubscriptions
-                .Where(candidate => candidate.MemberId == subscription.MemberId &&
-                                    candidate.PackageId == subscription.PackageId &&
-                                    candidate.Status == "Active" && candidate.EndDate >= today)
-                .MaxAsync(candidate => (DateOnly?)candidate.EndDate, cancellationToken);
-            subscription.StartDate = currentEnd.HasValue ? currentEnd.Value.AddDays(1) : today;
-            var durationDays = subscription.DurationDays > 0 ? subscription.DurationDays : package.DurationDays;
-            subscription.EndDate = subscription.StartDate.Value.AddDays(durationDays - 1);
-            subscription.DurationDays = durationDays;
-            subscription.Status = "Active";
-            subscription.UpdatedAt = now;
+            await MembershipEntitlements.ActivateAsync(_unitOfWork.Context, subscription, package, today, now, cancellationToken);
             await FlowNotificationWriter.MembershipPaidAsync(_unitOfWork.Context, senderId, subscription,
                 package.Name, today, cancellationToken);
         }

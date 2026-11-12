@@ -34,8 +34,15 @@ public sealed class ClassSchedulesController(IClassScheduleQueryService service)
             scopedCenterId = centerId;
 
         return Ok(await service.GetSessionsAsync(
-            new SessionScheduleQuery(sportId, coachId, from, to, page, pageSize, scopedCenterId), ct));
+            new SessionScheduleQuery(sportId, coachId, from, to, page, pageSize, scopedCenterId,
+                User.IsInRole("MEMBER") ? CurrentUserId : null), ct));
     }
+
+    /// <summary>Current package entitlements (allowed sports, cancel rule) for the member schedule page.</summary>
+    [Authorize(Roles = "MEMBER")]
+    [HttpGet("members/me/entitlements")]
+    public async Task<IActionResult> GetMyEntitlements(CancellationToken ct = default) =>
+        Ok(await service.GetMyEntitlementsAsync(CurrentUserId, ct));
 
     /// <summary>No coach id parameter on purpose: the coach is taken from the token.</summary>
     [Authorize(Roles = "COACH")]

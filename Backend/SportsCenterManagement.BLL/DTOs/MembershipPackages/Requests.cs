@@ -11,7 +11,12 @@ namespace SportsCenterManagement.BLL.DTOs.MembershipPackages
         [param: StringLength(50)] string? AccessType,
         [param: Range(1, 100)] int AllowedSports,
         [param: StringLength(50)] string? Badge,
-        IReadOnlyList<string>? Features);
+        IReadOnlyList<string>? Features,
+        // Optional entitlement params; null keeps the current value (or derives it on create).
+        [param: Range(1, 10)] int? TierLevel = null,
+        bool? IsAllAccess = null,
+        [param: Range(0, 720)] int? CancelBeforeHours = null,
+        [param: Range(0, 365)] int? MaxFreezeDays = null);
 
     public static class Requests
     {

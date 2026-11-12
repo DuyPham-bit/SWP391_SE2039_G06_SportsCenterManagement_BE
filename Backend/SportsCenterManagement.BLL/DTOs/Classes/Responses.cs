@@ -99,7 +99,25 @@ public sealed record SessionScheduleItemResponse(
     int AvailableSeats,
     bool IsBookable,
     bool AllowWaitlist = true,
-    string? RoomName = null);
+    string? RoomName = null,
+    // Member-only: ALREADY_BOOKED | EXPIRED | NO_VALID_PACKAGE | SPORT_NOT_INCLUDED | FULL | NOT_OPEN | CAN_BOOK
+    string? ButtonState = null,
+    long? BookingId = null);
+
+/// <summary>Member's current package entitlements for the schedule page (sport filter locks, cancel rule).</summary>
+public sealed record MemberEntitlementResponse(
+    bool HasActivePackage,
+    long? SubscriptionId,
+    long? PackageId,
+    string? PackageName,
+    int TierLevel,
+    bool IsAllAccess,
+    int MaxSports,
+    int CancelBeforeHours,
+    int MaxFreezeDays,
+    DateOnly? EndDate,
+    IReadOnlyList<long>? AllowedSportIds,
+    int ActiveSportCount);
 
 public sealed record TeachingScheduleItemResponse(
     long SessionId,

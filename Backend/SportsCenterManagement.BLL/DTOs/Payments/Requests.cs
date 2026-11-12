@@ -27,6 +27,10 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
         public string? Note { get; set; }
 
         public bool CancelPendingIfAny { get; set; }
+
+        /// <summary>Sports picked for a non all-access package; ignored on renewal. Null = legacy implicit rule.</summary>
+        [MaxLength(20)]
+        public List<long>? SportIds { get; set; }
     }
 
     public class CreatePaymentRequest
@@ -41,6 +45,10 @@ namespace SportsCenterManagement.BLL.DTOs.Payments
         public string? BankCode { get; set; }
 
         public bool CancelPendingIfAny { get; set; }
+
+        /// <summary>Sports picked for a non all-access package; ignored on renewal. Null = legacy implicit rule.</summary>
+        [MaxLength(20)]
+        public List<long>? SportIds { get; set; }
     }
 
     public sealed class CounterOnlinePaymentRequest : CreatePaymentRequest

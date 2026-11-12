@@ -32,5 +32,9 @@ public sealed record MembershipPackageResponse(
     IReadOnlyList<string>? Features = null,
     int SubscriberCount = 0,
     bool HasOrders = false,
-    bool IsEditable = true);
+    bool IsEditable = true,
+    int TierLevel = 1,
+    bool IsAllAccess = false,
+    int CancelBeforeHours = 0,
+    int MaxFreezeDays = 0);
 }

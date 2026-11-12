@@ -32,6 +32,13 @@ public interface IMembershipPackageService
         string status,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Hard-deletes a package nobody has subscribed to or been invoiced for (409 otherwise).</summary>
+    Task DeletePackageAsync(
+        long actorUserId,
+        long centerId,
+        long packageId,
+        CancellationToken cancellationToken = default);
+
     Task<MembershipPackageResponse> CreateAsync(
         long actorUserId,
         long centerId,

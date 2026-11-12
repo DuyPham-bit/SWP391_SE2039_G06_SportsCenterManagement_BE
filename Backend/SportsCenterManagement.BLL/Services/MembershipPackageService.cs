@@ -219,6 +219,34 @@ public sealed class MembershipPackageService(IUnitOfWork unitOfWork) : IMembersh
         return ToResponse(package, subCount, hasOrders, !hasOrders);
     }
 
+    public async Task DeletePackageAsync(
+        long actorUserId,
+        long centerId,
+        long packageId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
+        var package = await FindPackageAsync(centerId, packageId, cancellationToken);
+        var used = await unitOfWork.Context.MemberSubscriptions.AnyAsync(s => s.PackageId == packageId, cancellationToken)
+            || await unitOfWork.Context.InvoiceItems.AnyAsync(i => i.PackageId == packageId, cancellationToken);
+        if (used)
+        {
+            var ex = new InvalidOperationException("Gói tập đã có hội viên đăng ký hoặc đặt mua, không thể xóa.");
+            ex.Data["Code"] = "PKG_HAS_ORDERS";
+            ex.Data["StatusCode"] = 409;
+            ex.Data["ProposedHandling"] = "Hãy Khóa bán gói này thay vì xóa.";
+            throw ex;
+        }
+
+        unitOfWork.Context.MembershipPackages.Remove(package);
+        AuditLogWriter.Add(unitOfWork, actorUserId, centerId, "membership_package.deleted",
+            "MembershipPackage", package.Id,
+            new { package.Name, package.Price, package.DurationDays, package.Status }, null);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+    }
+
     private async Task<IReadOnlyList<MembershipPackageResponse>> MapPackagesAsync(
         long centerId,
         bool activeOnly,

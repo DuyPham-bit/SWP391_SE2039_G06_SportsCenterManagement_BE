@@ -137,6 +137,25 @@ public sealed class MembershipPackagesController(
         }
     }
 
+    [HttpDelete("{packageId:long}")]
+    [Authorize(Roles = "MANAGER,ADMIN")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Delete(long centerId, long packageId, CancellationToken cancellationToken)
+    {
+        await centerScopeService.EnsureCenterAccessAsync(CenterScope.GetUserId(User), User.IsInRole("ADMIN"), centerId, cancellationToken);
+        try
+        {
+            await packageService.DeletePackageAsync(CenterScope.GetUserId(User), centerId, packageId, cancellationToken);
+            return NoContent();
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+    }
+
     [HttpPatch("/api/membership-packages/{packageId:long}")]
     [RequirePermission(PermissionCodes.MembershipPackagesManage)]
     public async Task<IActionResult> UpdateFromDirectRoute(

@@ -94,14 +94,48 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 
 builder.Services.AddAuthorization(options => options.FallbackPolicy =
     new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-if (allowedOrigins.Length == 0)
+var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+if (configuredOrigins.Length == 0)
 {
-    allowedOrigins = ["https://olympic-sports-arena.vercel.app", "http://localhost:3004", "http://localhost:5173"];
+    var rawOrigins = builder.Configuration["Cors:AllowedOrigins"];
+    if (!string.IsNullOrWhiteSpace(rawOrigins))
+    {
+        configuredOrigins = rawOrigins.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+}
+var allowedOrigins = configuredOrigins
+    .Select(origin => origin.Trim().TrimEnd('/'))
+    .Where(origin => !string.IsNullOrEmpty(origin))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+if (allowedOrigins.Count == 0)
+{
+    allowedOrigins.Add("https://olympic-sports-arena.vercel.app");
+    allowedOrigins.Add("http://localhost:3004");
+    allowedOrigins.Add("http://localhost:5173");
 }
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
 {
-    policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials().WithExposedHeaders("Retry-After");
+    policy.SetIsOriginAllowed(origin =>
+        {
+            var normalized = origin.Trim().TrimEnd('/');
+            if (allowedOrigins.Contains(normalized))
+            {
+                return true;
+            }
+            if (Uri.TryCreate(normalized, UriKind.Absolute, out var originUri)
+                && string.Equals(originUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                && originUri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)
+                && originUri.Host.StartsWith("olympic-sports-arena", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            return false;
+        })
+        .AllowAnyHeader()
+        .AllowAnyMethod()
+        .AllowCredentials()
+        .WithExposedHeaders("Retry-After");
 }));
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
@@ -239,6 +273,21 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseCors();
+
+static void ClearResponsePreservingCors(HttpResponse response)
+{
+    var corsHeaders = response.Headers
+        .Where(h => h.Key.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(h.Key, "Vary", StringComparison.OrdinalIgnoreCase))
+        .ToArray();
+    response.Clear();
+    foreach (var header in corsHeaders)
+    {
+        response.Headers[header.Key] = header.Value;
+    }
+}
+
 app.Use(async (context, next) =>
 {
     try
@@ -252,7 +301,7 @@ app.Use(async (context, next) =>
             throw;
         }
 
-        context.Response.Clear();
+        ClearResponsePreservingCors(context.Response);
         context.Response.StatusCode = (int)exception.StatusCode;
         context.Response.ContentType = "application/problem+json";
         await context.Response.WriteAsJsonAsync(new
@@ -277,7 +326,7 @@ app.Use(async (context, next) =>
         }
 
         app.Logger.LogWarning(exception, "Unique constraint conflict. TraceId: {TraceId}", context.TraceIdentifier);
-        context.Response.Clear();
+        ClearResponsePreservingCors(context.Response);
         context.Response.StatusCode = StatusCodes.Status409Conflict;
         context.Response.ContentType = "application/problem+json";
         await context.Response.WriteAsJsonAsync(new
@@ -301,7 +350,7 @@ app.Use(async (context, next) =>
         }
 
         app.Logger.LogWarning(exception, "Database transaction deadlock. TraceId: {TraceId}", context.TraceIdentifier);
-        context.Response.Clear();
+        ClearResponsePreservingCors(context.Response);
         context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
         context.Response.ContentType = "application/problem+json";
         context.Response.Headers["Retry-After"] = "1";
@@ -328,7 +377,7 @@ app.Use(async (context, next) =>
             throw;
         }
 
-        context.Response.Clear();
+        ClearResponsePreservingCors(context.Response);
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         context.Response.ContentType = "application/problem+json";
         await context.Response.WriteAsJsonAsync(new
@@ -382,7 +431,6 @@ app.Use(async (context, next) =>
     }
 });
 app.UseRouting();
-app.UseCors();
 app.Use(async (context, next) =>
 {
     var isPaymentCreateRequest = context.Request.Method == HttpMethods.Post &&

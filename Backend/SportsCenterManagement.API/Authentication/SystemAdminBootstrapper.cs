@@ -32,8 +32,11 @@ public static class AdminBootstrapper
         }
         if (usernameSetting is null && emailSetting is null && password is null)
         {
-            throw new InvalidOperationException(
-                "No Admin account exists. Configure Bootstrap:Admin:Username, Email, and Password for first startup.");
+            // Let the API start without an Admin; set Bootstrap:Admin:* and restart to create it.
+            Console.Error.WriteLine(
+                "WARNING: No Admin account exists. Configure Bootstrap:Admin:Username, Email, and Password and restart to create it.");
+            await transaction.CommitAsync();
+            return;
         }
         if (string.IsNullOrWhiteSpace(usernameSetting)
             || string.IsNullOrWhiteSpace(emailSetting)

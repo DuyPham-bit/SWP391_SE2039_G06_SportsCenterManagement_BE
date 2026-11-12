@@ -81,9 +81,12 @@ public sealed class LandingContentService(SportsCenterDbContext db, IConfigurati
 
     private JsonElement TransformR2Urls(JsonElement content, bool toPublicUrl)
     {
+        var publicDomain = configuration["R2Storage:PublicDomain"]?.Trim().TrimEnd('/') ?? string.Empty;
+        if (string.IsNullOrEmpty(publicDomain))
+        {
+            return content.Clone();
+        }
         var node = JsonNode.Parse(content.GetRawText())!;
-        var publicDomain = configuration["R2Storage:PublicDomain"]?.Trim().TrimEnd('/')
-            ?? throw new InvalidOperationException("R2Storage:PublicDomain is not configured.");
         TransformNode(node, publicDomain, toPublicUrl);
         return JsonSerializer.SerializeToElement(node);
     }

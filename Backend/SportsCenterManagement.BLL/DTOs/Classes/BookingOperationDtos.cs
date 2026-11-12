@@ -8,7 +8,8 @@ public sealed record MemberWaitlistItemDto(
     TimeOnly StartTime,
     TimeOnly EndTime,
     string Status,
-    DateTime JoinedAt);
+    DateTime JoinedAt,
+    int Position = 0);
 
 public sealed record SessionRosterItemDto(
     long? BookingId,

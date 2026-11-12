@@ -63,6 +63,7 @@ public interface ISessionBookingService
     Task<CancelBookingResult> CancelForMemberAsync(long actorUserId, bool isAdmin, long memberId, long bookingId, CancellationToken ct = default);
     Task<IReadOnlyList<MemberWaitlistItemDto>> GetMyWaitlistAsync(long userId, CancellationToken ct = default);
     Task LeaveWaitlistAsync(long userId, long waitlistId, CancellationToken ct = default);
+    Task<int> FillOpenSeatsFromWaitlistAsync(long sessionId, long actorUserId, CancellationToken ct = default);
     Task<IReadOnlyList<SessionRosterItemDto>> GetSessionRosterAsync(long coachUserId, long sessionId, CancellationToken ct = default);
     Task<int> RecordAttendanceAsync(long coachUserId, long sessionId, IReadOnlyList<AttendanceRecordDto> records, CancellationToken ct = default);
 }

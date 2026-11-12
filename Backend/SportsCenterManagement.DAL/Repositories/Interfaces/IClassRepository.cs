@@ -20,7 +20,9 @@ public sealed record MemberWaitlistItem(
     TimeOnly StartTime,
     TimeOnly EndTime,
     string Status,
-    DateTime JoinedAt);
+    DateTime JoinedAt,
+    string SessionStatus,
+    int Position);
 
 public sealed record SessionRosterItem(
     long? BookingId,

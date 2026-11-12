@@ -37,6 +37,25 @@ public sealed class BookingOperationsController(ISessionBookingService bookings)
         return Ok(result);
     }
 
+    [Authorize(Roles = "RECEPTIONIST,MANAGER,ADMIN")]
+    [HttpGet("members/{memberId:long}/session-waitlist")]
+    [CenterCapability("lookup_member")]
+    public async Task<IActionResult> WaitlistForMember(long memberId, CancellationToken ct)
+    {
+        var userId = await bookings.ResolveMemberUserIdAsync(CurrentUserId, User.IsInRole("ADMIN"), memberId, ct);
+        return Ok(await bookings.GetMyWaitlistAsync(userId, ct));
+    }
+
+    [Authorize(Roles = "RECEPTIONIST,MANAGER,ADMIN")]
+    [HttpDelete("members/{memberId:long}/session-waitlist/{waitlistId:long}")]
+    [CenterCapability("lookup_member")]
+    public async Task<IActionResult> LeaveWaitlistForMember(long memberId, long waitlistId, CancellationToken ct)
+    {
+        var userId = await bookings.ResolveMemberUserIdAsync(CurrentUserId, User.IsInRole("ADMIN"), memberId, ct);
+        await bookings.LeaveWaitlistAsync(userId, waitlistId, ct);
+        return NoContent();
+    }
+
     [Authorize(Roles = "MEMBER")]
     [HttpGet("members/me/session-waitlist")]
     [CenterCapability("book_class")]

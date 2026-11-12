@@ -34,6 +34,12 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterMa
         var cls = await Db.Classes.SingleAsync(c => c.Id == session.ClassId, cancellationToken);
         var now = ScheduleTime.VietnamNow;
 
+        // A seat may have opened without a cancellation (capacity raised, room changed). Members
+        // already queued keep their FIFO priority, so free seats go to them before a new booker.
+        if (cls.AllowWaitlist && await Db.ClassWaitlists.AnyAsync(
+                w => w.SessionId == sessionId && w.Status == FlowStatuses.WaitlistWaiting, cancellationToken))
+            await FillOpenSeatsFromWaitlistAsync(sessionId, actorUserId ?? currentUserId, cancellationToken);
+
         // A retry after a successful response must return the existing active booking,
         // even if the member's package state changed after the original request.
         var existingBooking = await Db.SessionBookings.SingleOrDefaultAsync(
@@ -560,7 +566,11 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterMa
     public async Task<IReadOnlyList<MemberWaitlistItemDto>> GetMyWaitlistAsync(long userId, CancellationToken ct = default)
     {
         var items = await classRepository.GetMemberWaitlistAsync(userId, ct);
-        return items.Select(w => new MemberWaitlistItemDto(
+        var now = ScheduleTime.VietnamNow;
+        // Entries of sessions that already started or were cancelled can no longer be promoted.
+        return items.Where(w => w.SessionStatus == FlowStatuses.SessionScheduled
+                && w.SessionDate.ToDateTime(w.StartTime) > now)
+            .Select(w => new MemberWaitlistItemDto(
             w.Id,
             w.SessionId,
             w.ClassName,
@@ -568,7 +578,31 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterMa
             w.StartTime,
             w.EndTime,
             w.Status,
-            w.JoinedAt)).ToList();
+            w.JoinedAt,
+            w.Position)).ToList();
+    }
+
+    /// <summary>
+    /// Fills every free seat of the session from its waitlist (FIFO). Used whenever seats may open up
+    /// without a member cancelling (capacity raised, room changed, a missed promotion).
+    /// Runs inside the caller's transaction; the caller commits.
+    /// </summary>
+    public async Task<int> FillOpenSeatsFromWaitlistAsync(long sessionId, long actorUserId, CancellationToken ct = default)
+    {
+        var session = await Db.ClassSessions.SingleOrDefaultAsync(s => s.Id == sessionId, ct);
+        if (session is null || session.SessionStatus != FlowStatuses.SessionScheduled) return 0;
+        var cls = await Db.Classes.SingleAsync(c => c.Id == session.ClassId, ct);
+        var now = ScheduleTime.VietnamNow;
+        if (session.SessionDate.ToDateTime(session.StartTime) <= now) return 0;
+
+        var promoted = 0;
+        while (await PromoteNextWaitlistAsync(session, cls, now, actorUserId, ct) is not null)
+        {
+            promoted++;
+            await SaveAsync(ct); // the next round recounts bookings from the database
+        }
+        await SaveAsync(ct);
+        return promoted;
     }
 
     public async Task LeaveWaitlistAsync(long userId, long waitlistId, CancellationToken ct = default)

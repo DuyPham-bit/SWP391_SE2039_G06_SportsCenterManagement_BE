@@ -85,7 +85,11 @@ public sealed class ClassRepository(SportsCenterDbContext db) : IClassRepository
                 s.StartTime,
                 s.EndTime,
                 w.Status,
-                w.JoinedAt)
+                w.JoinedAt,
+                s.SessionStatus,
+                // FIFO position: same ordering the promotion uses (JoinedAt, then Id).
+                db.ClassWaitlists.Count(other => other.SessionId == w.SessionId && other.Status == "Waiting"
+                    && (other.JoinedAt < w.JoinedAt || (other.JoinedAt == w.JoinedAt && other.Id < w.Id))) + 1)
         ).ToListAsync(ct);
     }
 

@@ -12,7 +12,7 @@ namespace SportsCenterManagement.BLL.Services;
 /// UC-12. Enforces BR-CLASS-01 (capacity vs room), BR-CLASS-03 (room not double-booked)
 /// and, when a schedule is added to a class that already has coaches, BR-CLASS-02.
 /// </summary>
-public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManagementService
+public sealed class ClassManagementService(IUnitOfWork unitOfWork, ISessionBookingService? sessionBookings = null) : IClassManagementService
 {
     private const int MaxScheduleSpanDays = 366;
     private const double MaxDailyTeachingHours = 8.0;
@@ -244,6 +244,31 @@ public sealed class ClassManagementService(IUnitOfWork unitOfWork) : IClassManag
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // Turning the waitlist off closes the queue; leaving entries "Waiting" would show members a queue that never moves.
+        if (oldValues.AllowWaitlist && !entity.AllowWaitlist)
+        {
+            var closedEntries = await Db.ClassWaitlists
+                .Where(w => w.ClassId == classId && w.Status == FlowStatuses.WaitlistWaiting)
+                .ToListAsync(cancellationToken);
+            foreach (var entry in closedEntries) entry.Status = FlowStatuses.WaitlistCancelled;
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        // More seats (capacity raised / bigger room) must go to members already queued, in FIFO order.
+        if (sessionBookings is not null && entity.AllowWaitlist
+            && (request.Capacity > oldValues.Capacity || roomChanged))
+        {
+            var queueFrom = ScheduleTime.VietnamToday;
+            var queuedSessionIds = await Db.ClassWaitlists
+                .Where(w => w.ClassId == classId && w.Status == FlowStatuses.WaitlistWaiting && w.SessionId != null)
+                .Join(Db.ClassSessions, w => w.SessionId, s => (long?)s.Id, (w, s) => s)
+                .Where(s => s.SessionStatus == FlowStatuses.SessionScheduled && s.SessionDate >= queueFrom)
+                .Select(s => s.Id).Distinct().ToListAsync(cancellationToken);
+            foreach (var sessionId in queuedSessionIds)
+                await sessionBookings.FillOpenSeatsFromWaitlistAsync(sessionId, actorUserId, cancellationToken);
+        }
+
         AuditLogWriter.Add(unitOfWork, actorUserId, entity.CenterId, "class.updated", "Class", entity.Id,
             oldValues, new
             {

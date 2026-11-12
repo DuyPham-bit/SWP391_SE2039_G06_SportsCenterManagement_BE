@@ -100,9 +100,13 @@ public sealed record SessionScheduleItemResponse(
     bool IsBookable,
     bool AllowWaitlist = true,
     string? RoomName = null,
-    // Member-only: ALREADY_BOOKED | EXPIRED | NO_VALID_PACKAGE | SPORT_NOT_INCLUDED | FULL | NOT_OPEN | CAN_BOOK
+    // Member-only: ALREADY_BOOKED | EXPIRED | WAITLISTED | NO_VALID_PACKAGE | SPORT_NOT_INCLUDED | FULL | NOT_OPEN | CAN_BOOK
     string? ButtonState = null,
-    long? BookingId = null);
+    long? BookingId = null,
+    // Member-only: the caller's own queue entry and FIFO position for this session.
+    long? WaitlistId = null,
+    int? WaitlistPosition = null,
+    int WaitlistCount = 0);
 
 /// <summary>Member's current package entitlements for the schedule page (sport filter locks, cancel rule).</summary>
 public sealed record MemberEntitlementResponse(

@@ -91,7 +91,8 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                             && coach.CenterId == x.cls.CenterId && coach.Status == "Active"
                             && Db.Users.Any(user => user.Id == coach.UserId && user.Status == "Active"
                                 && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)))),
-                Booked = Db.SessionBookings.Count(b => b.SessionId == x.session.Id && b.Status == FlowStatuses.BookingBooked)
+                Booked = Db.SessionBookings.Count(b => b.SessionId == x.session.Id && b.Status == FlowStatuses.BookingBooked),
+                Waiting = Db.ClassWaitlists.Count(w => w.SessionId == x.session.Id && w.Status == FlowStatuses.WaitlistWaiting)
             })
             .ToListAsync(cancellationToken);
 
@@ -128,9 +129,10 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                 && start - now <= TimeSpan.FromDays(7);
             var isBookable = openWindow && (available > 0 || p.AllowWaitlist);
             long? bookingId = member is not null && member.BookingBySession.TryGetValue(p.Id, out var bid) ? bid : null;
+            WaitlistSpot? spot = member is not null && member.WaitlistBySession.TryGetValue(p.Id, out var ws) ? ws : null;
             var buttonState = member is null ? null
                 : ResolveButtonState(member.Entitlements, bookingId.HasValue, start <= now, p.SessionDate,
-                    p.CenterId, p.SportId, available, openWindow);
+                    p.CenterId, p.SportId, available, openWindow, waitlisted: spot is not null);
             return new SessionScheduleItemResponse(
                 p.Id, p.ClassId, p.ClassName, p.SportId, p.SportName, p.RoomId,
                 effectiveCoachId, effectiveCoachName, p.SessionDate, p.StartTime, p.EndTime,
@@ -139,15 +141,21 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                 AllowWaitlist: p.AllowWaitlist,
                 RoomName: p.RoomName,
                 ButtonState: buttonState,
-                BookingId: bookingId);
+                BookingId: bookingId,
+                WaitlistId: spot?.Id,
+                WaitlistPosition: spot?.Position,
+                WaitlistCount: p.Waiting);
         }).ToList();
 
         return new PagedResult<SessionScheduleItemResponse>(items, query.Page, query.PageSize, total);
     }
 
+    private sealed record WaitlistSpot(long Id, int Position);
+
     private sealed record MemberContext(
         IReadOnlyList<MembershipEntitlements.SubscriptionEntitlement> Entitlements,
-        IReadOnlyDictionary<long, long> BookingBySession);
+        IReadOnlyDictionary<long, long> BookingBySession,
+        IReadOnlyDictionary<long, WaitlistSpot> WaitlistBySession);
 
     /// <summary>Null for staff callers or users without a member profile: no ButtonState is computed.</summary>
     private async Task<MemberContext?> LoadMemberContextAsync(long? userId, IReadOnlyList<long> sessionIds, CancellationToken ct)
@@ -159,16 +167,31 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
         var bookings = await Db.SessionBookings
             .Where(b => b.MemberId == mid && b.Status == FlowStatuses.BookingBooked && sessionIds.Contains(b.SessionId))
             .Select(b => new { b.SessionId, b.Id }).ToListAsync(ct);
-        return new MemberContext(entitlements, bookings.ToDictionary(b => b.SessionId, b => b.Id));
+        var waiting = await Db.ClassWaitlists
+            .Where(w => w.MemberId == mid && w.Status == FlowStatuses.WaitlistWaiting
+                && w.SessionId != null && sessionIds.Contains(w.SessionId.Value))
+            .Select(w => new
+            {
+                SessionId = w.SessionId!.Value,
+                w.Id,
+                // Same FIFO order as the promotion (JoinedAt, then Id).
+                Position = Db.ClassWaitlists.Count(other => other.SessionId == w.SessionId
+                    && other.Status == FlowStatuses.WaitlistWaiting
+                    && (other.JoinedAt < w.JoinedAt || (other.JoinedAt == w.JoinedAt && other.Id < w.Id))) + 1
+            }).ToListAsync(ct);
+        return new MemberContext(entitlements, bookings.ToDictionary(b => b.SessionId, b => b.Id),
+            waiting.GroupBy(w => w.SessionId)
+                .ToDictionary(g => g.Key, g => new WaitlistSpot(g.First().Id, g.First().Position)));
     }
 
-    /// <summary>Priority order: booked > past > no package > sport not included > full > not open > can book.</summary>
+    /// <summary>Priority order: booked > past > waitlisted > no package > sport not included > full > not open > can book.</summary>
     internal static string ResolveButtonState(
         IReadOnlyList<MembershipEntitlements.SubscriptionEntitlement> entitlements, bool alreadyBooked, bool started,
-        DateOnly sessionDate, long centerId, long sportId, int availableSeats, bool openForBooking)
+        DateOnly sessionDate, long centerId, long sportId, int availableSeats, bool openForBooking, bool waitlisted = false)
     {
         if (alreadyBooked) return "ALREADY_BOOKED";
         if (started) return "EXPIRED";
+        if (waitlisted) return "WAITLISTED";
         var covering = entitlements.Where(e => e.Covers(sessionDate, centerId)).ToList();
         if (covering.Count == 0) return "NO_VALID_PACKAGE";
         if (!covering.Any(e => e.AllowsSport(sportId))) return "SPORT_NOT_INCLUDED";

@@ -130,6 +130,29 @@ Check("missing required biometrics is rejected before provider call", () =>
     }
 });
 
+Check("coach-entered goal is accepted when the stored profile goal is empty", () =>
+{
+    var noProfileGoal = new RecommendationContext("Yoga", null, null, null, [], 175m, 54.9m,
+        "Female", new DateOnly(2002, 1, 1), 24, 17.9m, "test", []);
+    var result = AiWorkoutSafetyPolicy.Resolve(noProfileGoal, "phục hồi khớp gối", "Beginner", []);
+    return result.EffectiveGoal.Length > 0;
+});
+
+Check("missing goal in both profile and request is rejected", () =>
+{
+    var noProfileGoal = new RecommendationContext("Yoga", null, null, null, [], 175m, 54.9m,
+        "Female", new DateOnly(2002, 1, 1), 24, 17.9m, "test", []);
+    try
+    {
+        AiWorkoutSafetyPolicy.Resolve(noProfileGoal, "   ", "Beginner", []);
+        return false;
+    }
+    catch (InvalidOperationException exception)
+    {
+        return exception.Data["Code"] as string == "INSUFFICIENT_CONTEXT_FOR_AI";
+    }
+});
+
 Check("recommendation processor rejects a non-object provider response with a tagged gateway error", () =>
 {
     var safety = AiWorkoutSafetyPolicy.Resolve(Context(22m), "Tăng cơ", "Intermediate", []);

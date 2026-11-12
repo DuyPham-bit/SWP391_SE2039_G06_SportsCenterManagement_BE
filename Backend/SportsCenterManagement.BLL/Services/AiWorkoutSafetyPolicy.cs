@@ -126,8 +126,10 @@ public static class AiWorkoutSafetyPolicy
         IEnumerable<string>? subjectiveTags,
         string? coachNotes = null)
     {
+        // The coach-entered goal (requestedGoal) drives the plan, so a missing stored profile goal is acceptable.
+        var hasGoal = !string.IsNullOrWhiteSpace(requestedGoal) || !string.IsNullOrWhiteSpace(context.FitnessGoal);
         if (context.HeightCm is null or <= 0 || context.WeightKg is null or <= 0 ||
-            string.IsNullOrWhiteSpace(context.FitnessGoal) || context.Bmi is null or <= 0)
+            !hasGoal || context.Bmi is null or <= 0)
             throw new InvalidOperationException("Học viên cần cập nhật đủ chiều cao, cân nặng và mục tiêu tập luyện trước khi dùng AI.")
             {
                 Data =
@@ -171,7 +173,7 @@ public static class AiWorkoutSafetyPolicy
         if (!string.IsNullOrWhiteSpace(context.MedicalNote)) conditions.Add(context.MedicalNote.Trim());
         conditions.AddRange((context.HealthRecords ?? []).Select(record => $"{record.Title}: {record.Details}"));
 
-        var effectiveGoal = requestedGoal.Trim();
+        var effectiveGoal = string.IsNullOrWhiteSpace(requestedGoal) ? context.FitnessGoal!.Trim() : requestedGoal.Trim();
         var effectiveLevel = currentLevel.Trim();
 
         if (hasSevereLegInjury)

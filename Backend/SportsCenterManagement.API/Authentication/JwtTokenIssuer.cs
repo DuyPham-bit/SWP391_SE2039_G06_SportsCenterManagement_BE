@@ -15,9 +15,10 @@ public sealed class JwtTokenIssuer
 
     public JwtTokenIssuer(IConfiguration configuration)
     {
-        var key = configuration["Jwt:Key"] ?? configuration["Jwt:SecretKey"] ?? "scms-dev-jwt-key-2026-strong-random-secret-value!";
+        // No built-in default: a key shipped in source would let anyone forge tokens.
+        var key = configuration["Jwt:Key"] ?? configuration["Jwt:SecretKey"];
         if (string.IsNullOrWhiteSpace(key) || Encoding.UTF8.GetByteCount(key) < 32)
-            throw new InvalidOperationException("Jwt:Key must be at least 256 bits.");
+            throw new InvalidOperationException("Jwt:Key is not configured or shorter than 32 bytes. Set Jwt__Key (environment) or Jwt:Key (user-secrets).");
         _issuer = configuration["Jwt:Issuer"] ?? "SportsCenterManagement.API";
         _audience = configuration["Jwt:Audience"] ?? "SportsCenterManagement.FE";
         if (string.IsNullOrWhiteSpace(_issuer) || string.IsNullOrWhiteSpace(_audience))

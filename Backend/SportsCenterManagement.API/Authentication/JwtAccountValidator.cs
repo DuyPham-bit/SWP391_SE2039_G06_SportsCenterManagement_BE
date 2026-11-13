@@ -23,10 +23,19 @@ public sealed class JwtAccountValidator(SportsCenterDbContext db)
         var account = await (from user in db.Users.AsNoTracking()
             join role in db.Roles on user.RoleId equals role.Id
             where user.Id == userId
-            select new { user.Status, user.LockedUntil, user.AuthVersion, Role = role.Name }).SingleOrDefaultAsync(ct);
+            select new { user.Status, user.LockedUntil, user.AuthVersion, user.MustChangePassword, Role = role.Name }).SingleOrDefaultAsync(ct);
         if (account is null || account.Status != "Active" || account.LockedUntil > DateTime.UtcNow)
         {
             context.Fail("Tài khoản không hoạt động.");
+            return;
+        }
+
+        // Accounts still on the default (phone) password may only read their profile, set a new
+        // password or log out. Enforced here so it covers every [Authorize]/[CenterCapability] endpoint,
+        // not only the [RequirePermission] ones.
+        if (account.MustChangePassword && !IsAllowedBeforePasswordChange(context.HttpContext.Request))
+        {
+            context.Fail("Bạn cần đặt mật khẩu mới trước khi sử dụng chức năng này.");
             return;
         }
 
@@ -46,5 +55,13 @@ public sealed class JwtAccountValidator(SportsCenterDbContext db)
             identity.AddClaim(new Claim(ClaimTypes.Role, role));
         var centerId = await CenterRolePolicy.CenterForUser(db, userId, ct);
         if (centerId.HasValue) identity.AddClaim(new Claim("centerId", centerId.Value.ToString()));
+    }
+
+    private static bool IsAllowedBeforePasswordChange(HttpRequest request)
+    {
+        var path = request.Path.Value ?? string.Empty;
+        return (HttpMethods.IsGet(request.Method) && path.Equals("/api/profile/me", StringComparison.OrdinalIgnoreCase))
+            || (HttpMethods.IsPost(request.Method) && (path.Equals("/api/auth/initial-password", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("/api/auth/logout", StringComparison.OrdinalIgnoreCase)));
     }
 }

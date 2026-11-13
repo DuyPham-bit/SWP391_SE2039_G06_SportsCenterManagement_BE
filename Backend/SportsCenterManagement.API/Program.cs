@@ -191,6 +191,9 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
     options.KnownIPNetworks.Clear();
     options.KnownProxies.Clear();
+    // Trust only the nearest hop (Railway/Vercel edge). Without this a client can append its own
+    // X-Forwarded-For value and pick the IP that the per-IP rate limiters key on.
+    options.ForwardLimit = 1;
 });
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database", tags: new[] { "ready" });
@@ -214,6 +217,11 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     PasswordResetRateLimiting.Configure(options);
     MailSendRateLimiting.Configure(options);
+    // Per-IP cap on credential guessing; the per-account lockout alone does not stop horizontal
+    // scans such as "login = password = phone" over many accounts.
+    options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     options.AddPolicy("ai", context => RateLimitPartition.GetFixedWindowLimiter(
         context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
@@ -256,7 +264,7 @@ if (autoMigrateOnStartup)
 
     try
     {
-        await DbInitializer.SeedAsync(dbContext);
+        await DbInitializer.SeedAsync(dbContext, app.Configuration.GetValue<bool>("Database:SeedDemoData", false));
         await AdminBootstrapper.SeedAsync(dbContext, app.Configuration);
     }
     finally

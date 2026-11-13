@@ -10,7 +10,11 @@ public static class DbInitializer
     // Timestamps are stored as UTC; session dates/times are Vietnam business time (UTC+7, no DST).
     private static DateTime BusinessToUtc(DateTime businessTime) => businessTime.AddHours(-7);
 
-    public static async Task SeedAsync(SportsCenterDbContext context)
+    /// <param name="seedDemoData">
+    /// Opt-in only (Database:SeedDemoData). The demo seed writes paid invoices, payments and active
+    /// subscriptions for every existing member, so it must never run against a real database.
+    /// </param>
+    public static async Task SeedAsync(SportsCenterDbContext context, bool seedDemoData = false)
     {
         if (context.Database.IsRelational()) await context.Database.MigrateAsync();
         else await context.Database.EnsureCreatedAsync();
@@ -18,7 +22,7 @@ public static class DbInitializer
         await EnsureAuthAndReceptionPermissionsAsync(context);
         await EnsureCompleteSportsCatalogAsync(context);
         await EnsureMembershipPackageSportsAsync(context);
-        await EnsureDemoBusinessDataAsync(context);
+        if (seedDemoData) await EnsureDemoBusinessDataAsync(context);
     }
 
     private static async Task EnsureRolesAndPermissionsAsync(SportsCenterDbContext context)

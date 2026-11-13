@@ -136,7 +136,7 @@ $env:ConnectionStrings__SportsCenter = "Host=localhost;Port=5432;Database=Sports
 
 Không commit thông tin đăng nhập hoặc secret thật. Dùng User Secrets hoặc environment variables ngoài máy local.
 
-Để dùng database đã có, đặt `ConnectionStrings:SportsCenter` tới đúng instance/database của bạn. Frontend gọi API, không kết nối database trực tiếp. Mã seed dữ liệu nghiệp vụ đã được gỡ; ứng dụng chỉ đồng bộ schema/quyền, không tự thêm tài khoản, lớp, gói tập hoặc tài nguyên demo. Cấu hình local đã kiểm tra cho workspace này và hướng dẫn chạy: [Kết nối DB thật](../Frontend/docs/real-database.md).
+Để dùng database đã có, đặt `ConnectionStrings:SportsCenter` tới đúng instance/database của bạn. Frontend gọi API, không kết nối database trực tiếp. Mặc định ứng dụng chỉ đồng bộ schema/quyền/danh mục môn, không tự thêm tài khoản, lớp, gói tập hoặc giao dịch demo; đặt `Database__SeedDemoData=true` chỉ trên database demo nếu muốn tạo dữ liệu mẫu (seed này gán gói, hóa đơn đã thanh toán và payment mẫu cho mọi hội viên hiện có). Cấu hình local đã kiểm tra cho workspace này và hướng dẫn chạy: [Kết nối DB thật](../Frontend/docs/real-database.md).
 
 JWT cần secret riêng dài tối thiểu 32 byte. Cấu hình bắt buộc `Jwt__Key` trước khi chạy. Có thể tạo nhanh cho phiên PowerShell hiện tại:
 

@@ -64,6 +64,10 @@ public sealed class PayrollService(IUnitOfWork unitOfWork)
         if (!actor.Equals("Admin", StringComparison.OrdinalIgnoreCase))
         {
             if (!actor.Equals("Manager", StringComparison.OrdinalIgnoreCase)) throw BusinessException.Forbidden("Bạn không có quyền cập nhật lương.");
+            // A manager must not set their own pay or another manager's; only Admin can.
+            if (request.UserId == actorId || target.Role.Equals("Manager", StringComparison.OrdinalIgnoreCase)
+                || target.Role.Equals("Admin", StringComparison.OrdinalIgnoreCase))
+                throw BusinessException.Forbidden("Quản lý không được cập nhật lương của chính mình hoặc của quản lý khác.");
             var centerId = await _unitOfWork.Context.StaffProfiles.Where(profile => profile.UserId == actorId)
                 .Select(profile => (long?)profile.CenterId).SingleOrDefaultAsync(ct);
             if (!centerId.HasValue || targetCenterId != centerId) throw BusinessException.Forbidden("Chỉ được cập nhật nhân sự trong trung tâm của bạn.");

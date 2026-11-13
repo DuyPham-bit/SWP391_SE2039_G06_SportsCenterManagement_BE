@@ -757,7 +757,7 @@ public sealed class PaymentService(
 
             var reserved = await _unitOfWork.Context.PaymentRefunds
                 .Where(candidate => candidate.PaymentId == payment.Id &&
-                                    (candidate.Status == "Pending" || candidate.Status == "Succeeded"))
+                                    (candidate.Status == "Pending" || candidate.Status == "Approved" || candidate.Status == "Succeeded"))
                 .SumAsync(candidate => (decimal?)candidate.Amount, cancellationToken) ?? 0m;
             var refundable = payment.Amount - reserved;
             if (request.Amount <= 0 || request.Amount > refundable)

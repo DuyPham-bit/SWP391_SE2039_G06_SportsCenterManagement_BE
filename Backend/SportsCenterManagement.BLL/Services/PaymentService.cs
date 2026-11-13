@@ -134,9 +134,11 @@ public sealed class PaymentService(
                                         response.OrderId == payment.GatewayReference &&
                                         response.RequestId == payment.GatewayReference &&
                                         response.Amount == payment.Amount &&
-                                        (string.IsNullOrWhiteSpace(expectedPartnerCode) || response.PartnerCode == expectedPartnerCode) &&
+                                        response.PartnerCode == expectedPartnerCode &&
                                         Uri.TryCreate(response.PayUrl, UriKind.Absolute, out var payUri) &&
-                                        (payUri.Scheme == Uri.UriSchemeHttps || payUri.Scheme == Uri.UriSchemeHttp);
+                                        payUri.Scheme == Uri.UriSchemeHttps &&
+                                        (payUri.Host.Equals("momo.vn", StringComparison.OrdinalIgnoreCase) ||
+                                         payUri.Host.EndsWith(".momo.vn", StringComparison.OrdinalIgnoreCase));
             if (!validProviderResponse)
             {
                 await SetPaymentStatusAsync(payment.Id, "Failed",

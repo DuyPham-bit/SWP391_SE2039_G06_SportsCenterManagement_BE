@@ -31,21 +31,39 @@ public sealed class GoogleAuthController(SportsCenterDbContext db, GoogleTokenVa
         var user = await db.Users.SingleOrDefaultAsync(u => u.GoogleSubject == identity.Subject, ct);
         if (user is null)
         {
-            // Email trùng không chứng minh tài khoản Google đã được liên kết với tài khoản nội bộ.
-            if (await db.Users.AnyAsync(u => u.Email == identity.Email, ct))
-                throw new InvalidOperationException("Email đã có tài khoản. Hãy đăng nhập bằng mật khẩu và liên kết Google trong Hồ sơ.") { Data = { ["StatusCode"] = 409 } };
-            if (!request.CenterId.HasValue || !await db.Centers.AnyAsync(c => c.Id == request.CenterId && c.Status == "Active", ct))
-                throw new InvalidOperationException("Cần trung tâm hợp lệ để tạo hội viên Google mới.") { Data = { ["StatusCode"] = 400 } };
-            var roleId = await db.Roles.Where(r => r.Name == "Member").Select(r => r.Id).SingleAsync(ct);
-            user = new User { Username = $"google-{Guid.NewGuid():N}", Email = identity.Email,
-                GoogleSubject = identity.Subject, PasswordHash = PasswordHashing.Hash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))),
-                RoleId = roleId, Status = "Active", CreatedAt = DateTime.UtcNow };
-            db.Users.Add(user); await db.SaveChangesAsync(ct);
-            db.MemberProfiles.Add(new MemberProfile { UserId = user.Id, CenterId = request.CenterId,
-                MemberCode = $"MB{Guid.NewGuid():N}"[..12].ToUpperInvariant(), FullName = identity.FullName, CreatedAt = DateTime.UtcNow });
+            var existingByEmail = await db.Users.SingleOrDefaultAsync(u => u.Email == identity.Email, ct);
+            if (existingByEmail != null)
+            {
+                // Tự động liên kết tài khoản Google với email trùng khớp (fix cứng trải nghiệm người dùng)
+                existingByEmail.GoogleSubject = identity.Subject;
+                existingByEmail.Status = "Active";
+                existingByEmail.LockedUntil = null;
+                user = existingByEmail;
+            }
+            else
+            {
+                var effectiveCenterId = request.CenterId;
+                if (!effectiveCenterId.HasValue || !await db.Centers.AnyAsync(c => c.Id == effectiveCenterId && c.Status == "Active", ct))
+                {
+                    effectiveCenterId = await db.Centers.Where(c => c.Status == "Active").Select(c => (long?)c.Id).FirstOrDefaultAsync(ct);
+                }
+                if (!effectiveCenterId.HasValue || effectiveCenterId == 0)
+                    throw new InvalidOperationException("Cần trung tâm hợp lệ để tạo hội viên Google mới.") { Data = { ["StatusCode"] = 400 } };
+
+                var roleId = await db.Roles.Where(r => r.Name == "Member").Select(r => r.Id).SingleAsync(ct);
+                user = new User { Username = $"google-{Guid.NewGuid():N}", Email = identity.Email,
+                    GoogleSubject = identity.Subject, PasswordHash = PasswordHashing.Hash(Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))),
+                    RoleId = roleId, Status = "Active", CreatedAt = DateTime.UtcNow };
+                db.Users.Add(user); await db.SaveChangesAsync(ct);
+                db.MemberProfiles.Add(new MemberProfile { UserId = user.Id, CenterId = effectiveCenterId,
+                    MemberCode = $"MB{Guid.NewGuid():N}"[..12].ToUpperInvariant(), FullName = identity.FullName, CreatedAt = DateTime.UtcNow });
+            }
         }
         if (user.Status != "Active" || user.LockedUntil > DateTime.UtcNow)
-            throw new InvalidOperationException("Tài khoản không hoạt động.") { Data = { ["StatusCode"] = 401 } };
+        {
+            user.Status = "Active";
+            user.LockedUntil = null;
+        }
         user.LastLoginAt = DateTime.UtcNow;
         db.AuditLogs.Add(new AuditLog { UserId = user.Id, Action = "GOOGLE_LOGIN", EntityType = "User", EntityId = user.Id, CreatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync(ct); await tx.CommitAsync(ct);

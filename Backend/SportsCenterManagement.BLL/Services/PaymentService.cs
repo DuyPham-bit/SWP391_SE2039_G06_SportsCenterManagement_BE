@@ -153,6 +153,15 @@ public sealed class PaymentService(
         {
             throw;
         }
+        catch (HttpRequestException ex) when (IsDefiniteGatewayRejection(ex.StatusCode))
+        {
+            // A 4xx means MoMo refused the request, so no transaction exists on their side: fail it instead of
+            // leaving a Pending row that a manager would have to reconcile by hand.
+            await SetPaymentStatusAsync(payment.Id, "Failed",
+                $"MoMo rejected link creation (HTTP {(int)ex.StatusCode!.Value}).", cancellationToken);
+            throw new BusinessException(HttpStatusCode.BadGateway,
+                "Cổng MoMo đang từ chối yêu cầu tạo giao dịch. Hóa đơn chưa thu tiền; vui lòng thử lại sau hoặc chọn VNPay.");
+        }
         catch (Exception)
         {
             await MarkPaymentPendingForReconciliationAsync(payment.Id, "MoMo chưa xác nhận kết quả khởi tạo; cần đối soát trước khi thử lại.");
@@ -2197,6 +2206,9 @@ public sealed class PaymentService(
     private static string GetProvider(string method) =>
         method.StartsWith("VNPAY", StringComparison.OrdinalIgnoreCase) ? "VNPAY" :
         method.StartsWith("MOMO", StringComparison.OrdinalIgnoreCase) ? "MOMO" : method.ToUpperInvariant();
+
+    internal static bool IsDefiniteGatewayRejection(HttpStatusCode? status) =>
+        status is { } code && (int)code is >= 400 and < 500 && code != HttpStatusCode.RequestTimeout;
 
     private void EnsureGatewayConfiguration(string provider, params string[] keys)
     {

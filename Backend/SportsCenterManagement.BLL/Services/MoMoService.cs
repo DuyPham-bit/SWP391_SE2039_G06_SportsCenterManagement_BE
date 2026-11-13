@@ -95,7 +95,8 @@ public class MoMoService : IMoMoService
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"Lỗi gọi sang cổng MoMo: {response.StatusCode} - {responseContent}");
+            // Carry the status code so callers can tell a definite rejection (4xx) from an unknown outcome.
+            throw new HttpRequestException($"Lỗi gọi sang cổng MoMo: {response.StatusCode} - {responseContent}", null, response.StatusCode);
         }
 
         var momoResponse = JsonSerializer.Deserialize<MomoCreatePaymentResponse>(

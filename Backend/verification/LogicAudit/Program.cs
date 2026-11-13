@@ -341,6 +341,26 @@ try {
                 && await db.MemberSubscriptions.AnyAsync(s => s.Id == subscription.Id && s.Status == "Refunded")
                 && await db.PaymentRefunds.AnyAsync(r => r.Id == refund.Id && r.ProviderRefundId == "VNPAY:987654321");
         });
+        await Check("MoMo HTTP 4xx rejection fails the payment instead of leaving it Pending for reconciliation", async () => {
+            var momoUser = User("momo-rejected", memberRole.Id);
+            db.Users.Add(momoUser); await db.SaveChangesAsync();
+            var momoMember = new MemberProfile { UserId = momoUser.Id, CenterId = center.Id, MemberCode = "AUDIT-MOMO", FullName = "MoMo member", CreatedAt = DateTime.UtcNow };
+            db.MemberProfiles.Add(momoMember); await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+            var momoConfig = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+                ["Momo:PartnerCode"] = "MOMO", ["Momo:AccessKey"] = "audit", ["Momo:SecretKey"] = "audit",
+                ["Momo:PaymentUrl"] = "https://test-payment.momo.vn/v2/gateway/api/create",
+                ["Momo:ReturnUrl"] = "https://app.example.test/payment-result", ["Momo:NotifyUrl"] = "https://api.example.test/api/payments/momo-ipn"
+            }).Build();
+            var service = new PaymentService(new UnitOfWork(db), null!, new RejectingMoMoService(HttpStatusCode.Forbidden), momoConfig);
+            HttpStatusCode? status = null;
+            try { await service.CreateMomoPaymentUrlAsync(momoMember.Id, new CreatePaymentRequest { PackageId = package.Id }, "audit-momo-403"); }
+            catch (BusinessException ex) { status = ex.StatusCode; }
+            db.ChangeTracker.Clear();
+            var payments = await db.Payments.Where(p => p.MemberId == momoMember.Id).Select(p => p.PaymentStatus).ToListAsync();
+            if (status != HttpStatusCode.BadGateway || payments.Count != 1 || payments[0] != "Failed")
+                throw new Exception($"status={status}, payments=[{string.Join(",", payments)}]");
+            return true;
+        });
         async Task<bool> ConcurrentAttempt(Func<CoachProfessionalService, Task<long>> action) {
             await using var isolated = new SportsCenterDbContext(options);
             try { return await action(new CoachProfessionalService(isolated, clock)) > 0; }
@@ -501,4 +521,12 @@ Environment.ExitCode = failures.Count == 0 ? 0 : 1;
 
 sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider {
     public override DateTimeOffset GetUtcNow() => now;
+}
+
+sealed class RejectingMoMoService(HttpStatusCode status) : IMoMoService {
+    public Task<MomoCreatePaymentResponse> CreatePaymentUrlAsync(string orderId, decimal amount, string orderInfo, CancellationToken cancellationToken = default)
+        => throw new HttpRequestException("MoMo rejected", null, status);
+    public MomoCallbackResult ProcessCallback(IDictionary<string, string> queryParams) => throw new NotSupportedException();
+    public Task<ProviderRefundResult> RefundAsync(string requestId, string refundOrderId, string providerTransactionId, decimal amount, string reason, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException();
 }

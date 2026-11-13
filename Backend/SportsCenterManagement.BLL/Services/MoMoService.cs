@@ -23,6 +23,16 @@ public class MoMoService : IMoMoService
     {
         _configuration = configuration;
         _httpClient = httpClient;
+        // MoMo's gateway WAF answers 403 (empty nginx page) to requests without a User-Agent, which is
+        // exactly what HttpClient sends by default; every create/refund call was rejected before reaching the API.
+        if (_httpClient.DefaultRequestHeaders.UserAgent.Count == 0)
+        {
+            _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("SportsCenterManagement/1.0");
+        }
+        if (_httpClient.DefaultRequestHeaders.Accept.Count == 0)
+        {
+            _httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+        }
     }
 
     /// <summary>

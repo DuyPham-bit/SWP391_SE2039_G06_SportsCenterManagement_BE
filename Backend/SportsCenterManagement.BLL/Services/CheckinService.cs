@@ -40,14 +40,15 @@ public sealed class CheckinService(IUnitOfWork unitOfWork, IBusinessClock clock)
 
         if (!searchId.HasValue && !string.IsNullOrWhiteSpace(term))
         {
+            var lowerTerm = term.ToLower();
             member = await (
                 from m in unitOfWork.Context.MemberProfiles.AsNoTracking()
                 join u in unitOfWork.Context.Users.AsNoTracking() on m.UserId equals u.Id
                 where m.CenterId == centerId && (
-                    m.MemberCode == term
+                    m.MemberCode.ToLower() == lowerTerm
                     || u.Phone == phoneTerm
-                    || u.Email == term
-                    || u.Username == term
+                    || u.Email.ToLower() == lowerTerm
+                    || u.Username.ToLower() == lowerTerm
                 )
                 select m
             ).FirstOrDefaultAsync(cancellationToken);

@@ -206,6 +206,7 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         CancellationToken cancellationToken = default)
     {
         var term = query.Trim();
+        var lowerTerm = term.ToLower();
         // "+84 912…" must find the stored "0912…".
         var phoneTerm = PhoneNumberNormalization.SearchTerm(term);
         var normalizedSort = sortBy.Trim().ToLowerInvariant();
@@ -227,9 +228,9 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             join user in unitOfWork.Context.Users.AsNoTracking() on profile.UserId equals user.Id
             where (profile.CenterId == centerId || (term != "" && profile.CenterId == null))
                   && user.Status != "Deleted"
-                  && (term == "" || profile.MemberCode.Contains(term)
-                      || profile.FullName.Contains(term)
-                      || user.Email.Contains(term)
+                  && (term == "" || profile.MemberCode.ToLower().Contains(lowerTerm)
+                      || profile.FullName.ToLower().Contains(lowerTerm)
+                      || user.Email.ToLower().Contains(lowerTerm)
                       || (user.Phone != null && user.Phone.Contains(phoneTerm)))
             let normalizedName = profile.FullName.Trim()
             let reversedName = SportsCenterDbContext.Reverse(normalizedName)

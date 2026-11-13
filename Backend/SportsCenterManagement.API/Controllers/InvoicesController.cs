@@ -31,7 +31,13 @@ public sealed class InvoicesController(IPaymentService paymentService, SportsCen
             select new { invoice.InvoiceNumber, invoice.MemberId, MemberName = member.FullName,
                 member.MemberCode, invoice.IssuedAt, invoice.Status, invoice.TotalAmount, invoice.Id };
         var term = query?.Trim();
-        if (!string.IsNullOrEmpty(term)) rows = rows.Where(r => r.InvoiceNumber.Contains(term) || r.MemberName.Contains(term) || r.MemberCode.Contains(term));
+        if (!string.IsNullOrEmpty(term))
+        {
+            var lowerTerm = term.ToLower();
+            rows = rows.Where(r => r.InvoiceNumber.ToLower().Contains(lowerTerm)
+                || r.MemberName.ToLower().Contains(lowerTerm)
+                || r.MemberCode.ToLower().Contains(lowerTerm));
+        }
         var totalCount = await rows.CountAsync(ct);
         var items = await rows.OrderByDescending(r => r.IssuedAt).ThenByDescending(r => r.Id)
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);

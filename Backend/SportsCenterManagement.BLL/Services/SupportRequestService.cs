@@ -89,11 +89,15 @@ public sealed class SupportRequestService(IUnitOfWork unitOfWork)
         if (!string.IsNullOrEmpty(status) && status is not ("Open" or "InProgress" or "Resolved"))
             throw new FlowException(400, "Trạng thái yêu cầu không hợp lệ.");
         var term = query?.Trim();
-        if (!string.IsNullOrEmpty(term)) rows = rows.Where(request => request.Subject.Contains(term)
-            || unitOfWork.Context.MemberProfiles.Any(member => member.Id == request.MemberId
-                && (member.FullName.Contains(term) || member.MemberCode.Contains(term)))
-            || unitOfWork.Context.CoachProfiles.Any(coach => coach.UserId == request.RequesterId
-                && (coach.FullName.Contains(term) || coach.CoachCode.Contains(term))));
+        if (!string.IsNullOrEmpty(term))
+        {
+            var lowerTerm = term.ToLower();
+            rows = rows.Where(request => request.Subject.ToLower().Contains(lowerTerm)
+                || unitOfWork.Context.MemberProfiles.Any(member => member.Id == request.MemberId
+                    && (member.FullName.ToLower().Contains(lowerTerm) || member.MemberCode.ToLower().Contains(lowerTerm)))
+                || unitOfWork.Context.CoachProfiles.Any(coach => coach.UserId == request.RequesterId
+                    && (coach.FullName.ToLower().Contains(lowerTerm) || coach.CoachCode.ToLower().Contains(lowerTerm))));
+        }
         if (!string.IsNullOrEmpty(status)) rows = rows.Where(request => request.Status == status);
         var count = await rows.CountAsync(ct);
         var items = await Summaries(rows.OrderByDescending(request => request.CreatedAt).ThenByDescending(request => request.Id)

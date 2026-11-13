@@ -40,6 +40,7 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork, IBusinessCloc
         }
 
         var term = query?.Trim();
+        var lowerTerm = term?.ToLower();
         var matches =
             from staff in unitOfWork.Context.StaffProfiles.AsNoTracking()
             join user in unitOfWork.Context.Users.AsNoTracking() on staff.UserId equals user.Id
@@ -48,11 +49,11 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork, IBusinessCloc
                 on user.Id equals coachProfile.UserId into coachProfiles
             from coach in coachProfiles.DefaultIfEmpty()
             where staff.CenterId == centerId
-                  && (term == null || term == string.Empty
-                      || staff.StaffCode.Contains(term)
-                      || staff.FullName.Contains(term)
-                      || user.Username.Contains(term)
-                      || user.Email.Contains(term))
+                  && (lowerTerm == null || lowerTerm == string.Empty
+                      || staff.StaffCode.ToLower().Contains(lowerTerm)
+                      || staff.FullName.ToLower().Contains(lowerTerm)
+                      || user.Username.ToLower().Contains(lowerTerm)
+                      || user.Email.ToLower().Contains(lowerTerm))
             let normalizedName = staff.FullName.Trim()
             let reversedName = SportsCenterDbContext.Reverse(normalizedName)
             let separatorIndex = reversedName.IndexOf(" ")

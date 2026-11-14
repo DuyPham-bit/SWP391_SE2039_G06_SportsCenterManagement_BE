@@ -53,13 +53,14 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
     [HttpGet("overview")]
     public async Task<IActionResult> Overview(CancellationToken ct)
     {
+        var now = DateTime.UtcNow;
         var activeCenterCount = await db.Centers.CountAsync(center => center.Status == "Active", ct);
         var activeManagerCount = await (from user in db.Users
                                         join role in db.Roles on user.RoleId equals role.Id
-                                        where role.Name == RoleNames.Manager && user.Status == "Active"
+                                        where role.Name == RoleNames.Manager && user.Status == "Active" && (user.LockedUntil == null || user.LockedUntil <= now)
                                         select user.Id).CountAsync(ct);
-        var lockedAccountCount = await db.Users.CountAsync(user => user.LockedUntil > DateTime.UtcNow, ct);
-        var totalAccountCount = await db.Users.CountAsync(ct);
+        var lockedAccountCount = await db.Users.CountAsync(user => user.Status != "Deleted" && (user.Status == "Disabled" || (user.LockedUntil != null && user.LockedUntil > now)), ct);
+        var totalAccountCount = await db.Users.CountAsync(user => user.Status != "Deleted", ct);
         return Ok(new { activeCenterCount, activeManagerCount, lockedAccountCount, totalAccountCount });
     }
 
@@ -103,7 +104,7 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
             Description = EmptyToNull(request.Description),
             OpeningTime = request.OpeningTime,
             ClosingTime = request.ClosingTime,
-            Status = NormalizeStatus(request.Status),
+            Status = NormalizeCenterStatus(request.Status),
             CreatedAt = DateTime.UtcNow
         };
         db.Centers.Add(center);
@@ -132,7 +133,7 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
         center.Description = EmptyToNull(request.Description);
         center.OpeningTime = request.OpeningTime;
         center.ClosingTime = request.ClosingTime;
-        center.Status = NormalizeStatus(request.Status);
+        center.Status = NormalizeCenterStatus(request.Status);
         AddAudit("admin.center.updated", "Center", center.Id, oldValues, new { center.Name, center.Address, center.Status, center.OpeningTime, center.ClosingTime });
         await db.SaveChangesAsync(ct);
         return NoContent();
@@ -215,8 +216,9 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
         if (string.IsNullOrWhiteSpace(request.FullName) || request.FullName.Trim().Length > 150)
             return BadRequest(new { message = "Họ tên Manager không hợp lệ." });
         var status = NormalizeStatus(request.Status);
-        var center = await db.Centers.SingleOrDefaultAsync(item => item.Id == request.CenterId && item.Status == "Active", ct);
-        if (center is null) return BadRequest(new { message = "Cơ sở không tồn tại hoặc đang ngừng hoạt động." });
+        var center = await db.Centers.SingleOrDefaultAsync(item => item.Id == request.CenterId, ct);
+        if (center is null || (status == "Active" && center.Status != "Active"))
+            return BadRequest(new { message = "Cơ sở không tồn tại hoặc đang ngừng hoạt động." });
         var manager = await (from user in db.Users
                              join role in db.Roles on user.RoleId equals role.Id
                              join staff in db.StaffProfiles on user.Id equals staff.UserId
@@ -233,6 +235,11 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
         manager.Staff.Status = status == "Active" ? "Active" : "Inactive";
         manager.Staff.UpdatedAt = DateTime.UtcNow;
         manager.User.Status = status;
+        if (status == "Active")
+        {
+            manager.User.LockedUntil = null;
+            manager.User.FailedLoginAttempts = 0;
+        }
         manager.User.UpdatedAt = DateTime.UtcNow;
         if (status != "Active" || oldValues.CenterId != center.Id)
         {
@@ -251,18 +258,42 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
         var normalizedRole = EmptyToNull(role);
         var normalizedStatus = EmptyToNull(status);
         var normalizedQuery = EmptyToNull(query)?.ToLowerInvariant();
+        var now = DateTime.UtcNow;
         var rows = from user in db.Users.AsNoTracking()
                    join userRole in db.Roles.AsNoTracking() on user.RoleId equals userRole.Id
                    join staff in db.StaffProfiles.AsNoTracking() on user.Id equals staff.UserId into staffRows
                    from staff in staffRows.DefaultIfEmpty()
-                   join center in db.Centers.AsNoTracking() on staff.CenterId equals center.Id into centerRows
+                   join coach in db.CoachProfiles.AsNoTracking() on user.Id equals coach.UserId into coachRows
+                   from coach in coachRows.DefaultIfEmpty()
+                   join member in db.MemberProfiles.AsNoTracking() on user.Id equals member.UserId into memberRows
+                   from member in memberRows.DefaultIfEmpty()
+                   let resolvedCenterId = staff != null ? (long?)staff.CenterId : (coach != null ? (long?)coach.CenterId : (member != null ? member.CenterId : null))
+                   let resolvedFullName = staff != null ? staff.FullName : (coach != null ? coach.FullName : (member != null ? member.FullName : null))
+                   join center in db.Centers.AsNoTracking() on resolvedCenterId equals (long?)center.Id into centerRows
                    from center in centerRows.DefaultIfEmpty()
                     where user.Status != "Deleted"
-                    select new { user, userRole, staff, center };
+                    select new { user, userRole, resolvedFullName, resolvedCenterId, center };
         if (normalizedRole is not null) rows = rows.Where(row => row.userRole.Name == normalizedRole);
-        if (normalizedStatus is not null) rows = rows.Where(row => row.user.Status == normalizedStatus);
+        if (normalizedStatus is not null)
+        {
+            if (string.Equals(normalizedStatus, "Active", StringComparison.OrdinalIgnoreCase))
+            {
+                rows = rows.Where(row => row.user.Status == "Active" && (row.user.LockedUntil == null || row.user.LockedUntil <= now));
+            }
+            else if (string.Equals(normalizedStatus, "Disabled", StringComparison.OrdinalIgnoreCase))
+            {
+                rows = rows.Where(row => row.user.Status == "Disabled" || (row.user.LockedUntil != null && row.user.LockedUntil > now));
+            }
+            else
+            {
+                rows = rows.Where(row => row.user.Status == normalizedStatus);
+            }
+        }
         if (normalizedQuery is not null)
-            rows = rows.Where(row => row.user.Username.ToLower().Contains(normalizedQuery) || row.user.Email.ToLower().Contains(normalizedQuery));
+            rows = rows.Where(row =>
+                row.user.Username.ToLower().Contains(normalizedQuery) ||
+                row.user.Email.ToLower().Contains(normalizedQuery) ||
+                (row.resolvedFullName != null && row.resolvedFullName.ToLower().Contains(normalizedQuery)));
 
         var totalCount = await rows.CountAsync(ct);
         var items = await rows.OrderBy(row => row.user.Id).Skip((page - 1) * pageSize).Take(pageSize)
@@ -276,8 +307,8 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
                 row.user.Status,
                 row.user.LastLoginAt,
                 row.user.LockedUntil,
-                FullName = row.staff == null ? null : row.staff.FullName,
-                CenterId = row.staff == null ? (long?)null : row.staff.CenterId,
+                FullName = row.resolvedFullName,
+                CenterId = row.resolvedCenterId,
                 CenterName = row.center == null ? null : row.center.Name
             }).ToArrayAsync(ct);
         return Ok(new { items, page, pageSize, totalCount });
@@ -376,17 +407,35 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
         if (accountId == actorId) return Conflict(new { message = "Admin không thể thực hiện thao tác bảo mật lên chính tài khoản đang dùng." });
         var account = await db.Users.SingleOrDefaultAsync(user => user.Id == accountId, ct);
         if (account is null) return NotFound(new { message = "Không tìm thấy tài khoản." });
+        var staffProfile = await db.StaffProfiles.SingleOrDefaultAsync(staff => staff.UserId == accountId, ct);
         var oldValues = new { account.Status, account.LockedUntil, account.AuthVersion };
         switch (action)
         {
             case "lock":
+                account.Status = "Disabled";
                 account.LockedUntil = DateTime.UtcNow.AddYears(PermanentlyLockedYears);
                 account.AuthVersion++;
+                if (staffProfile is not null)
+                {
+                    staffProfile.Status = "Inactive";
+                    staffProfile.UpdatedAt = DateTime.UtcNow;
+                }
                 break;
             case "unlock":
+                account.Status = "Active";
                 account.LockedUntil = null;
                 account.FailedLoginAttempts = 0;
                 account.AuthVersion++;
+                if (staffProfile is not null)
+                {
+                    var hasAnotherActiveManager = staffProfile.Position == RoleNames.Manager &&
+                        await db.StaffProfiles.AnyAsync(s => s.UserId != accountId && s.CenterId == staffProfile.CenterId && s.Position == RoleNames.Manager && s.Status == "Active", ct);
+                    if (!hasAnotherActiveManager)
+                    {
+                        staffProfile.Status = "Active";
+                        staffProfile.UpdatedAt = DateTime.UtcNow;
+                    }
+                }
                 break;
             case "revoke":
                 account.AuthVersion++;
@@ -410,7 +459,13 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
             return "Email cơ sở không hợp lệ.";
         if (request.OpeningTime.HasValue && request.ClosingTime.HasValue && request.OpeningTime >= request.ClosingTime)
             return "Giờ mở cửa phải trước giờ đóng cửa.";
-        return request.Status is "Active" or "Inactive" or "Disabled" ? null : "Trạng thái cơ sở không hợp lệ.";
+        var normalized = NormalizeCenterStatus(request.Status);
+        return normalized is "Active" or "Inactive" or "Disabled" &&
+               (string.Equals(request.Status?.Trim(), "Active", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(request.Status?.Trim(), "Inactive", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(request.Status?.Trim(), "Disabled", StringComparison.OrdinalIgnoreCase))
+            ? null
+            : "Trạng thái cơ sở không hợp lệ.";
     }
 
     private static string? ValidateManager(ManagerRequest request)
@@ -422,6 +477,14 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
         if (string.IsNullOrWhiteSpace(request.FullName) || request.FullName.Trim().Length > 150)
             return "Họ tên Manager không hợp lệ.";
         return PasswordPolicy.GetValidationError(request.Password, request.Email, request.Phone);
+    }
+
+    private static string NormalizeCenterStatus(string? status)
+    {
+        var trimmed = status?.Trim();
+        if (string.Equals(trimmed, "Active", StringComparison.OrdinalIgnoreCase)) return "Active";
+        if (string.Equals(trimmed, "Inactive", StringComparison.OrdinalIgnoreCase)) return "Inactive";
+        return "Disabled";
     }
 
     private static string NormalizeStatus(string? status) =>

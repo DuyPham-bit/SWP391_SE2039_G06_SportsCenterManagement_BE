@@ -86,7 +86,7 @@ public sealed class ReportsController(IReportService reportService) : Controller
 
     private bool TryGetCenterScope(long? requestedCenterId, out long scopedCenterId)
     {
-        if (User.IsInRole("Admin"))
+        if (User.IsInRole("ADMIN") || User.IsInRole("Admin"))
         {
             scopedCenterId = requestedCenterId.GetValueOrDefault();
             return scopedCenterId > 0;
@@ -96,7 +96,7 @@ public sealed class ReportsController(IReportService reportService) : Controller
         return long.TryParse(claim, NumberStyles.None, CultureInfo.InvariantCulture, out scopedCenterId) && scopedCenterId > 0;
     }
 
-    private ActionResult CenterScopeFailure() => User.IsInRole("Admin")
+    private ActionResult CenterScopeFailure() => (User.IsInRole("ADMIN") || User.IsInRole("Admin"))
         ? BadRequest(new { message = "Admin phải chỉ định centerId." })
         : Forbid();
 }

@@ -37,5 +37,9 @@ public static class Responses
         DateTime CreatedAt,
         string? EffectiveStatus = null);
 
-    public sealed record PagedResponse<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
+    public sealed record PagedResponse<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount,
+        MemberCountSummary? Summary = null);
+
+    /// <summary>Counts over every matching member (same scope as TotalCount), not just the current page.</summary>
+    public sealed record MemberCountSummary(int ActiveAccounts, int DisabledAccounts, int WithActivePackage);
 }

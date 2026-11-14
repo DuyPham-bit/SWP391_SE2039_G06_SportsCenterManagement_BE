@@ -104,6 +104,11 @@ public sealed class AuditLogService(IUnitOfWork unitOfWork) : IAuditLogService
             .Where(u => targetUserIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, u => u.Username, cancellationToken);
 
+        var centerIds = rawLogs.Where(l => l.EntityType == "Center" && l.EntityId.HasValue).Select(l => l.EntityId!.Value).Distinct().ToList();
+        var centers = await unitOfWork.Context.Centers.AsNoTracking()
+            .Where(c => centerIds.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id, c => c.Name, cancellationToken);
+
         var items = rawLogs.Select(log =>
         {
             string? actorName = null;
@@ -125,6 +130,7 @@ public sealed class AuditLogService(IUnitOfWork unitOfWork) : IAuditLogService
                 else if (log.EntityType == "Sport" && sports.TryGetValue(log.EntityId.Value, out var sName)) entityName = sName;
                 else if (log.EntityType == "Role" && allRoles.TryGetValue(log.EntityId.Value, out var roleName)) entityName = roleName;
                 else if (log.EntityType == "User" && targetUsers.TryGetValue(log.EntityId.Value, out var uName)) entityName = uName;
+                else if (log.EntityType == "Center" && centers.TryGetValue(log.EntityId.Value, out var centerName)) entityName = centerName;
             }
 
             return new AuditResponses.AuditLogEntry(

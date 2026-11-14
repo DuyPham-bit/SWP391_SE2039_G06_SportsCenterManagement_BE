@@ -250,6 +250,14 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
                     user.IsEmailVerified, user.AvatarKey)
             };
         var totalCount = await matches.CountAsync(cancellationToken);
+        // KPI counts over all matches so the cards agree with TotalCount instead of one page.
+        var today = clock.Today;
+        var activeAccounts = await matches.CountAsync(item => item.StatusOrder == 0, cancellationToken);
+        var withActivePackage = await matches.CountAsync(item => unitOfWork.Context.MemberSubscriptions.Any(sub =>
+            sub.MemberId == item.ProfileId && sub.Status == "Active"
+            && sub.StartDate.HasValue && sub.StartDate <= today
+            && sub.EndDate.HasValue && sub.EndDate >= today), cancellationToken);
+        var summary = new MembersResponses.MemberCountSummary(activeAccounts, totalCount - activeAccounts, withActivePackage);
         var ordered = normalizedSort == "givenname"
             ? normalizedDirection == "desc"
                 ? matches.OrderBy(item => item.StatusOrder).ThenByDescending(item => item.GivenName).ThenByDescending(item => item.FullName).ThenBy(item => item.ProfileId)
@@ -258,7 +266,7 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         var items = await ordered.Select(item => item.Response)
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
         var enriched = await EnrichMemberSubscriptionsAsync(items, cancellationToken);
-        return new MembersResponses.PagedResponse<MembersResponses.MemberProfileResponse>(enriched, page, pageSize, totalCount);
+        return new MembersResponses.PagedResponse<MembersResponses.MemberProfileResponse>(enriched, page, pageSize, totalCount, summary);
     }
 
     public async Task<MembersResponses.MemberProfileResponse> CreateAtCenterAsync(

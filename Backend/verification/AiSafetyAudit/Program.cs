@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using SportsCenterManagement.API.Services;
 using SportsCenterManagement.BLL.DTOs.Training;
@@ -309,9 +310,209 @@ Check("User exact schema (extracted_keywords, ai_reasoning, protocol, sets_reps)
         firstEx["medical_focus"]?.GetValue<string>().Contains("điểm tựa", StringComparison.OrdinalIgnoreCase) == true;
 });
 
+// ---- Member assistant: multilingual schedule windows (today = Saturday 2026-11-14) ----
+var scheduleToday = new DateOnly(2026, 11, 14);
+AiScheduleWindow Window(string question) => AiScheduleDates.Resolve([new AiTurn("user", question)], scheduleToday);
+
+Check("english 'tomorrow' resolves to the next day", () =>
+    Window("What classes are on tomorrow?") is { From.Day: 15, To.Day: 15, NeedsClarification: false });
+Check("english 'day after tomorrow' is not mistaken for 'tomorrow'", () =>
+    Window("Any yoga the day after tomorrow?") is { From.Day: 16, To.Day: 16 });
+Check("english 'next week' resolves to the following Monday-Sunday", () =>
+    Window("Schedule for next week please") is { From.Day: 16, To.Day: 22 });
+Check("english weekday in the past rolls to the coming week", () =>
+    Window("Is there badminton on Monday?") is { From.Day: 16, To.Day: 16 });
+Check("english weekday plus next week", () =>
+    Window("Friday next week classes?") is { From.Day: 20, To.Day: 20 });
+Check("vietnamese 'thứ hai tuần sau' still resolves", () =>
+    Window("Lịch thứ hai tuần sau thế nào?") is { From.Day: 16, To.Day: 16 });
+Check("vietnamese 'tuần tới' means next week", () =>
+    Window("Tuần tới có lớp nào?") is { From.Day: 16, To.Day: 22 });
+Check("english 'that day' follows the previous user turn", () =>
+    AiScheduleDates.Resolve([new AiTurn("user", "classes on 20/11?"), new AiTurn("model", "..."),
+        new AiTurn("user", "and what time on that day?")], scheduleToday) is { From.Day: 20, To.Day: 20 });
+
+// ---- Gemini response parsing ----
+string? GeminiError(string payload, bool json)
+{
+    try { GeminiService.ReadText(JsonDocument.Parse(payload).RootElement, json); return null; }
+    catch (InvalidOperationException exception) { return exception.Data["StatusCode"]?.ToString(); }
+}
+Check("gemini thought parts are never returned to users", () =>
+    GeminiService.ReadText(JsonDocument.Parse(
+        """{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"secret plan","thought":true},{"text":" Hello! "}]}}]}""")
+        .RootElement, false) == "Hello!");
+Check("truncated JSON generation is rejected so the safe fallback can run", () =>
+    GeminiError("""{"candidates":[{"finishReason":"MAX_TOKENS","content":{"parts":[{"text":"{\"title\":"}]}}]}""", true) == "502");
+Check("truncated plain-text chat reply is still returned", () =>
+    GeminiError("""{"candidates":[{"finishReason":"MAX_TOKENS","content":{"parts":[{"text":"Partial answer"}]}}]}""", false) is null);
+Check("safety-blocked generation maps to 422", () =>
+    GeminiError("""{"candidates":[{"finishReason":"SAFETY"}]}""", false) == "422" &&
+    GeminiError("""{"promptFeedback":{"blockReason":"SAFETY"}}""", false) == "422");
+Check("empty candidates map to 502", () => GeminiError("""{"candidates":[]}""", false) == "502");
+
+// ---- Gemini transient retry (shared by member chat and coach recommendations) ----
+const string GeminiOk = """{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"{\"title\":\"ok\"}"}]}}]}""";
+(int Calls, string? Result, string? Status) CallGemini(params Func<HttpResponseMessage>[] steps)
+{
+    var handler = new ScriptedHandler(steps);
+    var config = new ConfigurationBuilder()
+        .AddInMemoryCollection(new Dictionary<string, string?> { ["AI:ApiKey"] = "test-key" }).Build();
+    var service = new GeminiService(new HttpClient(handler), config);
+    try
+    {
+        var text = service.GenerateAsync("instruction", [new AiTurn("user", "prompt")], true, CancellationToken.None)
+            .GetAwaiter().GetResult();
+        return (handler.Calls, text, null);
+    }
+    catch (InvalidOperationException exception) { return (handler.Calls, null, exception.Data["StatusCode"]?.ToString()); }
+}
+HttpResponseMessage Ok() => new(System.Net.HttpStatusCode.OK) { Content = new StringContent(GeminiOk) };
+HttpResponseMessage Status(System.Net.HttpStatusCode code) => new(code) { Content = new StringContent("{}") };
+HttpResponseMessage Drop() => throw new HttpRequestException("connection reset");
+
+Check("lost connection is retried once and the recommendation succeeds", () =>
+    CallGemini(Drop, Ok) is { Calls: 2, Result: "{\"title\":\"ok\"}" });
+Check("provider 503 overload is retried once and succeeds", () =>
+    CallGemini(() => Status(System.Net.HttpStatusCode.ServiceUnavailable), Ok) is { Calls: 2, Status: null });
+Check("connection lost twice reports 503 after exactly two attempts", () =>
+    CallGemini(Drop, Drop, Ok) is { Calls: 2, Status: "503" });
+Check("quota 429 is not retried", () =>
+    CallGemini(() => Status(System.Net.HttpStatusCode.TooManyRequests), Ok) is { Calls: 1, Status: "429" });
+
+// ---- No substitute plan: unusable AI output is rejected, never replaced by template exercises ----
+string? ProcessCode(string reply)
+{
+    var safety = AiWorkoutSafetyPolicy.Resolve(Context(22m), "Tăng cơ", "Intermediate", []);
+    try { MedicalNlpRecommendationProcessor.Process(reply, safety, 64m, null, "Tăng cơ"); return null; }
+    catch (InvalidOperationException exception) { return exception.Data["Code"] as string; }
+}
+Check("unreadable AI JSON is rejected instead of becoming a template plan", () =>
+    ProcessCode("not json at all {") == "AI_INVALID_OUTPUT" && ProcessCode("{}") == "AI_INVALID_OUTPUT");
+Check("fewer than 3 named exercises is rejected instead of padded with templates", () =>
+    ProcessCode(NlpJson("Seated Cable Curl", "Dead Bug")) == "AI_INVALID_OUTPUT");
+Check("exercises without a name are not counted", () =>
+    ProcessCode(JsonSerializer.Serialize(new { exercises = new object[] {
+        new { name = "Seated Cable Row", sets = "3", reps = "10" }, new { sets = "3", reps = "10" },
+        new { name = " ", sets = "3", reps = "10" }, new { name = "Dead Bug", sets = "3", reps = "10" } } }))
+        == "AI_INVALID_OUTPUT");
+Check("bad output and safety violations are retried; quota, timeout, block and outage are not", () =>
+{
+    InvalidOperationException Error(int status, string? code = null)
+    {
+        var exception = new InvalidOperationException("x");
+        exception.Data["StatusCode"] = status;
+        if (code is not null) exception.Data["Code"] = code;
+        return exception;
+    }
+    return SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(502, "AI_INVALID_OUTPUT")) &&
+        SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(422, "AI_SAFETY_CHECK_FAILED")) &&
+        SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(502)) &&
+        !SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(429)) &&
+        !SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(504)) &&
+        !SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(422)) &&
+        !SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(503));
+});
+
+// ---- Reply language detection ----
+Check("language detector recognises the member's language", () =>
+    AiLanguageDetector.Detect("can you help me slot yoga in tomorow") == "English" &&
+    AiLanguageDetector.Detect("Ngày mai có lớp yoga không?") == "Vietnamese" &&
+    AiLanguageDetector.Detect("ngay mai co lop yoga khong") == "Vietnamese" &&
+    AiLanguageDetector.Detect("明日ヨガのクラスはありますか？") == "Japanese" &&
+    AiLanguageDetector.Detect("내일 요가 수업 있어요?") == "Korean" &&
+    AiLanguageDetector.Detect("明天有瑜伽课吗？") == "Chinese" &&
+    AiLanguageDetector.Detect("พรุ่งนี้มีคลาสโยคะไหม") == "Thai" &&
+    AiLanguageDetector.Detect("Bonjour, quel est le prix du cours?") == "French" &&
+    AiLanguageDetector.Detect("Hola, ¿cuánto cuesta la clase?") == "Spanish" &&
+    AiLanguageDetector.Detect("yoga") is null && AiLanguageDetector.Detect("15:00") is null);
+Check("language detector honours explicit reply/translation requests", () =>
+    AiLanguageDetector.Detect("hãy nói tiếng thái") == "Thai" &&
+    AiLanguageDetector.Detect("trả lời bằng tiếng Nhật") == "Japanese" &&
+    AiLanguageDetector.Detect("dịch sang tiếng Hàn") == "Korean" &&
+    AiLanguageDetector.Detect("reply in Thai") == "Thai" &&
+    AiLanguageDetector.Detect("speak English") == "English" &&
+    AiLanguageDetector.Detect("trung tâm có lớp tiếng Anh không?") == "Vietnamese");
+Check("misspelled 'tomorow' still resolves to tomorrow", () =>
+    Window("can you help me slot yoga in tomorow") is { From.Day: 15, To.Day: 15 });
+Check("chat instruction ends with an explicit reply-language rule", () =>
+{
+    var instruction = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("vi", "can you help me slot yoga in tomorow", "{}");
+    var requestedThai = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("vi", "hãy nói tiếng thái", "{}");
+    var historyThai = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction(
+        "vi",
+        "yoga",
+        "{}",
+        [
+            new SportsCenterManagement.BLL.Services.AiTurn("user", "hãy nói tiếng thái"),
+            new SportsCenterManagement.BLL.Services.AiTurn("model", "ได้เลยครับ"),
+            new SportsCenterManagement.BLL.Services.AiTurn("user", "yoga"),
+        ]);
+    var fallback = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("en", "yoga", "{}");
+    return instruction.EndsWith("Never say you can only answer in Vietnamese or any other single language.", StringComparison.Ordinal) &&
+        instruction.Contains("written in English. Your ENTIRE reply MUST be in English", StringComparison.Ordinal) &&
+        requestedThai.Contains("explicitly requested to communicate in Thai. Your ENTIRE reply MUST be in Thai", StringComparison.Ordinal) &&
+        requestedThai.Contains("translate every explanation, description, package benefit", StringComparison.Ordinal) &&
+        !requestedThai.Contains("Your ENTIRE reply MUST be in Vietnamese", StringComparison.Ordinal) &&
+        historyThai.Contains("Your ENTIRE reply MUST be in Thai", StringComparison.Ordinal) &&
+        fallback.Contains("if unclear, reply in English", StringComparison.Ordinal) &&
+        !instruction.Contains("Trả lời bằng tiếng Việt", StringComparison.Ordinal);
+});
+
+// ---- Optional live check against Gemini (set AI_LIVE=1; uses the key in appsettings.Development.json) ----
+if (Environment.GetEnvironmentVariable("AI_LIVE") == "1")
+{
+    var settings = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+        "../../../../../SportsCenterManagement.API/appsettings.Development.json"));
+    var liveConfig = new ConfigurationBuilder().AddJsonFile(settings).Build();
+    var gemini = new GeminiService(new HttpClient { Timeout = TimeSpan.FromSeconds(60) }, liveConfig);
+    var vietnameseHistory = new List<AiTurn>
+    {
+        new("user", "Hôm nay trung tâm mở cửa đến mấy giờ?"),
+        new("model", "Trung tâm mở cửa đến 22:00 hôm nay."),
+    };
+    string Ask(string question)
+    {
+        var turns = vietnameseHistory.Append(new AiTurn("user", question)).ToList();
+        var reply = gemini.GenerateAsync(SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("vi", question,
+            """{"center":{"name":"Sports Center Quận 1","openingTime":"06:00","closingTime":"22:00"},"schedule":{"items":[{"className":"Yoga Cơ Bản","sessionDate":"2026-11-16","startTime":"15:00","endTime":"16:00"}]}}"""),
+            turns, false, CancellationToken.None).GetAwaiter().GetResult();
+        Console.WriteLine($"LIVE [{question}] => {reply.Replace('\n', ' ')[..Math.Min(reply.Length, 160)]}");
+        return reply;
+    }
+    Check("LIVE: English question after Vietnamese history gets an English reply", () =>
+    {
+        var reply = Ask("can you help me slot yoga in tomorow");
+        // Proper names from the data ("Yoga Cơ Bản", "Quận 1") are kept as-is, so ignore them when judging the language.
+        var prose = reply.Replace("Yoga Cơ Bản", "").Replace("Sports Center Quận 1", "").Replace("Quận 1", "");
+        return AiLanguageDetector.Detect(prose) == "English" && !reply.Contains("tiếng Việt", StringComparison.OrdinalIgnoreCase);
+    });
+    Check("LIVE: Japanese question gets a Japanese reply", () => AiLanguageDetector.Detect(Ask("ヨガのクラスはいつですか？")) == "Japanese");
+    Check("LIVE: Vietnamese question still gets a Vietnamese reply", () => AiLanguageDetector.Detect(Ask("Lớp yoga học lúc mấy giờ?")) == "Vietnamese");
+}
+
+// ---- Chat language hint ----
+Check("ui language hint maps to a model-readable language with Vietnamese default", () =>
+    SportsCenterManagement.API.Controllers.AiController.PreferredLanguage("en") == "English" &&
+    SportsCenterManagement.API.Controllers.AiController.PreferredLanguage(" JA ") == "Japanese" &&
+    SportsCenterManagement.API.Controllers.AiController.PreferredLanguage(null) == "Vietnamese" &&
+    SportsCenterManagement.API.Controllers.AiController.PreferredLanguage("xx-evil") == "Vietnamese");
+
 Console.WriteLine($"RESULT {checks - failures.Count}/{checks} checks passed");
 if (failures.Count > 0)
 {
     foreach (var failure in failures) Console.Error.WriteLine(failure);
     Environment.ExitCode = 1;
+}
+
+sealed class ScriptedHandler(Func<HttpResponseMessage>[] steps) : HttpMessageHandler
+{
+    public int Calls { get; private set; }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var step = steps[Math.Min(Calls, steps.Length - 1)];
+        Calls++;
+        return Task.FromResult(step());
+    }
 }

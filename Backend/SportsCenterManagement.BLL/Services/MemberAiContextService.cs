@@ -92,7 +92,8 @@ internal static class AiScheduleDates
     private static readonly Regex ExplicitDates = new(
         @"(?<![\d/\-])(?:(?<iy>\d{4})-(?<im>\d{1,2})-(?<id>\d{1,2})|(?<d>\d{1,2})\s*[/\-]\s*(?<m>\d{1,2})(?:\s*[/\-]\s*(?<y>\d{4}|\d{2}))?|(?:ngay\s+)?(?<vd>\d{1,2})\s+thang\s+(?<vm>\d{1,2})(?:\s+nam\s+(?<vy>\d{4}))?)(?![\d/\-])",
         RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
-    private static readonly Regex Weekday = new(@"\b(?:thu\s*(?<day>hai|ba|tu|nam|sau|bay|[2-7])|(?<sunday>chu nhat))\b",
+    private static readonly Regex Weekday = new(
+        @"\b(?:thu\s*(?<day>hai|ba|tu|nam|sau|bay|[2-7])|(?<sunday>chu nhat|sunday)|(?<en>monday|tuesday|wednesday|thursday|friday|saturday))\b",
         RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
 
     public static AiScheduleWindow Resolve(IReadOnlyList<AiTurn> history, DateOnly today)
@@ -102,7 +103,7 @@ internal static class AiScheduleDates
         var dates = Parse(question, today);
         if (dates is not null) return dates;
 
-        if (Regex.IsMatch(question, @"\b(ngay ay|ngay do|hom do|hom ay)\b", RegexOptions.CultureInvariant))
+        if (Regex.IsMatch(question, @"\b(ngay ay|ngay do|hom do|hom ay|that day|same day)\b", RegexOptions.CultureInvariant))
         {
             foreach (var previous in messages.Take(messages.Count - 1).Reverse())
             {
@@ -143,11 +144,12 @@ internal static class AiScheduleDates
             return new(from, to, false, $"Ngày không ghi năm được hiểu là năm {today.Year}; hãy nêu đầy đủ ngày/tháng/năm khi trả lời.");
         }
 
-        int? dayOffset = Regex.IsMatch(text, @"\b(ngay kia|ngay mot)\b") ? 2
-            : Regex.IsMatch(text, @"\b(ngay mai|mai|tomorrow)\b") ? 1
-            : Regex.IsMatch(text, @"\b(hom nay|today)\b") ? 0
-            : Regex.IsMatch(text, @"\b(hom qua|yesterday)\b") ? -1
-            : Regex.IsMatch(text, @"\b(hom kia)\b") ? -2 : null;
+        // Longer phrases first: "day after tomorrow" also contains "tomorrow".
+        int? dayOffset = Regex.IsMatch(text, @"\b(ngay kia|ngay mot|day after tomorrow)\b") ? 2
+            : Regex.IsMatch(text, @"\b(hom kia|day before yesterday)\b") ? -2
+            : Regex.IsMatch(text, @"\b(ngay mai|mai|tomorrow|tomorow|tommorow|tommorrow|tmr)\b") ? 1
+            : Regex.IsMatch(text, @"\b(hom nay|today|tonight)\b") ? 0
+            : Regex.IsMatch(text, @"\b(hom qua|yesterday)\b") ? -1 : null;
         if (dayOffset.HasValue)
         {
             var date = today.AddDays(dayOffset.Value);
@@ -155,20 +157,27 @@ internal static class AiScheduleDates
         }
 
         var monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
-        var nextWeek = text.Contains("tuan sau", StringComparison.Ordinal);
+        var nextWeek = text.Contains("tuan sau", StringComparison.Ordinal) || text.Contains("tuan toi", StringComparison.Ordinal)
+            || text.Contains("next week", StringComparison.Ordinal);
+        var thisWeek = text.Contains("tuan nay", StringComparison.Ordinal) || text.Contains("this week", StringComparison.Ordinal);
         var weekday = Weekday.Match(text);
         if (weekday.Success)
         {
-            var day = weekday.Groups["sunday"].Success ? 6 : weekday.Groups["day"].Value switch
-            {
-                "hai" or "2" => 0, "ba" or "3" => 1, "tu" or "4" => 2,
-                "nam" or "5" => 3, "sau" or "6" => 4, _ => 5
-            };
+            var day = weekday.Groups["sunday"].Success ? 6 : weekday.Groups["en"].Success
+                ? weekday.Groups["en"].Value switch
+                {
+                    "monday" => 0, "tuesday" => 1, "wednesday" => 2, "thursday" => 3, "friday" => 4, _ => 5
+                }
+                : weekday.Groups["day"].Value switch
+                {
+                    "hai" or "2" => 0, "ba" or "3" => 1, "tu" or "4" => 2,
+                    "nam" or "5" => 3, "sau" or "6" => 4, _ => 5
+                };
             var date = monday.AddDays((nextWeek ? 7 : 0) + day);
-            if (!nextWeek && !text.Contains("tuan nay", StringComparison.Ordinal) && date < today) date = date.AddDays(7);
+            if (!nextWeek && !thisWeek && date < today) date = date.AddDays(7);
             return new(date, date, false, "Thứ trong tuần được tính theo lịch và giờ Việt Nam.");
         }
-        if (nextWeek || text.Contains("tuan nay", StringComparison.Ordinal))
+        if (nextWeek || thisWeek)
         {
             var from = monday.AddDays(nextWeek ? 7 : 0);
             return new(from, from.AddDays(6), false, "Tuần bắt đầu từ thứ Hai, theo giờ Việt Nam.");

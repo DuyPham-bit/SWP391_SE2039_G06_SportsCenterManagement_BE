@@ -65,14 +65,16 @@ public static class MedicalNlpRecommendationProcessor
         string? coachGoal)
     {
         var rawJson = ExtractJson(reply);
+        // No rule-based substitute plan: unreadable provider output is rejected so the caller can retry.
         JsonObject parsed;
         try
         {
-            parsed = JsonNode.Parse(rawJson) as JsonObject ?? new JsonObject();
+            parsed = JsonNode.Parse(rawJson) as JsonObject
+                ?? throw InvalidOutput("AI không trả về JSON object hợp lệ.");
         }
-        catch
+        catch (JsonException)
         {
-            parsed = new JsonObject();
+            throw InvalidOutput("AI trả về JSON không đọc được.");
         }
 
         var fullContextText = $"{coachNotes} {coachGoal} {safety.EffectiveGoal}".ToLowerInvariant();
@@ -223,7 +225,8 @@ public static class MedicalNlpRecommendationProcessor
             {
                 if (node is not JsonObject item) continue;
 
-                var name = GetStringCoerced(item, "name", "exercise", "title", "exercise_name") ?? "Bài tập bổ trợ";
+                var name = GetStringCoerced(item, "name", "exercise", "title", "exercise_name");
+                if (string.IsNullOrWhiteSpace(name)) continue;
                 var volume = GetStringCoerced(item, "sets_reps", "setsReps", "volume", "reps_sets")
                              ?? (item["sets"] is not null && item["reps"] is not null
                                  ? $"{item["sets"]} hiệp x {item["reps"]} lần"
@@ -246,44 +249,9 @@ public static class MedicalNlpRecommendationProcessor
             }
         }
 
-        // Nếu AI không trả bài tập hợp lệ hoặc quá ít, tự động bổ sung bài tập thể thao an toàn
+        // AI phải tự đưa ra đủ bài tập; không thay bằng bài tập mẫu cố định.
         if (canonicalExercises.Count < 3)
-        {
-            canonicalExercises.Clear();
-            if (hasSevereInjury)
-            {
-                AddExercise(canonicalExercises, "Chest-Supported Machine Row (Kéo máy có tựa ngực)", "3 hiệp x 12 lần", "Tựa ngực và lưng chắc chắn, tập cô lập thân trên mà không tải lên chi bị chấn thương.");
-                AddExercise(canonicalExercises, "Seated Cable Face Pull (Kéo cáp ngang mặt)", "3 hiệp x 15 lần", "Kích hoạt vai sau và lưng trên, không tạo tải nén lên cột sống.");
-                AddExercise(canonicalExercises, "Dead Bug Core Stabilization (Ổn định cơ lõi)", "3 hiệp x 10 lần mỗi bên", "Nằm ngửa, giữ lưng dưới ổn định và không chịu tải lên vùng chấn thương.");
-                AddExercise(canonicalExercises, "Seated Neutral-Grip Machine Chest Press (Máy ép ngực tay cầm trung tính)", "3 hiệp x 12 lần", "Tựa lưng hoàn toàn, cổ tay trung tính và duy trì nhịp tim Zone 1-2.");
-                if (hasKnee)
-                    AddExercise(canonicalExercises, "Seated Leg Curl Machine (Máy cuốn đùi sau)", "2 hiệp x 12 lần", "Chỉ dùng biên độ không đau và dừng ngay khi vùng chấn thương khó chịu.");
-                else
-                    AddExercise(canonicalExercises, "Seated Cable Biceps Curl (Cuốn tay trước cáp ngồi)", "2 hiệp x 12-15 lần", "Ngồi tựa lưng và cô lập thân trên, không truyền lực xuống chi bị chấn thương.");
-            }
-            else if (hasBack || hasHernia)
-            {
-                AddExercise(canonicalExercises, "Chest-Supported Dumbbell Row (Kéo tạ đơn ngực tựa ghế dốc)", "3 hiệp x 10-12 lần", "Tựa ngực chắc chắn vào đệm dốc để triệt tiêu hoàn toàn lực nén ép dọc trục lên thắt lưng L4-L5.");
-                AddExercise(canonicalExercises, "Seated Cable Row (Kéo cáp ngồi thẳng có đệm chân)", "3 hiệp x 10-12 lần", "Giữ cột sống trung tính, kéo khuỷu tay sát sườn, siết chặt cơ xô lưng.");
-                AddExercise(canonicalExercises, "Seated Leg Curl Machine (Máy cuốn đùi sau có tựa)", "3 hiệp x 10-12 lần", "Giữ lưng tựa sát đệm, không tạo tải nén dọc trục lên cột sống.");
-                AddExercise(canonicalExercises, "Cable Face Pull (Kéo cáp ngang mặt)", "3 hiệp x 12-15 lần", "Kéo về ngang mặt, giữ vai hạ thấp và không ưỡn lưng.");
-                AddExercise(canonicalExercises, "Dead Bug (Tập cơ lõi chống xoay)", "3 hiệp x 10 lần mỗi bên", "Duy trì áp lực lưng dưới chạm sát mặt sàn, kích hoạt cơ bụng sâu bảo vệ đĩa đệm.");
-            }
-            else if (hasKnee)
-            {
-                AddExercise(canonicalExercises, "Seated Leg Curl Machine (Máy cuốn đùi sau)", "3 hiệp x 10-12 lần", "Dùng biên độ không đau, không khóa khớp gối.");
-                AddExercise(canonicalExercises, "Hip Thrust (Đẩy hông có kiểm soát)", "3 hiệp x 10-12 lần", "Giữ cẳng chân gần vuông góc và dừng nếu xuất hiện đau gối.");
-                AddExercise(canonicalExercises, "Machine Chest Press (Máy đẩy ngực có tựa)", "3 hiệp x 10-12 lần", "Lưng tựa chắc chắn, thở liên tục và kiểm soát biên độ.");
-                AddExercise(canonicalExercises, "Seated Cable Row (Kéo cáp ngồi)", "3 hiệp x 10-12 lần", "Giữ cột sống trung tính và không dùng lực giật.");
-            }
-            else
-            {
-                AddExercise(canonicalExercises, "Machine Chest Press (Máy đẩy ngực có tựa)", "3 hiệp x 10-12 lần", "Quỹ đạo máy khối cố định, an toàn cho khớp vai và cổ tay.");
-                AddExercise(canonicalExercises, "Lat Pulldown (Kéo xô máy cáp trước mặt)", "3 hiệp x 10-12 lần", "Kéo thanh đòn về phía xương quai xanh, siết cơ xô lưng có kiểm soát.");
-                AddExercise(canonicalExercises, "Leg Press 45 độ (Máy đạp đùi)", "3 hiệp x 10-12 lần", "Lưng tựa chắc chắn vào ghế đệm, đạp bằng gót chân, không khóa khớp gối.");
-                AddExercise(canonicalExercises, "Plank (Chống khuỷu tay giữ tĩnh)", "3 hiệp x 30-45 giây", "Siết chặt cơ bụng và cơ mông, giữ thân người thành một đường thẳng.");
-            }
-        }
+            throw InvalidOutput($"AI chỉ trả về {canonicalExercises.Count} bài tập hợp lệ; cần tối thiểu 3 bài có tên cụ thể.");
 
         // Giới hạn số bài tập tối đa 6
         while (canonicalExercises.Count > 6)
@@ -364,20 +332,13 @@ public static class MedicalNlpRecommendationProcessor
         return finalResult;
     }
 
-    private static void AddExercise(JsonArray arr, string name, string volume, string focus)
+    public const string InvalidOutputCode = "AI_INVALID_OUTPUT";
+
+    /// <summary>Unusable provider output (unreadable JSON or too few named exercises); the caller retries the AI.</summary>
+    private static InvalidOperationException InvalidOutput(string message) => new(message)
     {
-        var (sets, reps) = SplitVolume(volume);
-        arr.Add(new JsonObject
-        {
-            ["name"] = name,
-            ["sets_reps"] = volume,
-            ["medical_focus"] = focus,
-            ["sets"] = sets,
-            ["reps"] = reps,
-            ["volume"] = volume,
-            ["note"] = focus
-        });
-    }
+        Data = { ["StatusCode"] = 502, ["Code"] = InvalidOutputCode }
+    };
 
     private static (string Sets, string Reps) SplitVolume(string volume)
     {

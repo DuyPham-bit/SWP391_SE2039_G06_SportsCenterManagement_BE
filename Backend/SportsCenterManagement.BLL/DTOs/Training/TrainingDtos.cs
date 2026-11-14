@@ -18,7 +18,8 @@ public sealed record SaveTrainingPlanRequest(
     DateOnly StartDate,
     DateOnly? EndDate,
     [param: StringLength(1000)] string? FitnessCondition,
-    [param: Required, MinLength(1), MaxLength(50)] PlanExercise[] Exercises);
+    [param: Required, MinLength(1), MaxLength(50)] PlanExercise[] Exercises,
+    [param: Range(1, long.MaxValue)] long? PlanId = null);
 
 public sealed record RecordProgressRequest(
     [param: Range(1, long.MaxValue)] long ClassId,

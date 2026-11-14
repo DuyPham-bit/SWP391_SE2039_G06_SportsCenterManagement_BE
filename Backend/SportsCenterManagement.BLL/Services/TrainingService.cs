@@ -210,8 +210,15 @@ public sealed class TrainingService(SportsCenterDbContext db)
         if (personal != request.MemberId.HasValue) throw new InvalidOperationException("Đối tượng giáo án không hợp lệ.") { Data = { ["StatusCode"] = 400 } };
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
         var coach = await EnsureCoachAsync(userId, request.ClassId, request.MemberId, ct);
-        var plan = personal ? await db.TrainingPlans.SingleOrDefaultAsync(p => p.ClassId == request.ClassId &&
-            p.MemberId == request.MemberId && p.CoachId == coach.Id && p.Status == "Active", ct) : null;
+        TrainingPlan? plan;
+        if (personal)
+            plan = await db.TrainingPlans.SingleOrDefaultAsync(p => p.ClassId == request.ClassId &&
+                p.MemberId == request.MemberId && p.CoachId == coach.Id && p.Status == "Active", ct);
+        else if (request.PlanId.HasValue)
+            plan = await db.TrainingPlans.SingleOrDefaultAsync(p => p.Id == request.PlanId && p.ClassId == request.ClassId &&
+                p.MemberId == null && p.CoachId == coach.Id && p.Status == "Active", ct)
+                ?? throw new InvalidOperationException("Không tìm thấy giáo án lớp để cập nhật.") { Data = { ["StatusCode"] = 404 } };
+        else plan = null;
         if (plan is null)
         {
             plan = new TrainingPlan { ClassId = request.ClassId, MemberId = request.MemberId,

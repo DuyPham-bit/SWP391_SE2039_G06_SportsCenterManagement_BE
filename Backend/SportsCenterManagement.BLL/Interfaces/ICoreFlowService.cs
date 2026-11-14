@@ -13,7 +13,8 @@ public interface ICoreFlowService
         long memberId,
         long packageId,
         long? createdBy,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        IReadOnlyCollection<long>? sportIds = null);
 
     Task<ClassEnrollment> EnrollMemberAsync(
         long classId,

@@ -88,6 +88,12 @@ public sealed class SupportRequestService(IUnitOfWork unitOfWork)
             throw new FlowException(400, "Bộ lọc hoặc phân trang không hợp lệ.");
         if (!string.IsNullOrEmpty(status) && status is not ("Open" or "InProgress" or "Resolved"))
             throw new FlowException(400, "Trạng thái yêu cầu không hợp lệ.");
+        // KPI counts use the unfiltered scope so the cards stay stable while the list is filtered.
+        var grouped = await rows.GroupBy(request => request.Status)
+            .Select(group => new { Status = group.Key, Count = group.Count() }).ToListAsync(ct);
+        int CountOf(string value) => grouped.Where(g => g.Status == value).Sum(g => g.Count);
+        var statusCounts = new SupportStatusCounts(grouped.Sum(g => g.Count),
+            CountOf("Open"), CountOf("InProgress"), CountOf("Resolved"));
         var term = query?.Trim();
         if (!string.IsNullOrEmpty(term))
         {
@@ -102,7 +108,7 @@ public sealed class SupportRequestService(IUnitOfWork unitOfWork)
         var count = await rows.CountAsync(ct);
         var items = await Summaries(rows.OrderByDescending(request => request.CreatedAt).ThenByDescending(request => request.Id)
             .Skip((page - 1) * pageSize).Take(pageSize)).ToListAsync(ct);
-        return new SupportPage(items, count, page, pageSize);
+        return new SupportPage(items, count, page, pageSize, statusCounts);
     }
 
     private async Task<SupportDetails> Details(IQueryable<SupportRequest> rows, long id, CancellationToken ct)
@@ -112,8 +118,14 @@ public sealed class SupportRequestService(IUnitOfWork unitOfWork)
         var description = await rows.Where(request => request.Id == id).Select(request => request.Description).SingleAsync(ct);
         var messages = await (from message in unitOfWork.Context.SupportRequestMessages.AsNoTracking()
             join user in unitOfWork.Context.Users.AsNoTracking() on message.SenderId equals user.Id
+            join role in unitOfWork.Context.Roles.AsNoTracking() on user.RoleId equals role.Id
             where message.RequestId == id orderby message.CreatedAt, message.Id
-            select new SupportMessage(message.Id, user.Username, message.Message, message.CreatedAt)).ToListAsync(ct);
+            select new SupportMessage(message.Id,
+                unitOfWork.Context.StaffProfiles.Where(p => p.UserId == user.Id).Select(p => p.FullName).FirstOrDefault()
+                    ?? unitOfWork.Context.MemberProfiles.Where(p => p.UserId == user.Id).Select(p => p.FullName).FirstOrDefault()
+                    ?? unitOfWork.Context.CoachProfiles.Where(p => p.UserId == user.Id).Select(p => p.FullName).FirstOrDefault()
+                    ?? user.Username,
+                message.Message, message.CreatedAt, user.Id, role.Name.ToUpper())).ToListAsync(ct);
         return new SupportDetails(summary, description, messages);
     }
 

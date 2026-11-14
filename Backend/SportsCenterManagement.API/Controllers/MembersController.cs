@@ -138,7 +138,7 @@ public sealed class MembersController(
             await memberService.EnsureCanBuyPackageAsync(userId, request.PackageId, cancellationToken);
             var member = await memberService.GetMeAsync(userId, cancellationToken);
             var pending = await coreFlowService.CreatePendingMembershipAsync(
-                member.MemberId, request.PackageId, null, cancellationToken);
+                member.MemberId, request.PackageId, null, cancellationToken, request.SportIds);
             return Created($"/api/members/{member.MemberId}/subscriptions", pending);
         });
     }
@@ -156,7 +156,7 @@ public sealed class MembersController(
             var actorId = GetUserId();
             await memberService.EnsureCanSellToMemberAsync(actorId, memberId, request.PackageId, cancellationToken);
             var pending = await coreFlowService.CreatePendingMembershipAsync(
-                memberId, request.PackageId, actorId, cancellationToken);
+                memberId, request.PackageId, actorId, cancellationToken, request.SportIds);
             return Created($"/api/members/{memberId}/subscriptions", pending);
         });
     }

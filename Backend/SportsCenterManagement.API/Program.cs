@@ -282,6 +282,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+// Must wrap the exception handlers below so their error bodies are localized too.
+app.UseMiddleware<SportsCenterManagement.API.Localization.ResponseMessageLocalizationMiddleware>();
 
 static void ClearResponsePreservingCors(HttpResponse response)
 {

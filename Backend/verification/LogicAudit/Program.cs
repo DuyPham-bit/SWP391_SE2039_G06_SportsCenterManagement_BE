@@ -84,7 +84,7 @@ try {
         var owner = User("owner", memberRole.Id); var coach = User("coach", coachRole.Id); var staff = User("staff", staffRole.Id);
         db.AddRange(owner, coach, staff); await db.SaveChangesAsync();
         var member = new MemberProfile { UserId = owner.Id, CenterId = center.Id, MemberCode = "AUDIT-MEMBER", FullName = "Test member", CreatedAt = DateTime.UtcNow };
-        var package = new MembershipPackage { CenterId = center.Id, Name = "Test package", DurationDays = 90, Price = 1000000, Status = "Active", CreatedAt = DateTime.UtcNow };
+        var package = new MembershipPackage { CenterId = center.Id, Name = "Test package", DurationDays = 90, Price = 1000000, IsAllAccess = true, Status = "Active", CreatedAt = DateTime.UtcNow };
         db.AddRange(member, package, new StaffProfile { UserId = staff.Id, CenterId = other.Id, StaffCode = "AUDIT-STAFF", FullName = "Other staff", Position = "Receptionist", Status = "Active", CreatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync();
 
@@ -160,7 +160,7 @@ try {
             new RolePermission { RoleId = memberRole.Id, PermissionId = selfRead.Id },
             new RolePermission { RoleId = memberRole.Id, PermissionId = subRead.Id },
             new RolePermission { RoleId = staffRole.Id, PermissionId = counterPay.Id });
-        var secondPackage = new MembershipPackage { CenterId = center.Id, Name = "Second package", DurationDays = 30, Price = 500000, Status = "Active", CreatedAt = DateTime.UtcNow };
+        var secondPackage = new MembershipPackage { CenterId = center.Id, Name = "Second package", DurationDays = 30, Price = 500000, IsAllAccess = true, Status = "Active", CreatedAt = DateTime.UtcNow };
         db.Add(secondPackage); await db.SaveChangesAsync(); db.ChangeTracker.Clear();
         var personal = await core.CreatePendingMembershipAsync(member.Id, secondPackage.Id, owner.Id);
         await Check("owner may cancel own unpaid invoice", async () => {
@@ -234,7 +234,7 @@ try {
         var managerRole = new Role { Name = "Manager" }; db.Add(managerRole); await db.SaveChangesAsync();
         var manager = User("manager", managerRole.Id); var foreignUser = User("foreign-member", memberRole.Id); db.AddRange(manager, foreignUser); await db.SaveChangesAsync();
         var foreignMember = new MemberProfile { UserId = foreignUser.Id, CenterId = other.Id, MemberCode = "AUDIT-FOREIGN", FullName = "Foreign", CreatedAt = DateTime.UtcNow };
-        var foreignPackage = new MembershipPackage { CenterId = other.Id, Name = "Foreign package", DurationDays = 30, Price = 500000, Status = "Active", CreatedAt = DateTime.UtcNow };
+        var foreignPackage = new MembershipPackage { CenterId = other.Id, Name = "Foreign package", DurationDays = 30, Price = 500000, IsAllAccess = true, Status = "Active", CreatedAt = DateTime.UtcNow };
         db.AddRange(foreignMember, foreignPackage, new StaffProfile { UserId = manager.Id, CenterId = center.Id, StaffCode = "AUDIT-MANAGER", FullName = "Manager", Position = "Manager", Status = "Active", CreatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync();
         var foreignSubscription = new MemberSubscription { MemberId = foreignMember.Id, PackageId = foreignPackage.Id, DurationDays = 30, Price = 500000, Status = "Active", StartDate = today, EndDate = today.AddDays(29), CreatedAt = DateTime.UtcNow };

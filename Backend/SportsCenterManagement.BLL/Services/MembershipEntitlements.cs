@@ -43,7 +43,11 @@ internal static class MembershipEntitlements
                     .Select(row => row.SportId).ToListAsync(ct);
         }
 
-        if (package.IsAllAccess || requestedSportIds is null || requestedSportIds.Count == 0) return [];
+        if (package.IsAllAccess || package.AllowedSports <= 0) return [];
+        // New/upgrade purchase of a limited package must name its sports up front; an empty list
+        // used to fall back to "lock to whatever sport is booked first", which nobody chose.
+        if (requestedSportIds is null || requestedSportIds.Count == 0)
+            throw BusinessException.BadRequest($"Gói {package.Name} yêu cầu chọn đúng {package.AllowedSports} môn trước khi thanh toán.");
 
         var ids = requestedSportIds.Distinct().ToList();
         if (ids.Count != package.AllowedSports)

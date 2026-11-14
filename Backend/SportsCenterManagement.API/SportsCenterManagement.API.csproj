@@ -10,6 +10,12 @@
     <InternalsVisibleTo Include="AiSafetyAudit" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Vietnamese → English API message catalog (see Localization/ApiMessageLocalizer.cs).
+         Named messages_en (not messages.en) so MSBuild does not treat it as a culture satellite resource. -->
+    <Content Remove="Localization\messages_en.json" />
+    <EmbeddedResource Include="Localization\messages_en.json" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="AWSSDK.S3" Version="4.0.104.6" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="MailKit" Version="4.18.1" />

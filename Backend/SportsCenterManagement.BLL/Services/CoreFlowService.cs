@@ -32,7 +32,8 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         long memberId,
         long packageId,
         long? createdBy,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyCollection<long>? sportIds = null)
     {
         // Serializable ngăn retry đồng thời tạo hai hóa đơn cho cùng member và gói.
         await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(
@@ -120,11 +121,11 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
             CreatedAt = now
         };
         // Downgrade guard + renewal inherits the current sport selection.
-        var sportIds = await MembershipEntitlements.ResolvePurchaseSportsAsync(_unitOfWork.Context, memberId, package,
-            null, ToBusinessDate(now), cancellationToken);
+        var resolvedSportIds = await MembershipEntitlements.ResolvePurchaseSportsAsync(_unitOfWork.Context, memberId, package,
+            sportIds, ToBusinessDate(now), cancellationToken);
         await _unitOfWork.Repository<MemberSubscription>().AddAsync(subscription, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        MembershipEntitlements.AddSports(_unitOfWork.Context, subscription.Id, sportIds);
+        MembershipEntitlements.AddSports(_unitOfWork.Context, subscription.Id, resolvedSportIds);
 
         var invoiceNumber = $"SC-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..31];
         var invoice = new Invoice

@@ -13,7 +13,9 @@ public sealed record UserProfileResponse(
     string? Avatar = null,
     string? AvatarKey = null,
     bool MustChangePassword = false,
-    bool IsEmailVerified = true);
+    bool IsEmailVerified = true,
+    string? StaffCode = null,
+    string? CenterName = null);
 
 public sealed record UpdateUserProfileRequest(
     string FullName,

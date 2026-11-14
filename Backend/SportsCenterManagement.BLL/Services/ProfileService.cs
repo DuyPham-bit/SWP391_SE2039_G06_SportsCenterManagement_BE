@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using SportsCenterManagement.BLL.Common;
@@ -151,6 +152,9 @@ public sealed class ProfileService(
 
         var centerId = staffProfile?.CenterId ?? coachProfile?.CenterId ?? memberProfile?.CenterId;
         var fullName = memberProfile?.FullName ?? coachProfile?.FullName ?? staffProfile?.FullName ?? user.Email;
+        var centerName = centerId is null ? null : await unitOfWork.Context.Centers
+            .Where(center => center.Id == centerId).Select(center => center.Name)
+            .FirstOrDefaultAsync(ct);
 
         return new UserProfileResponse(
             user.Id,
@@ -165,7 +169,9 @@ public sealed class ProfileService(
             mediaUrls?.PublicUrl(user.AvatarKey),
             user.AvatarKey,
             user.MustChangePassword,
-            user.IsEmailVerified);
+            user.IsEmailVerified,
+            staffProfile?.StaffCode,
+            centerName);
     }
 }
 

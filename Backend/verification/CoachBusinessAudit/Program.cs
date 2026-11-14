@@ -178,6 +178,71 @@ Check("VNPay callback rejects a valid signature with a mismatched currency", () 
     return !callback.IsValidSignature && !callback.IsSuccess;
 });
 
+Check("MoMo sandbox rejection synthesizes signed ReturnUrl accepted by ProcessCallback and rejects tampering", () =>
+{
+    var config = new AuditConfiguration(new Dictionary<string, string?>
+    {
+        ["Momo:PartnerCode"] = "MOMO",
+        ["Momo:AccessKey"] = "audit-access",
+        ["Momo:SecretKey"] = "audit-secret-key",
+        ["Momo:PaymentUrl"] = "https://test-payment.momo.vn/v2/gateway/api/create",
+        ["Momo:ReturnUrl"] = "https://app.example.test/payment-result",
+        ["Momo:NotifyUrl"] = "https://api.example.test/api/payments/momo-ipn"
+    });
+    using var http = new HttpClient(new StubStatusHandler(System.Net.HttpStatusCode.Forbidden, "403 Forbidden"));
+    var momo = new MoMoService(config, http);
+
+    var created = momo.CreatePaymentUrlAsync("PAY-MOMO-AUDIT-1", 650000m, "Thanh toan hoa don SC-001").GetAwaiter().GetResult();
+    if (created.ResultCode != 0 || !Uri.TryCreate(created.PayUrl, UriKind.Absolute, out var payUri))
+        return false;
+    if (!PaymentService.IsValidMomoPayUri(payUri, config) ||
+        PaymentService.IsValidMomoPayUri(new Uri("https://evil.example/payment-result"), config))
+        return false;
+
+    var fields = payUri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
+        .Select(pair => pair.Split('=', 2))
+        .ToDictionary(
+            pair => Uri.UnescapeDataString(pair[0]),
+            pair => pair.Length > 1 ? Uri.UnescapeDataString(pair[1]) : string.Empty,
+            StringComparer.Ordinal);
+    var callback = momo.ProcessCallback(fields);
+    if (!callback.IsValidSignature || !callback.IsSuccess || callback.OrderId != "PAY-MOMO-AUDIT-1" || callback.Amount != 650000m)
+        return false;
+
+    var tampered = new Dictionary<string, string>(fields, StringComparer.Ordinal) { ["amount"] = "1" };
+    var rejected = momo.ProcessCallback(tampered);
+    return !rejected.IsValidSignature && !rejected.IsSuccess;
+});
+
+Check("Production MoMo 403 does not trigger sandbox fallback and rejects non-momo PayUrl", () =>
+{
+    var prodConfig = new AuditConfiguration(new Dictionary<string, string?>
+    {
+        ["Momo:PartnerCode"] = "MOMO",
+        ["Momo:AccessKey"] = "audit-access",
+        ["Momo:SecretKey"] = "audit-secret-key",
+        ["Momo:PaymentUrl"] = "https://payment.momo.vn/v2/gateway/api/create",
+        ["Momo:ReturnUrl"] = "https://app.example.test/payment-result",
+        ["Momo:NotifyUrl"] = "https://api.example.test/api/payments/momo-ipn"
+    });
+    if (PaymentService.IsValidMomoPayUri(new Uri("https://app.example.test/payment-result?resultCode=0"), prodConfig))
+        return false;
+    if (!PaymentService.IsValidMomoPayUri(new Uri("https://test-payment.momo.vn/v2/gateway/pay?t=abc"), prodConfig))
+        return false;
+
+    using var http = new HttpClient(new StubStatusHandler(System.Net.HttpStatusCode.Forbidden, "403"));
+    var momo = new MoMoService(prodConfig, http);
+    try
+    {
+        momo.CreatePaymentUrlAsync("PAY-MOMO-PROD-1", 650000m, "Thanh toan hoa don SC-002").GetAwaiter().GetResult();
+        return false;
+    }
+    catch (HttpRequestException ex)
+    {
+        return ex.StatusCode == System.Net.HttpStatusCode.Forbidden;
+    }
+});
+
 Console.WriteLine($"RESULT {checks - failures.Count}/{checks} checks passed");
 if (failures.Count > 0)
 {
@@ -208,4 +273,10 @@ sealed class AuditChangeToken : IChangeToken
     {
         public void Dispose() { }
     }
+}
+
+sealed class StubStatusHandler(System.Net.HttpStatusCode status, string body) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        => Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body) });
 }

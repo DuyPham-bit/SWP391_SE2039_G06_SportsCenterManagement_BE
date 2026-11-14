@@ -136,9 +136,7 @@ public sealed class PaymentService(
                                         response.Amount == payment.Amount &&
                                         response.PartnerCode == expectedPartnerCode &&
                                         Uri.TryCreate(response.PayUrl, UriKind.Absolute, out var payUri) &&
-                                        payUri.Scheme == Uri.UriSchemeHttps &&
-                                        (payUri.Host.Equals("momo.vn", StringComparison.OrdinalIgnoreCase) ||
-                                         payUri.Host.EndsWith(".momo.vn", StringComparison.OrdinalIgnoreCase));
+                                        IsValidMomoPayUri(payUri, _configuration);
             if (!validProviderResponse)
             {
                 await SetPaymentStatusAsync(payment.Id, "Failed",
@@ -2209,6 +2207,31 @@ public sealed class PaymentService(
 
     internal static bool IsDefiniteGatewayRejection(HttpStatusCode? status) =>
         status is { } code && (int)code is >= 400 and < 500 && code != HttpStatusCode.RequestTimeout;
+
+    internal static bool IsValidMomoPayUri(Uri payUri, IConfiguration configuration)
+    {
+        if (payUri.Scheme == Uri.UriSchemeHttps &&
+            (payUri.Host.Equals("momo.vn", StringComparison.OrdinalIgnoreCase) ||
+             payUri.Host.EndsWith(".momo.vn", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        // Sandbox fallback targets only the server-configured ReturnUrl to avoid open redirects.
+        if (!MoMoService.IsSandboxEndpoint(configuration["Momo:PaymentUrl"]) ||
+            !Uri.TryCreate(configuration["Momo:ReturnUrl"]?.Trim(), UriKind.Absolute, out var returnUri))
+        {
+            return false;
+        }
+
+        var schemeAllowed = payUri.Scheme == returnUri.Scheme &&
+                            (payUri.Scheme == Uri.UriSchemeHttps ||
+                             (payUri.Scheme == Uri.UriSchemeHttp && payUri.IsLoopback));
+        return schemeAllowed &&
+               string.Equals(payUri.Host, returnUri.Host, StringComparison.OrdinalIgnoreCase) &&
+               payUri.Port == returnUri.Port &&
+               string.Equals(payUri.AbsolutePath.TrimEnd('/'), returnUri.AbsolutePath.TrimEnd('/'), StringComparison.Ordinal);
+    }
 
     private void EnsureGatewayConfiguration(string provider, params string[] keys)
     {

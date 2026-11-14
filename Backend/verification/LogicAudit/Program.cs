@@ -361,6 +361,53 @@ try {
                 throw new Exception($"status={status}, payments=[{string.Join(",", payments)}]");
             return true;
         });
+        await Check("MoMo sandbox 403 falls back to signed ReturnUrl while production MoMo stays strict and unsigned callbacks stay rejected", async () => {
+            var sandboxUser = User("momo-sandbox-fallback", memberRole.Id);
+            var prodUser = User("momo-prod-strict", memberRole.Id);
+            db.Users.AddRange(sandboxUser, prodUser); await db.SaveChangesAsync();
+            var sandboxMember = new MemberProfile { UserId = sandboxUser.Id, CenterId = center.Id, MemberCode = "AUDIT-MOMO-SB", FullName = "MoMo sandbox member", CreatedAt = DateTime.UtcNow };
+            var prodMember = new MemberProfile { UserId = prodUser.Id, CenterId = center.Id, MemberCode = "AUDIT-MOMO-PR", FullName = "MoMo prod member", CreatedAt = DateTime.UtcNow };
+            db.MemberProfiles.AddRange(sandboxMember, prodMember); await db.SaveChangesAsync(); db.ChangeTracker.Clear();
+
+            var sandboxConfig = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+                ["Momo:PartnerCode"] = "MOMO", ["Momo:AccessKey"] = "audit-access", ["Momo:SecretKey"] = "audit-secret-key",
+                ["Momo:PaymentUrl"] = "https://test-payment.momo.vn/v2/gateway/api/create",
+                ["Momo:ReturnUrl"] = "https://app.example.test/payment-result", ["Momo:NotifyUrl"] = "https://api.example.test/api/payments/momo-ipn"
+            }).Build();
+            using var sandboxHttp = new HttpClient(new StubStatusHttpMessageHandler(HttpStatusCode.Forbidden, "<html>403 Forbidden</html>"));
+            var sandboxService = new PaymentService(new UnitOfWork(db), null!, new MoMoService(sandboxConfig, sandboxHttp), sandboxConfig);
+
+            var payUrl = await sandboxService.CreateMomoPaymentUrlAsync(sandboxMember.Id, new CreatePaymentRequest { PackageId = package.Id }, "audit-momo-sandbox-403");
+            var parsedUri = new Uri(payUrl);
+            var queryDict = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(parsedUri.Query)
+                .ToDictionary(pair => pair.Key, pair => pair.Value.ToString(), StringComparer.Ordinal);
+            if (!payUrl.StartsWith("https://app.example.test/payment-result?", StringComparison.Ordinal))
+                throw new Exception($"Unexpected fallback URL: {payUrl}");
+
+            var tampered = new Dictionary<string, string>(queryDict, StringComparer.Ordinal) { ["amount"] = "1" };
+            var tamperedResult = await sandboxService.ProcessMomoCallbackAsync(tampered);
+            if (tamperedResult.Processed || tamperedResult.Success)
+                throw new Exception("Tampered fallback callback must be rejected.");
+
+            var confirmed = await sandboxService.ProcessMomoCallbackAsync(queryDict);
+            if (!confirmed.Processed || !confirmed.Success)
+                throw new Exception($"Signed sandbox callback failed: {confirmed.Message}");
+
+            var prodConfig = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+                ["Momo:PartnerCode"] = "MOMO", ["Momo:AccessKey"] = "audit-access", ["Momo:SecretKey"] = "audit-secret-key",
+                ["Momo:PaymentUrl"] = "https://payment.momo.vn/v2/gateway/api/create",
+                ["Momo:ReturnUrl"] = "https://app.example.test/payment-result", ["Momo:NotifyUrl"] = "https://api.example.test/api/payments/momo-ipn"
+            }).Build();
+            using var prodHttp = new HttpClient(new StubStatusHttpMessageHandler(HttpStatusCode.Forbidden, "403"));
+            var prodService = new PaymentService(new UnitOfWork(db), null!, new MoMoService(prodConfig, prodHttp), prodConfig);
+            HttpStatusCode? prodStatus = null;
+            try { await prodService.CreateMomoPaymentUrlAsync(prodMember.Id, new CreatePaymentRequest { PackageId = package.Id }, "audit-momo-prod-403"); }
+            catch (BusinessException ex) { prodStatus = ex.StatusCode; }
+            if (prodStatus != HttpStatusCode.BadGateway)
+                throw new Exception($"Production MoMo 403 should stay 502 BadGateway, got {prodStatus}");
+
+            return await db.Payments.AnyAsync(p => p.MemberId == sandboxMember.Id && p.PaymentStatus == "Succeeded");
+        });
         async Task<bool> ConcurrentAttempt(Func<CoachProfessionalService, Task<long>> action) {
             await using var isolated = new SportsCenterDbContext(options);
             try { return await action(new CoachProfessionalService(isolated, clock)) > 0; }
@@ -529,4 +576,9 @@ sealed class RejectingMoMoService(HttpStatusCode status) : IMoMoService {
     public MomoCallbackResult ProcessCallback(IDictionary<string, string> queryParams) => throw new NotSupportedException();
     public Task<ProviderRefundResult> RefundAsync(string requestId, string refundOrderId, string providerTransactionId, decimal amount, string reason, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
+}
+
+sealed class StubStatusHttpMessageHandler(HttpStatusCode status, string body) : HttpMessageHandler {
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        => Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body) });
 }

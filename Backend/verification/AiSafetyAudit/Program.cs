@@ -425,6 +425,16 @@ Check("language detector recognises the member's language", () =>
     AiLanguageDetector.Detect("พรุ่งนี้มีคลาสโยคะไหม") == "Thai" &&
     AiLanguageDetector.Detect("Bonjour, quel est le prix du cours?") == "French" &&
     AiLanguageDetector.Detect("Hola, ¿cuánto cuesta la clase?") == "Spanish" &&
+    AiLanguageDetector.Detect("Apakah pakej-pakej yang ada di sini?") == "Malay" &&
+    AiLanguageDetector.Detect("Apa saja paket yang ada di sini?") == "Indonesian" &&
+    AiLanguageDetector.Detect("Ciao, quanto costa il corso?") == "Italian" &&
+    AiLanguageDetector.Detect("Olá, quais pacotes estão disponíveis?") == "Portuguese" &&
+    AiLanguageDetector.Detect("Welke pakketten zijn er?") == "Dutch" &&
+    AiLanguageDetector.Detect("Hangi paketler var?") == "Turkish" &&
+    AiLanguageDetector.Detect("Anong mga package ang meron dito?") == "Tagalog" &&
+    AiLanguageDetector.HasClearForeignText("Koji paketi postoje ovdje?") &&
+    !AiLanguageDetector.HasClearForeignText("Ngày mai có lớp yoga không?") &&
+    !AiLanguageDetector.HasClearForeignText("yoga") &&
     AiLanguageDetector.Detect("yoga") is null && AiLanguageDetector.Detect("15:00") is null);
 Check("language detector honours explicit reply/translation requests", () =>
     AiLanguageDetector.Detect("hãy nói tiếng thái") == "Thai" &&
@@ -439,6 +449,8 @@ Check("chat instruction ends with an explicit reply-language rule", () =>
 {
     var instruction = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("vi", "can you help me slot yoga in tomorow", "{}");
     var requestedThai = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("vi", "hãy nói tiếng thái", "{}");
+    var firstTurnMalay = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("vi", "Apakah pakej-pakej yang ada di sini?", "{}");
+    var firstTurnUnlisted = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("vi", "Koji paketi postoje ovdje?", "{}");
     var historyThai = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction(
         "vi",
         "yoga",
@@ -454,6 +466,11 @@ Check("chat instruction ends with an explicit reply-language rule", () =>
         requestedThai.Contains("explicitly requested to communicate in Thai. Your ENTIRE reply MUST be in Thai", StringComparison.Ordinal) &&
         requestedThai.Contains("translate every explanation, description, package benefit", StringComparison.Ordinal) &&
         !requestedThai.Contains("Your ENTIRE reply MUST be in Vietnamese", StringComparison.Ordinal) &&
+        firstTurnMalay.Contains("written in Malay. Your ENTIRE reply MUST be in Malay", StringComparison.Ordinal) &&
+        !firstTurnMalay.Contains("if unclear, reply in Vietnamese", StringComparison.Ordinal) &&
+        firstTurnUnlisted.Contains("non-Vietnamese language", StringComparison.Ordinal) &&
+        firstTurnUnlisted.Contains("Do NOT reply in Vietnamese", StringComparison.Ordinal) &&
+        !firstTurnUnlisted.Contains("if unclear, reply in Vietnamese", StringComparison.Ordinal) &&
         historyThai.Contains("Your ENTIRE reply MUST be in Thai", StringComparison.Ordinal) &&
         fallback.Contains("if unclear, reply in English", StringComparison.Ordinal) &&
         !instruction.Contains("Trả lời bằng tiếng Việt", StringComparison.Ordinal);

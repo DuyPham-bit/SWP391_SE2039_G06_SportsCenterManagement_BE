@@ -70,6 +70,19 @@ public static class AiLanguageDetector
         ["portuguese"] = "Portuguese",
         ["tieng indonesia"] = "Indonesian",
         ["indonesian"] = "Indonesian",
+        ["tieng ma lai"] = "Malay",
+        ["tieng malay"] = "Malay",
+        ["ma lai"] = "Malay",
+        ["malay"] = "Malay",
+        ["bahasa melayu"] = "Malay",
+        ["tieng ha lan"] = "Dutch",
+        ["dutch"] = "Dutch",
+        ["tieng tho nhi ky"] = "Turkish",
+        ["turkish"] = "Turkish",
+        ["tieng ba lan"] = "Polish",
+        ["polish"] = "Polish",
+        ["tagalog"] = "Tagalog",
+        ["filipino"] = "Tagalog",
         ["tieng hindi"] = "Hindi",
         ["tieng an do"] = "Hindi",
         ["hindi"] = "Hindi",
@@ -84,7 +97,7 @@ public static class AiLanguageDetector
         RegexOptions.CultureInvariant);
 
     private static readonly Regex EnglishRequestPattern = new(
-        @"(?:^|\b)(?:speak|talk|reply|answer|respond|translate|switch|change|write|explain|chat|use)\s+(?:to\s+|with\s+me\s+)?(?:in\s+|to\s+|into\s+)?(thai|english|vietnamese|japanese|korean|chinese|mandarin|french|spanish|german|russian|arabic|lao|khmer|italian|portuguese|indonesian|hindi)\b|\b(?:in|into)\s+(thai|english|vietnamese|japanese|korean|chinese|mandarin|french|spanish|german|russian|arabic|lao|khmer|italian|portuguese|indonesian|hindi)\s*(?:please|plz)?\s*[?.!]*$|\b(thai|english|vietnamese|japanese|korean|chinese|mandarin|french|spanish|german|russian|arabic|lao|khmer|italian|portuguese|indonesian|hindi)\s+(?:please|plz|only)\b",
+        @"(?:^|\b)(?:speak|talk|reply|answer|respond|translate|switch|change|write|explain|chat|use)\s+(?:to\s+|with\s+me\s+)?(?:in\s+|to\s+|into\s+)?(thai|english|vietnamese|japanese|korean|chinese|mandarin|french|spanish|german|russian|arabic|lao|khmer|italian|portuguese|indonesian|malay|dutch|turkish|polish|tagalog|filipino|hindi)\b|\b(?:in|into)\s+(thai|english|vietnamese|japanese|korean|chinese|mandarin|french|spanish|german|russian|arabic|lao|khmer|italian|portuguese|indonesian|malay|dutch|turkish|polish|tagalog|filipino|hindi)\s*(?:please|plz)?\s*[?.!]*$|\b(thai|english|vietnamese|japanese|korean|chinese|mandarin|french|spanish|german|russian|arabic|lao|khmer|italian|portuguese|indonesian|malay|dutch|turkish|polish|tagalog|filipino|hindi)\s+(?:please|plz|only)\b",
         RegexOptions.CultureInvariant);
 
     private static readonly HashSet<string> English = new(StringComparer.Ordinal)
@@ -111,7 +124,23 @@ public static class AiLanguageDetector
     private static readonly HashSet<string> Spanish = new(StringComparer.Ordinal)
         { "hola", "gracias", "clase", "clases", "cuanto", "cuánto", "donde", "dónde", "quiero", "mañana", "hoy", "precio", "horario", "por", "favor", "español", "espanol" };
     private static readonly HashSet<string> German = new(StringComparer.Ordinal)
-        { "hallo", "danke", "bitte", "wann", "preis", "preise", "kurse", "öffnungszeiten", "heute", "morgen", "sprechen", "deutsch", "ich", "wie" };
+        { "hallo", "danke", "bitte", "wann", "preis", "preise", "kurse", "öffnungszeiten", "heute", "morgen", "sprechen", "deutsch", "ich", "wie", "welche", "gibt" };
+    private static readonly HashSet<string> Malay = new(StringComparer.Ordinal)
+        { "apakah", "pakej", "ada", "sini", "sana", "di", "yang", "untuk", "dengan", "atau", "tidak", "boleh", "mahu", "ingin", "saya", "anda", "kami", "terima", "kasih", "selamat", "jadual", "harga", "kelas", "senaman", "renang", "sukan", "pusat", "keahlian", "ahli", "hari", "esok", "bila", "mana", "bagaimana", "berapa" };
+    private static readonly HashSet<string> Indonesian = new(StringComparer.Ordinal)
+        { "apa", "apakah", "saja", "paket", "ada", "sini", "sana", "di", "yang", "untuk", "dengan", "atau", "tidak", "bisa", "mau", "ingin", "saya", "anda", "kami", "terima", "kasih", "selamat", "jadwal", "harga", "kelas", "olahraga", "renang", "pusat", "anggota", "keanggotaan", "hari", "besok", "kapan", "dimana", "bagaimana", "berapa" };
+    private static readonly HashSet<string> Italian = new(StringComparer.Ordinal)
+        { "ciao", "grazie", "buongiorno", "salve", "quanto", "costa", "prezzo", "prezzi", "orario", "orari", "corso", "corsi", "oggi", "domani", "posso", "dove", "quale", "quali", "sono", "pacchetto", "pacchetti", "abbonamento", "italiano" };
+    private static readonly HashSet<string> Portuguese = new(StringComparer.Ordinal)
+        { "olá", "ola", "obrigado", "obrigada", "bom", "boa", "quanto", "custa", "preço", "preco", "preços", "horário", "horario", "aula", "aulas", "hoje", "amanhã", "amanha", "posso", "onde", "quais", "pacote", "pacotes", "plano", "planos", "português", "portugues" };
+    private static readonly HashSet<string> Dutch = new(StringComparer.Ordinal)
+        { "hallo", "bedankt", "dank", "welke", "wat", "waar", "wanneer", "hoeveel", "kost", "kosten", "pakket", "pakketten", "rooster", "vandaag", "morgen", "zijn", "er", "hier", "nederlands" };
+    private static readonly HashSet<string> Turkish = new(StringComparer.Ordinal)
+        { "merhaba", "teşekkürler", "tesekkurler", "hangi", "nedir", "nasıl", "nasil", "ne", "zaman", "fiyat", "fiyatlar", "paket", "paketler", "ders", "dersler", "bugün", "bugun", "yarın", "yarin", "var", "mı", "mi", "türkçe", "turkce" };
+    private static readonly HashSet<string> Polish = new(StringComparer.Ordinal)
+        { "cześć", "czesc", "dziękuję", "dziekuje", "jakie", "jaki", "gdzie", "kiedy", "ile", "kosztuje", "cena", "ceny", "pakiet", "pakiety", "zajęcia", "zajecia", "dzisiaj", "jutro", "są", "tutaj", "polski" };
+    private static readonly HashSet<string> Tagalog = new(StringComparer.Ordinal)
+        { "ano", "anong", "mga", "ang", "meron", "mayroon", "dito", "saan", "kailan", "magkano", "presyo", "klase", "ngayon", "bukas", "pwede", "salamat", "po", "tagalog", "filipino" };
 
     /// <summary>
     /// Detects an explicit request to reply or translate into a target language
@@ -182,9 +211,31 @@ public static class AiLanguageDetector
             ("French", words.Count(French.Contains)),
             ("Spanish", words.Count(Spanish.Contains)),
             ("German", words.Count(German.Contains)),
+            ("Malay", words.Count(Malay.Contains)),
+            ("Indonesian", words.Count(Indonesian.Contains)),
+            ("Italian", words.Count(Italian.Contains)),
+            ("Portuguese", words.Count(Portuguese.Contains)),
+            ("Dutch", words.Count(Dutch.Contains)),
+            ("Turkish", words.Count(Turkish.Contains)),
+            ("Polish", words.Count(Polish.Contains)),
+            ("Tagalog", words.Count(Tagalog.Contains)),
         }.OrderByDescending(item => item.Score).ToArray();
         // Require a clear winner; a tie (e.g. "a", "the" exist in both lists) means "let the model decide".
         return scores[0].Score > 0 && scores[0].Score > scores[1].Score ? scores[0].Language : null;
+    }
+
+    /// <summary>
+    /// Returns true when a message contains a multi-word phrase or non-ASCII sentence without any Vietnamese signal,
+    /// so even an unlisted foreign language (e.g. Croatian, Finnish, Swahili) never falls back to Vietnamese UI defaults.
+    /// </summary>
+    public static bool HasClearForeignText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        if (VietnameseLetters.IsMatch(text)) return false;
+        var words = Words.Matches(text.ToLowerInvariant()).Select(m => m.Value).ToList();
+        if (words.Count < 2) return false;
+        if (words.Select(StripMarks).Any(VietnameseUnaccented.Contains)) return false;
+        return true;
     }
 
     private static string StripMarks(string word) => string.Concat(word.Normalize(NormalizationForm.FormD)

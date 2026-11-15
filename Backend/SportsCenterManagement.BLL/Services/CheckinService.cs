@@ -164,6 +164,9 @@ public sealed class CheckinService(IUnitOfWork unitOfWork, IBusinessClock clock)
             join m in unitOfWork.Context.MemberProfiles.AsNoTracking() on c.MemberId equals m.Id
             join staff in unitOfWork.Context.StaffProfiles.AsNoTracking() on c.CheckedInBy equals staff.UserId into staffJoin
             from staff in staffJoin.DefaultIfEmpty()
+            // Same fallback as CheckInMemberAsync: an Admin has no staff profile, so show the account name.
+            join actor in unitOfWork.Context.Users.AsNoTracking() on c.CheckedInBy equals actor.Id into actorJoin
+            from actor in actorJoin.DefaultIfEmpty()
             where c.CenterId == centerId && c.CheckInTime >= todayUtc && c.CheckInTime < tomorrowUtc
             orderby c.CheckInTime descending, c.Id descending
             select new
@@ -173,7 +176,7 @@ public sealed class CheckinService(IUnitOfWork unitOfWork, IBusinessClock clock)
                 m.FullName,
                 m.MemberCode,
                 c.CheckInTime,
-                ReceptionistName = staff != null ? staff.FullName : "Lễ tân"
+                ReceptionistName = staff != null ? staff.FullName : actor != null ? actor.Username : "Lễ tân"
             }
         ).Take(100).ToListAsync(cancellationToken);
 

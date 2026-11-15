@@ -26,6 +26,14 @@ namespace SportsCenterManagement.BLL.DTOs.Members
             [param: StringLength(20)] string? Gender,
             [param: StringLength(255)] string? Address);
 
+        /// <summary>Counter-safe fields only: no login phone/email, address or status.</summary>
+        public sealed record UpdateMemberBasicInfoRequest(
+            [param: Required, StringLength(150, MinimumLength = 1)] string FullName,
+            DateOnly? DateOfBirth,
+            [param: StringLength(20)] string? Gender,
+            [param: StringLength(150)] string? EmergencyContactName,
+            [param: StringLength(20)] string? EmergencyContactPhone);
+
         public sealed record SetMemberStatusRequest(
             [param: Required, RegularExpression("^(Active|Disabled)$")] string Status);
     }

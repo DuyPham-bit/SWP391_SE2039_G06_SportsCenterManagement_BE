@@ -23,7 +23,9 @@ public static class Responses
         DateOnly? PackageStartDate = null,
         bool IsEmailVerified = true,
         string? AvatarUrl = null,
-        string? FitnessLevel = null);
+        string? FitnessLevel = null,
+        string? EmergencyContactName = null,
+        string? EmergencyContactPhone = null);
 
     public sealed record MemberSubscriptionResponse(
         long SubscriptionId,

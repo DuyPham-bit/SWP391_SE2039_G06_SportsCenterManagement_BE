@@ -18,6 +18,7 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterMa
     private static readonly TimeSpan MinLeadTime = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan MaxLeadTime = TimeSpan.FromDays(7);
     private static readonly TimeSpan CancelCutoff = TimeSpan.FromHours(2);
+    private static readonly TimeSpan AttendanceEditWindow = TimeSpan.FromHours(24);
 
     private SportsCenterDbContext Db => unitOfWork.Context;
 
@@ -173,9 +174,13 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterMa
             from b in Db.SessionBookings
             join s in Db.ClassSessions on b.SessionId equals s.Id
             join c in Db.Classes on s.ClassId equals c.Id
-            join room in Db.Rooms on s.RoomId equals (long?)room.Id into rooms
+            // Session-level values are overrides; fall back to the class room and its primary coach.
+            let effectiveRoomId = s.RoomId ?? c.RoomId
+            let effectiveCoachId = s.CoachId ?? Db.ClassCoaches
+                .Where(cc => cc.ClassId == c.Id && cc.IsPrimary).Select(cc => (long?)cc.CoachId).FirstOrDefault()
+            join room in Db.Rooms on effectiveRoomId equals (long?)room.Id into rooms
             from room in rooms.DefaultIfEmpty()
-            join coach in Db.CoachProfiles on s.CoachId equals (long?)coach.Id into coaches
+            join coach in Db.CoachProfiles on effectiveCoachId equals (long?)coach.Id into coaches
             from coach in coaches.DefaultIfEmpty()
             join attendance in Db.Attendances on new { b.SessionId, b.MemberId }
                 equals new { attendance.SessionId, attendance.MemberId } into attendances
@@ -652,8 +657,11 @@ public sealed class SessionBookingService(IUnitOfWork unitOfWork, SportsCenterMa
         var vietnamNow = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).DateTime;
         if (string.Equals(session.SessionStatus, "Cancelled", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Chỉ điểm danh khi buổi học đã bắt đầu và không bị hủy.") { Data = { ["StatusCode"] = 409 } };
-        if (session.SessionDate < DateOnly.FromDateTime(vietnamNow))
-            throw new InvalidOperationException("Buổi học đã qua ngày nên không thể sửa điểm danh.") { Data = { ["StatusCode"] = 409 } };
+        // Late-evening classes must still be closable the next morning: allow edits until 24 h after the session ends.
+        var sessionEnd = session.SessionDate.ToDateTime(session.EndTime);
+        if (session.EndTime <= session.StartTime) sessionEnd = sessionEnd.AddDays(1); // ends after midnight
+        if (vietnamNow > sessionEnd + AttendanceEditWindow)
+            throw new InvalidOperationException("Đã quá 24 giờ sau khi buổi học kết thúc nên không thể sửa điểm danh.") { Data = { ["StatusCode"] = 409 } };
         if (session.SessionDate.ToDateTime(session.StartTime) > vietnamNow)
             throw new InvalidOperationException("Chỉ điểm danh khi buổi học đã bắt đầu và không bị hủy.") { Data = { ["StatusCode"] = 409 } };
 

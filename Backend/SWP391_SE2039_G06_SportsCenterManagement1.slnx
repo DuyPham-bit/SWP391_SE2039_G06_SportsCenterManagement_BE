@@ -2,4 +2,5 @@
   <Project Path="SportsCenterManagement.API/SportsCenterManagement.API.csproj" />
   <Project Path="SportsCenterManagement.BLL/SportsCenterManagement.BLL.csproj" />
   <Project Path="SportsCenterManagement.DAL/SportsCenterManagement.DAL.csproj" />
+  <Project Path="SportsCenterManagement.Tests/SportsCenterManagement.Tests.csproj" />
 </Solution>

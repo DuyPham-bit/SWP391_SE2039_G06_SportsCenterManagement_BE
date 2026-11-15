@@ -10,6 +10,7 @@ public interface IMemberService
     Task<MembersResponses.MemberProfileResponse> GetMeAsync(long userId, CancellationToken cancellationToken = default);
     Task<MembersResponses.MemberProfileResponse> UpdateMeAsync(long userId, MembersRequests.UpdateMemberProfileRequest request, CancellationToken cancellationToken = default);
     Task<MembersResponses.MemberProfileResponse> UpdateAtCenterAsync(long actorUserId, long centerId, long memberId, MembersRequests.UpdateMemberAtCenterRequest request, CancellationToken cancellationToken = default);
+    Task<MembersResponses.MemberProfileResponse> UpdateBasicInfoAtCenterAsync(long actorUserId, long centerId, long memberId, MembersRequests.UpdateMemberBasicInfoRequest request, CancellationToken cancellationToken = default);
     Task<MembersResponses.MemberProfileResponse> SetMemberStatusAsync(long actorUserId, long centerId, long memberId, string status, CancellationToken cancellationToken = default);
     Task<MembersResponses.PagedResponse<MembersResponses.MemberProfileResponse>> SearchAtCenterAsync(
         long actorUserId,

@@ -40,4 +40,8 @@ public class MemberSubscription : Common.BaseEntity
     [Column("updated_at")]
     public DateTime? UpdatedAt { get; set; }
 
+    /// <summary>The newer subscription that replaced this one (Status = Upgraded); restored if that one is fully refunded.</summary>
+    [Column("upgraded_by_subscription_id")]
+    public long? UpgradedBySubscriptionId { get; set; }
+
 }

@@ -22,7 +22,7 @@ function Ensure-PostgresReady {
     $root = Split-Path $PSScriptRoot -Parent
     Write-Host 'Dang khoi dong container PostgreSQL (docker compose)...'
     docker compose -f (Join-Path $root 'docker/docker-compose.yml') --env-file (Join-Path $root 'docker/.env') up -d postgres
-    if ($LASTEXITCODE -ne 0) { throw 'Khong the khoi dong PostgreSQL. Kiem tra Docker Desktop hoac chay start-postgres.bat.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Khong the khoi dong PostgreSQL. Kiem tra Docker Desktop hoac chay scripts\start-postgres.bat.' }
     $deadline = (Get-Date).AddSeconds(60)
     while (-not (Test-PortOpen $DatabasePort)) {
         if ((Get-Date) -gt $deadline) { throw "PostgreSQL khong san sang tren cong $DatabasePort sau 60 giay." }

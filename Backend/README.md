@@ -6,7 +6,7 @@ Backend cho hệ thống quản lý trung tâm thể thao. Repository hiện dù
 
 - .NET 10 / ASP.NET Core Web API
 - Entity Framework Core 10 + PostgreSQL (Npgsql)
-- PostgreSQL 17 chạy bằng Docker (`start-postgres.bat`) cho môi trường phát triển mặc định
+- PostgreSQL 17 chạy bằng Docker (`scripts/start-postgres.bat`) cho môi trường phát triển mặc định
 - Mô hình 3 tầng (Presentation - Business Logic - Data Access) kết hợp Repository Pattern & Unit of Work
 
 ```text
@@ -41,6 +41,18 @@ dotnet restore .\SWP391_SE2039_G06_SportsCenterManagement1.slnx
 dotnet tool restore
 dotnet ef database update --project .\SportsCenterManagement.DAL\SportsCenterManagement.DAL.csproj --startup-project .\SportsCenterManagement.API\SportsCenterManagement.API.csproj
 dotnet run --project .\SportsCenterManagement.API\SportsCenterManagement.API.csproj
+```
+
+`appsettings.Development.json` không chứa mật khẩu DB. Mỗi máy tự đặt chuỗi kết nối đầy đủ vào User Secrets (một lần):
+
+```powershell
+dotnet user-secrets set "ConnectionStrings:SportsCenter" "Host=localhost;Port=5432;Database=SportsCenterDB;Username=postgres;Password=<mật khẩu>" --project .\SportsCenterManagement.API
+```
+
+Chạy unit test (xUnit, EF InMemory, không cần PostgreSQL):
+
+```powershell
+dotnet test .\SportsCenterManagement.Tests
 ```
 
 API được xây bằng ASP.NET Core MVC Controllers và trả JSON; không dùng Razor Views vì repository này là backend cho frontend riêng. Các route Flow 1 đã triển khai:

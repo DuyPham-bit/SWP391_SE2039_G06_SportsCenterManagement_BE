@@ -27,7 +27,8 @@ public sealed class InvoicesController(IPaymentService paymentService, SportsCen
             return BadRequest(new { message = "Bộ lọc hoặc phân trang không hợp lệ." });
         var rows = from invoice in db.Invoices.AsNoTracking()
             join member in db.MemberProfiles.AsNoTracking() on invoice.MemberId equals member.Id
-            where invoice.CenterId == centerId && member.CenterId == centerId
+            // Scope by the invoice's center only: a member who later moved center keeps their history here.
+            where invoice.CenterId == centerId
             select new { invoice.InvoiceNumber, invoice.MemberId, MemberName = member.FullName,
                 member.MemberCode, invoice.IssuedAt, invoice.Status, invoice.TotalAmount, invoice.Id };
         var term = query?.Trim();

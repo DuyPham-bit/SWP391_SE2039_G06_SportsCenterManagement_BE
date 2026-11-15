@@ -82,22 +82,31 @@ public sealed class ReportService(
             join sport in _unitOfWork.Context.Sports on cls.SportId equals sport.Id
             where cls.CenterId == centerId && booking.SubscriptionId.HasValue
                 && subscriptionIds.Contains(booking.SubscriptionId.Value)
-                && (booking.Status == "Booked" || booking.Status == "CancelledLate")
+                && (booking.Status == FlowStatuses.BookingBooked || booking.Status == FlowStatuses.BookingCancelledLate)
             select new { booking.SubscriptionId, SportId = sport.Id, SportName = sport.Name })
             .Distinct().ToListAsync(cancellationToken);
 
         var buckets = new Dictionary<(long? Id, string Name), (decimal Gross, decimal Refunds)>();
+        // Index once so allocation stays linear in the number of payments/refunds.
+        var itemsByInvoice = invoiceItems.ToLookup(item => item.InvoiceId);
+        var sportsByEnrollment = enrollmentSports.ToLookup(item => item.Id);
+        var sportsBySubscription = enrollmentSports.Where(item => item.SubscriptionId.HasValue)
+            .ToLookup(item => item.SubscriptionId!.Value);
+        var bookingSportsBySubscription = bookingSports.ToLookup(item => item.SubscriptionId!.Value);
+        var targetCache = new Dictionary<long, (long? Id, string Name)[]>();
         (long? Id, string Name)[] Targets(long invoiceId)
         {
-            var items = invoiceItems.Where(item => item.InvoiceId == invoiceId).ToArray();
+            if (targetCache.TryGetValue(invoiceId, out var cached)) return cached;
+            var items = itemsByInvoice[invoiceId];
             var directIds = items.Where(item => item.EnrollmentId.HasValue).Select(item => item.EnrollmentId!.Value).ToHashSet();
             var subs = items.Where(item => item.SubscriptionId.HasValue).Select(item => item.SubscriptionId!.Value).ToHashSet();
-            var sports = enrollmentSports.Where(item => directIds.Contains(item.Id)
-                    || (item.SubscriptionId.HasValue && subs.Contains(item.SubscriptionId.Value)))
+            var sports = directIds.SelectMany(id => sportsByEnrollment[id])
+                .Concat(subs.SelectMany(id => sportsBySubscription[id]))
                 .Select(item => (item.SportId, item.SportName))
-                .Concat(bookingSports.Where(item => subs.Contains(item.SubscriptionId!.Value))
+                .Concat(subs.SelectMany(id => bookingSportsBySubscription[id])
                     .Select(item => (item.SportId, item.SportName))).Distinct().ToArray();
-            return sports.Length > 0 ? sports.Select(item => ((long?)item.SportId, item.SportName)).ToArray()
+            return targetCache[invoiceId] = sports.Length > 0
+                ? sports.Select(item => ((long?)item.SportId, item.SportName)).ToArray()
                 : new[] { ((long?)null, "Chưa phân bổ") };
         }
         foreach (var payment in payments)
@@ -144,40 +153,34 @@ public sealed class ReportService(
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, timeZone));
         var db = _unitOfWork.Context;
 
-        var centerMembers = await db.MemberProfiles.AsNoTracking()
-            .Where(profile => profile.CenterId == centerId)
-            .Select(profile => new { profile.Id, profile.CreatedAt })
+        var centerMembers = db.MemberProfiles.Where(profile => profile.CenterId == centerId);
+        var totalMembers = await centerMembers.CountAsync(cancellationToken);
+        var newMemberCreatedAts = await centerMembers
+            .Where(profile => profile.CreatedAt >= startUtc && profile.CreatedAt < endUtc)
+            .Select(profile => profile.CreatedAt)
             .ToListAsync(cancellationToken);
-        var totalMembers = centerMembers.Count;
 
         var packages = await db.MembershipPackages.AsNoTracking()
             .Where(p => p.CenterId == centerId)
             .Select(p => new { p.Id, p.Name, p.Price, p.DurationDays })
             .ToListAsync(cancellationToken);
 
-        var subs = await (
-            from subscription in db.MemberSubscriptions.AsNoTracking()
-            join package in db.MembershipPackages.AsNoTracking() on subscription.PackageId equals package.Id
+        // Aggregate subscription history in SQL instead of loading every subscription the center ever sold.
+        var centerSubs = from subscription in db.MemberSubscriptions
+            join package in db.MembershipPackages on subscription.PackageId equals package.Id
             where package.CenterId == centerId
-            select new {
-                subscription.Id,
-                subscription.MemberId,
-                subscription.PackageId,
-                subscription.StartDate,
-                subscription.EndDate,
-                subscription.Price,
-                subscription.Status,
-                subscription.CreatedAt
-            }).ToListAsync(cancellationToken);
-
-        var activeMemberIds = subs
-            .Where(s => s.Status == "Active" && s.StartDate <= today && s.EndDate >= today)
-            .Select(s => s.MemberId).ToHashSet();
-        var activeMembers = activeMemberIds.Count;
-
-        var expiredMembers = subs.Where(s => s.Status == "Expired" ||
-                (s.Status == "Active" && s.EndDate < today))
-            .Select(s => s.MemberId).Distinct().Count(m => !activeMemberIds.Contains(m));
+            select subscription;
+        var activeSubs = centerSubs.Where(s => s.Status == "Active" && s.StartDate <= today && s.EndDate >= today);
+        var activeMembers = await activeSubs.Select(s => s.MemberId).Distinct().CountAsync(cancellationToken);
+        var expiredMembers = await centerSubs
+            .Where(s => s.Status == "Expired" || (s.Status == "Active" && s.EndDate < today))
+            .Select(s => s.MemberId).Distinct()
+            .Where(memberId => !activeSubs.Select(s => s.MemberId).Contains(memberId))
+            .CountAsync(cancellationToken);
+        var activeSubscribersByPackage = await activeSubs
+            .GroupBy(s => s.PackageId)
+            .Select(g => new { PackageId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(row => row.PackageId, row => row.Count, cancellationToken);
         var inactiveMembers = Math.Max(0, totalMembers - activeMembers);
 
         // Sales are recognized on full payment; revenue follows actual collections and refunds.
@@ -201,21 +204,20 @@ public sealed class ReportService(
                 && (refund.Status == "Succeeded" || refund.Status == "Approved") && refund.ProcessedAt >= startUtc && refund.ProcessedAt < endUtc
             select new { PackageId = item.PackageId!.Value, Amount = refund.Amount * item.Amount / invoice.Subtotal })
             .ToListAsync(cancellationToken);
+        var salesByPackage = sales.ToLookup(s => s.PackageId);
+        var collectedByPackage = collected.ToLookup(p => p.PackageId);
+        var refundedByPackage = refunded.ToLookup(p => p.PackageId);
         var packageStats = packages.Select(pkg =>
         {
-            var pkgSubs = subs.Where(s => s.PackageId == pkg.Id).ToArray();
-            var activeSubscribers = pkgSubs.Count(s => s.Status == "Active" && s.StartDate <= today && s.EndDate >= today);
-            var soldInPeriod = sales.Count(s => s.PackageId == pkg.Id);
-            var revenueInPeriod = decimal.Round(collected.Where(p => p.PackageId == pkg.Id).Sum(p => p.Amount)
-                - refunded.Where(p => p.PackageId == pkg.Id).Sum(p => p.Amount), 2);
+            var activeSubscribers = activeSubscribersByPackage.GetValueOrDefault(pkg.Id);
+            var soldInPeriod = salesByPackage[pkg.Id].Count();
+            var revenueInPeriod = decimal.Round(collectedByPackage[pkg.Id].Sum(p => p.Amount)
+                - refundedByPackage[pkg.Id].Sum(p => p.Amount), 2);
             return new MembershipPackageStatsItem(pkg.Id, pkg.Name, pkg.Price, pkg.DurationDays, activeSubscribers, soldInPeriod, revenueInPeriod);
         }).OrderByDescending(p => p.SoldInPeriod).ThenByDescending(p => p.RevenueInPeriod).ToArray();
 
-        var newMemberRows = centerMembers
-            .Where(row => row.CreatedAt >= startUtc && row.CreatedAt < endUtc)
-            .ToArray();
-        var newMembersByPeriod = newMemberRows
-            .GroupBy(row => PeriodFor(row.CreatedAt, groupBy, timeZone))
+        var newMembersByPeriod = newMemberCreatedAts
+            .GroupBy(createdAt => PeriodFor(createdAt, groupBy, timeZone))
             .ToDictionary(group => group.Key, group => group.Count());
         var periods = CreatePeriodStarts(from, to, groupBy)
             .Select(period => new MembershipReportPeriod(
@@ -224,7 +226,7 @@ public sealed class ReportService(
 
         return new MembershipReportResponse(
             centerId, from, to, timeZone.Id, totalMembers, activeMembers,
-            newMemberRows.Length, periods, expiredMembers, inactiveMembers, packageStats,
+            newMemberCreatedAts.Count, periods, expiredMembers, inactiveMembers, packageStats,
             activeMembers, inactiveMembers);
     }
 

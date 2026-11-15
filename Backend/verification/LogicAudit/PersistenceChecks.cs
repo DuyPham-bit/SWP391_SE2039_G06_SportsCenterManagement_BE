@@ -111,7 +111,7 @@ static class PersistenceChecks
             var rejected = false;
             try { using var bad = JsonDocument.Parse("[1,2]"); await service.SaveDraftAsync(bad.RootElement, desk.Id, default); }
             catch (InvalidOperationException) { rejected = true; }
-            await service.DiscardDraftAsync(default);
+            await service.DiscardDraftAsync(desk.Id, default);
             var discarded = !await db.SystemSettings.AnyAsync(s => s.SettingKey == "site.landing-content.draft");
             return stored && rejected && discarded
                 && reloaded.Content?.GetProperty("heroBanner").GetProperty("title").GetString() == "Bản nháp chưa xuất bản";

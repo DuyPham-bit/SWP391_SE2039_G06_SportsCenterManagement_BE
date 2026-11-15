@@ -62,7 +62,7 @@
   - **API Endpoints:**
     - `POST /api/payments/counter-checkout`: Tiếp nhận thanh toán quầy.
     - `POST /api/payments/counter-void/{invoiceNumber}`: Hủy giao dịch nhầm.
-  - **Tài liệu ghép nối Frontend:** Đã xuất file [HUONG_DAN_GHEP_NOI_FE_COUNTER_PAYMENT.md](file:///d:/0.%20Desk%27/FPT_Terms/FPT_Fall_26/SWP391/SportCenter_Project/Code/SWP391_SE2039_G06_SportsCenterManagement_BE/HUONG_DAN_GHEP_NOI_FE_COUNTER_PAYMENT.md).
+  - **Tài liệu ghép nối Frontend:** Đã xuất file [HUONG_DAN_GHEP_NOI_FE_COUNTER_PAYMENT.md](HUONG_DAN_GHEP_NOI_FE_COUNTER_PAYMENT.md).
 
 - [x] **Swagger UI & API Document:** Tích hợp Swagger tại `/swagger` để test trực quan không cần Postman.
 

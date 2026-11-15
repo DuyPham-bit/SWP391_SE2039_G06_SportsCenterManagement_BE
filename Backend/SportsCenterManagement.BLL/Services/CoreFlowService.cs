@@ -28,6 +28,37 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
             .ToListAsync(cancellationToken);
     }
 
+    /// <summary>Rejects a long-term enrollment whose weekly slots overlap another confirmed class of the member.</summary>
+    private async Task EnsureNoScheduleClashAsync(long classId, long memberId, DateOnly today, CancellationToken ct)
+    {
+        var activeSchedules = _unitOfWork.Context.ClassSchedules
+            .Where(s => s.Status == "Active" && (s.EndDate == null || s.EndDate >= today));
+        var target = await activeSchedules.Where(s => s.ClassId == classId)
+            .Select(s => new { s.DayOfWeek, s.StartTime, s.EndTime, s.StartDate, s.EndDate })
+            .ToListAsync(ct);
+        if (target.Count == 0) return;
+        var days = target.Select(s => s.DayOfWeek).Distinct().ToArray();
+        var others = await (
+            from enrollment in _unitOfWork.Context.ClassEnrollments
+            join schedule in activeSchedules on enrollment.ClassId equals schedule.ClassId
+            join cls in _unitOfWork.Context.Classes on enrollment.ClassId equals cls.Id
+            where enrollment.MemberId == memberId && enrollment.Status == "Confirmed"
+                && enrollment.ClassId != classId && days.Contains(schedule.DayOfWeek)
+            select new { schedule.DayOfWeek, schedule.StartTime, schedule.EndTime, schedule.StartDate, schedule.EndDate, cls.Name })
+            .ToListAsync(ct);
+        static bool DatesOverlap(DateOnly? startA, DateOnly? endA, DateOnly? startB, DateOnly? endB) =>
+            (startA ?? DateOnly.MinValue) <= (endB ?? DateOnly.MaxValue)
+            && (startB ?? DateOnly.MinValue) <= (endA ?? DateOnly.MaxValue);
+        var clash = others.FirstOrDefault(o => target.Any(t => t.DayOfWeek == o.DayOfWeek
+            && ScheduleTime.Overlaps(t.StartTime, t.EndTime, o.StartTime, o.EndTime)
+            && DatesOverlap(t.StartDate, t.EndDate, o.StartDate, o.EndDate)));
+        if (clash is not null)
+        {
+            throw new InvalidOperationException(
+                $"Schedule conflict: class '{clash.Name}' already occupies {clash.StartTime:HH\\:mm}-{clash.EndTime:HH\\:mm} on the same weekday.");
+        }
+    }
+
     public async Task<PendingMembershipResult> CreatePendingMembershipAsync(
         long memberId,
         long packageId,
@@ -81,6 +112,23 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
             var paidAmount = await _unitOfWork.Repository<Payment>()
                 .Find(payment => payment.InvoiceId == pending.Invoice.Id && payment.PaymentStatus == "Succeeded")
                 .SumAsync(payment => (decimal?)payment.Amount, cancellationToken) ?? 0m;
+            if (sportIds is not null)
+            {
+                // Retrying the same package with a new sport choice must not silently keep the abandoned one.
+                var requested = await MembershipEntitlements.ResolvePurchaseSportsAsync(_unitOfWork.Context, memberId,
+                    package, sportIds, ToBusinessDate(DateTime.UtcNow), cancellationToken);
+                var current = await _unitOfWork.Context.SubscriptionSports
+                    .Where(row => row.SubscriptionId == pending.Subscription.Id).ToListAsync(cancellationToken);
+                if (!current.Select(row => row.SportId).ToHashSet().SetEquals(requested))
+                {
+                    if (paidAmount > 0)
+                        throw new InvalidOperationException(
+                            "Đơn gói này đã được thanh toán một phần nên không thể đổi bộ môn.");
+                    _unitOfWork.Context.SubscriptionSports.RemoveRange(current);
+                    MembershipEntitlements.AddSports(_unitOfWork.Context, pending.Subscription.Id, requested);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                }
+            }
             await transaction.CommitAsync(cancellationToken);
             return new PendingMembershipResult(pending.Subscription.Id, pending.Invoice.Id,
                 pending.Invoice.InvoiceNumber, pending.Invoice.TotalAmount - paidAmount);
@@ -228,6 +276,11 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         {
             throw new UnauthorizedAccessException("Member and class belong to different centers.");
         }
+        // Same suspension rule as single-session booking (SessionBookingService.EnsureEligibleAsync).
+        if (member.BookingSuspendedUntil is { } suspendedUntil && suspendedUntil > DateTime.UtcNow)
+        {
+            throw new InvalidOperationException($"Member booking is suspended until {suspendedUntil:dd/MM/yyyy HH:mm} UTC.");
+        }
 
         var today = ToBusinessDate(DateTime.UtcNow);
         var subscription = await _unitOfWork.Repository<MemberSubscription>().Find(
@@ -268,9 +321,14 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
         var usedEntitlements = enrolledEntitlements.Concat(bookedEntitlements)
             .DistinctBy(item => item.ClassId)
             .Select(item => (item.ClassId, item.SportId)).ToArray();
+        var pickedSports = await _unitOfWork.Context.SubscriptionSports
+            .Where(row => row.SubscriptionId == subscription.Id)
+            .Select(row => row.SportId).ToListAsync(cancellationToken);
         switch (EnrollmentEntitlementRules.Evaluate(membershipPackage.MaxClasses, membershipPackage.AllowedSports,
-                    usedEntitlements, classId, classEntity.SportId))
+                    membershipPackage.IsAllAccess, pickedSports, usedEntitlements, classId, classEntity.SportId))
         {
+            case EnrollmentEntitlementVerdict.SportNotInPackage:
+                throw new InvalidOperationException("Class sport is not included in this membership.");
             case EnrollmentEntitlementVerdict.ClassLimitReached:
                 throw new InvalidOperationException("Membership class allowance has been reached.");
             case EnrollmentEntitlementVerdict.SportLimitReached:
@@ -289,6 +347,7 @@ public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration confi
             }
             throw new InvalidOperationException("Member is already enrolled in this class.");
         }
+        await EnsureNoScheduleClashAsync(classId, memberId, today, cancellationToken);
 
         var confirmedCount = await _unitOfWork.Repository<ClassEnrollment>().CountAsync(
             enrollment => enrollment.ClassId == classId && enrollment.Status == "Confirmed",

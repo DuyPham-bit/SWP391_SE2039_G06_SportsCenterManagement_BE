@@ -15,10 +15,10 @@ public sealed class ClassesController(IClassService classService, ICenterScopeSe
     [ProducesResponseType(typeof(IReadOnlyList<ClassCatalogResponse>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<ClassCatalogResponse>>> GetPublished(long centerId, CancellationToken cancellationToken)
     {
+        // Public catalog (published classes, no member data): same answer with or without a token,
+        // so staff of another center are not blocked from what anonymous visitors can already see.
         if (!await centerScopeService.IsActiveCenterAsync(centerId, cancellationToken))
             throw BusinessException.NotFound("Cơ sở không tồn tại hoặc đã ngừng hoạt động.");
-        if (User.Identity?.IsAuthenticated == true && (User.IsInRole("MANAGER") || User.IsInRole("RECEPTIONIST")))
-            await centerScopeService.EnsureCenterAccessAsync(CurrentUserId, User.IsInRole("ADMIN"), centerId, cancellationToken);
         return Ok(await classService.GetPublishedClassesAsync(centerId, cancellationToken));
     }
 

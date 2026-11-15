@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.BLL.Common;
+using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.DTOs.Payroll;
 using SportsCenterManagement.DAL.Entities;
 using SportsCenterManagement.DAL.Repositories.Interfaces;
@@ -77,7 +78,12 @@ public sealed class PayrollService(IUnitOfWork unitOfWork)
         {
             var activeCoachPolicies = await _unitOfWork.Context.CoachCompensationPolicies
                 .Where(policy => policy.CoachId == coach.Id && policy.Status == "Active").ToListAsync(ct);
-            foreach (var item in activeCoachPolicies) item.Status = "Archived";
+            var coachOld = activeCoachPolicies.Select(p => new { p.Id, p.MonthlyBaseSalary, p.CommissionPerSession, p.EffectiveFrom, p.EffectiveTo }).ToArray();
+            foreach (var item in activeCoachPolicies)
+            {
+                var (effectiveTo, status) = Supersede(item.EffectiveFrom, item.EffectiveTo, effectiveFrom);
+                item.EffectiveTo = effectiveTo; item.Status = status;
+            }
             var coachPolicy = new CoachCompensationPolicy
             {
                 CoachId = coach.Id,
@@ -92,12 +98,21 @@ public sealed class PayrollService(IUnitOfWork unitOfWork)
             };
             _unitOfWork.Context.CoachCompensationPolicies.Add(coachPolicy);
             await _unitOfWork.SaveChangesAsync(ct);
+            AuditLogWriter.Add(_unitOfWork, actorId, targetCenterId, "payroll.coach_policy.saved", "CoachCompensationPolicy",
+                coachPolicy.Id, coachOld, new { request.UserId, coachPolicy.MonthlyBaseSalary, coachPolicy.CommissionPerSession,
+                    coachPolicy.TargetSessions, coachPolicy.EffectiveFrom, coachPolicy.EffectiveTo });
+            await _unitOfWork.SaveChangesAsync(ct);
             return coachPolicy.Id;
         }
 
         var active = await _unitOfWork.Context.StaffCompensationPolicies
             .Where(policy => policy.UserId == request.UserId && policy.Status == "Active").ToListAsync(ct);
-        foreach (var policy in active) policy.Status = "Archived";
+        var staffOld = active.Select(p => new { p.Id, p.MonthlyBaseSalary, p.MonthlyAllowance, p.EffectiveFrom, p.EffectiveTo }).ToArray();
+        foreach (var policy in active)
+        {
+            var (effectiveTo, status) = Supersede(policy.EffectiveFrom, policy.EffectiveTo, effectiveFrom);
+            policy.EffectiveTo = effectiveTo; policy.Status = status;
+        }
         var row = new StaffCompensationPolicy
         {
             UserId = request.UserId,
@@ -112,13 +127,29 @@ public sealed class PayrollService(IUnitOfWork unitOfWork)
         };
         _unitOfWork.Context.StaffCompensationPolicies.Add(row);
         await _unitOfWork.SaveChangesAsync(ct);
+        AuditLogWriter.Add(_unitOfWork, actorId, targetCenterId, "payroll.staff_policy.saved", "StaffCompensationPolicy",
+            row.Id, staffOld, new { request.UserId, row.MonthlyBaseSalary, row.MonthlyAllowance, row.EffectiveFrom, row.EffectiveTo });
+        await _unitOfWork.SaveChangesAsync(ct);
         return row.Id;
+    }
+
+    /// <summary>
+    /// A new policy only takes over from its own start date: an older policy stays Active for the months before it
+    /// (closed the day before), while one starting on/after the new date is fully replaced and archived.
+    /// </summary>
+    internal static (DateOnly? EffectiveTo, string Status) Supersede(DateOnly existingFrom, DateOnly? existingTo, DateOnly newFrom)
+    {
+        if (existingFrom >= newFrom) return (existingTo, "Archived");
+        var closeAt = newFrom.AddDays(-1);
+        return (existingTo.HasValue && existingTo.Value < closeAt ? existingTo : closeAt, "Active");
     }
 
     private async Task<PayrollReport> BuildReport(long? centerId, int year, int month, CancellationToken ct, long? onlyUserId = null)
     {
         var from = new DateOnly(year, month, 1);
         var to = from.AddMonths(1);
+        var vietnamToday = ScheduleTime.VietnamToday;
+        var vietnamNow = TimeOnly.FromDateTime(ScheduleTime.VietnamNow);
         // A coach is part of the payroll roster when the account is active and either
         // the coach profile or its staff employment profile is active. Older records
         // can have a stale coach-profile status even though the staff assignment is active.
@@ -136,10 +167,12 @@ public sealed class PayrollService(IUnitOfWork unitOfWork)
                 .Where(item => item.CoachId == coach.Id && item.Status == "Active" && item.EffectiveFrom < to &&
                     (!item.EffectiveTo.HasValue || item.EffectiveTo >= from))
                 .OrderByDescending(item => item.EffectiveFrom).FirstOrDefaultAsync(ct);
-            var classIds = _unitOfWork.Context.ClassCoaches.Where(item => item.CoachId == coach.Id).Select(item => item.ClassId);
-            var sessions = await _unitOfWork.Context.ClassSessions.CountAsync(session => classIds.Contains(session.ClassId) &&
-                (session.CoachId == null || session.CoachId == coach.Id) && session.SessionDate >= from && session.SessionDate < to &&
-                session.SessionStatus == "Completed", ct);
+            // Nothing ever sets SessionStatus = "Completed", so counting that status always paid 0 sessions.
+            // Use the KPI definition: taught by this coach (incl. substitutions), ended, not cancelled.
+            var sessions = await CoachSessionRules.Taught(_unitOfWork.Context, coach.Id)
+                .Where(session => session.SessionDate >= from && session.SessionDate < to)
+                .Completed(vietnamToday, vietnamNow)
+                .CountAsync(ct);
             var sessionBonus = sessions * (policy?.CommissionPerSession ?? 0m);
             var centerName = await _unitOfWork.Context.Centers.Where(item => item.Id == coach.CenterId).Select(item => item.Name).SingleOrDefaultAsync(ct);
             result.Add(new PayrollRow(coach.UserId, coach.CoachCode, coach.FullName, "Coach", coach.CenterId, centerName,

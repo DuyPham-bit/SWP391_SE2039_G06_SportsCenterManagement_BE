@@ -464,7 +464,8 @@ public sealed class PaymentsController : ControllerBase
     {
         var role = User.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
         long.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId);
-        long? centerId = long.TryParse(User.FindFirstValue("CenterId"), out var cid) ? cid : null;
+        // Claim name is "centerId" (JwtTokenIssuer/JwtAccountValidator); lookups are case-sensitive.
+        long? centerId = long.TryParse(User.FindFirstValue("centerId"), out var cid) ? cid : null;
 
         var key = await _paymentService.GetRefundProofKeyAsync(id, userId, role, centerId, ct);
         var presignedUrl = _r2StorageService.GetPresignedUrl(key, TimeSpan.FromMinutes(5));

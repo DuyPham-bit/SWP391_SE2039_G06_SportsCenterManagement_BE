@@ -10,7 +10,7 @@ namespace SportsCenterManagement.API.Controllers;
 [FlowExceptionFilter]
 public sealed class LandingContentController(LandingContentService contentService) : FlowControllerBase
 {
-    public sealed record SaveRequest(JsonElement Content);
+    public sealed record SaveRequest(JsonElement Content, DateTime? ExpectedUpdatedAt = null);
 
     [HttpGet]
     [AllowAnonymous]
@@ -33,13 +33,13 @@ public sealed class LandingContentController(LandingContentService contentServic
     [Authorize(Roles = "ADMIN,MANAGER")]
     [RequestSizeLimit(2 * 1024 * 1024)]
     public async Task<ActionResult<LandingContentResponse>> SaveDraft(SaveRequest request, CancellationToken ct) =>
-        Ok(await contentService.SaveDraftAsync(request.Content, CurrentUserId, ct));
+        Ok(await contentService.SaveDraftAsync(request.Content, CurrentUserId, ct, request.ExpectedUpdatedAt));
 
     [HttpDelete("draft")]
     [Authorize(Roles = "ADMIN,MANAGER")]
     public async Task<IActionResult> DiscardDraft(CancellationToken ct)
     {
-        await contentService.DiscardDraftAsync(ct);
+        await contentService.DiscardDraftAsync(CurrentUserId, ct);
         return NoContent();
     }
 }

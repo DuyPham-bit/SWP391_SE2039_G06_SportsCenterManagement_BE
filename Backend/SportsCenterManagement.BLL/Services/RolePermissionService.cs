@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.DTOs.Roles;
 using SportsCenterManagement.BLL.Interfaces;
 using SportsCenterManagement.DAL.Authorization;
@@ -253,6 +254,8 @@ public sealed class RolePermissionService(IUnitOfWork unitOfWork) : IRolePermiss
             .Where(rp => rp.RoleId == roleId)
             .ToListAsync(cancellationToken);
 
+        var previousPermissionIds = existingRolePermissions.Select(rp => rp.PermissionId).OrderBy(id => id).ToArray();
+
         db.RolePermissions.RemoveRange(existingRolePermissions);
 
         foreach (var permId in distinctPermissionIds)
@@ -264,6 +267,10 @@ public sealed class RolePermissionService(IUnitOfWork unitOfWork) : IRolePermiss
             }, cancellationToken);
         }
 
+        // Same trail as AccessControlService: permission changes must be attributable.
+        AuditLogWriter.Add(unitOfWork, currentUserId, null, "role.permissions.replaced", "Role", roleId,
+            new { role.Name, PermissionIds = previousPermissionIds },
+            new { role.Name, PermissionIds = distinctPermissionIds.OrderBy(id => id).ToArray() });
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return await GetRolePermissionsAsync(roleId, cancellationToken);

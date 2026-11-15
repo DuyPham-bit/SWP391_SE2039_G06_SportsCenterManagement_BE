@@ -233,6 +233,15 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
         modelBuilder.Entity<FacilityResource>().HasIndex(entity => new { entity.CenterId, entity.Name }).IsUnique();
         modelBuilder.Entity<ResourceBooking>().HasIndex(entity => new { entity.ResourceId, entity.StartAt, entity.EndAt });
         modelBuilder.Entity<EquipmentIssue>().HasIndex(entity => new { entity.CenterId, entity.Status, entity.ReportedAt });
+        // Report date-range filters (check-in count, revenue, refunds).
+        modelBuilder.Entity<CenterCheckin>().HasIndex(entity => new { entity.CenterId, entity.CheckInTime });
+        modelBuilder.Entity<Payment>().HasIndex(entity => entity.PaidAt);
+        modelBuilder.Entity<PaymentRefund>().HasIndex(entity => entity.ProcessedAt);
+        // At most one active Manager per center; enforced in the DB so concurrent creates/unlocks cannot both win.
+        // Named, so EF keeps the plain FK index too (a filtered index only covers active managers).
+        modelBuilder.Entity<StaffProfile>().HasIndex(entity => entity.CenterId, "IX_staff_profiles_center_id");
+        modelBuilder.Entity<StaffProfile>().HasIndex(entity => entity.CenterId, "UX_staff_profiles_active_manager_per_center")
+            .IsUnique().HasFilter("\"position\" = 'Manager' AND \"status\" = 'Active'");
 
         modelBuilder.Entity<User>()
             .HasOne<Role>()

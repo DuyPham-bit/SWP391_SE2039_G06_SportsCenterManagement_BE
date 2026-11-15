@@ -170,12 +170,6 @@ public sealed class CoachProfessionalController(CoachProfessionalService service
     public async Task<IActionResult> Compensation(SaveCompensationPolicyRequest request, CancellationToken ct) =>
         Ok(new { Id = await service.SaveCompensation(CurrentUserId, request, ct) });
 
-    [HttpPost("manager/coach-operations/sales-credits")]
-    [Authorize(Roles = "MANAGER")]
-    [CenterCapability("manage_coach_operations")]
-    public async Task<IActionResult> SalesCredit(SaveSalesCreditRequest request, CancellationToken ct) =>
-        Ok(new { Id = await service.SaveSalesCredit(CurrentUserId, request, ct) });
-
     [HttpPost("manager/coach-operations/resources")]
     [Authorize(Roles = "MANAGER")]
     [CenterCapability("manage_coach_operations")]

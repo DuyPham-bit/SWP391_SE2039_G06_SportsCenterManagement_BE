@@ -541,11 +541,11 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CenterId");
-
                     b.HasIndex("CheckedInBy");
 
                     b.HasIndex("MemberId");
+
+                    b.HasIndex("CenterId", "CheckInTime");
 
                     b.ToTable("center_checkins", "dbo");
                 });
@@ -2159,6 +2159,10 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("updated_at");
 
+                    b.Property<long?>("UpgradedBySubscriptionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("upgraded_by_subscription_id");
+
                     b.HasKey("Id");
 
                     b.HasIndex("MemberId");
@@ -2547,6 +2551,8 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("MemberId");
 
+                    b.HasIndex("PaidAt");
+
                     b.HasIndex("ProcessedBy");
 
                     b.HasIndex("ProviderTransactionId")
@@ -2655,6 +2661,8 @@ namespace SportsCenterManagement.DAL.Migrations
                         .IsUnique();
 
                     b.HasIndex("PaymentId");
+
+                    b.HasIndex("ProcessedAt");
 
                     b.HasIndex("ProviderRefundId")
                         .IsUnique()
@@ -3068,13 +3076,17 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CenterId");
-
                     b.HasIndex("StaffCode")
                         .IsUnique();
 
                     b.HasIndex("UserId")
                         .IsUnique();
+
+                    b.HasIndex(new[] { "CenterId" }, "IX_staff_profiles_center_id");
+
+                    b.HasIndex(new[] { "CenterId" }, "UX_staff_profiles_active_manager_per_center")
+                        .IsUnique()
+                        .HasFilter("\"position\" = 'Manager' AND \"status\" = 'Active'");
 
                     b.ToTable("staff_profiles", "dbo");
                 });

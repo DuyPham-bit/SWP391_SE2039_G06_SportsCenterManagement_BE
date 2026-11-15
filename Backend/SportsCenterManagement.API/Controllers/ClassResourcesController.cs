@@ -81,7 +81,10 @@ public sealed class ClassResourcesController(
             .Select(r => new { r.Id, r.Name, Type = r.RoomType, r.Capacity, Location = r.LocationDescription, r.Status }).ToListAsync(ct));
     }
 
-    public sealed record RoomRequest(string Name, string? Type, int Capacity, string? Location);
+    /// <param name="Status">Active, Inactive or Maintenance; omitted keeps the current status (new rooms start Active).</param>
+    public sealed record RoomRequest(string Name, string? Type, int Capacity, string? Location, string? Status = null);
+
+    private static readonly string[] RoomStatuses = ["Active", "Inactive", "Maintenance"];
 
     [HttpPost("centers/{centerId:long}/rooms")]
     public async Task<IActionResult> CreateRoom(long centerId, RoomRequest request, CancellationToken ct)
@@ -119,10 +122,26 @@ public sealed class ClassResourcesController(
                 && db.SessionBookings.Count(b => b.SessionId == s.Id && b.Status == "Booked") > request.Capacity
             select s.Id).AnyAsync(ct))
             throw new InvalidOperationException("Sức chứa mới nhỏ hơn số chỗ đã đặt trong một buổi sắp tới.") { Data = { ["StatusCode"] = 409 } };
+        var newStatus = RoomStatuses.FirstOrDefault(s => s.Equals(request.Status?.Trim(), StringComparison.OrdinalIgnoreCase)) ?? room.Status;
+        // Taking a room out of service must not strand upcoming sessions: booking/enrollment already reject inactive rooms.
+        if (room.Status == "Active" && newStatus != "Active")
+        {
+            var upcoming = await (from s in db.ClassSessions join c in db.Classes on s.ClassId equals c.Id
+                where (s.RoomId ?? c.RoomId) == roomId && s.SessionDate >= clock.Today && s.SessionStatus == "Scheduled"
+                select s.Id).CountAsync(ct);
+            if (upcoming > 0)
+                throw new InvalidOperationException(
+                    $"Phòng còn {upcoming} buổi học sắp tới. Hãy chuyển các lịch/lớp sang phòng khác trước khi ngừng sử dụng phòng.")
+                    { Data = { ["StatusCode"] = 409 } };
+        }
+        var oldStatus = room.Status;
         room.Name = request.Name.Trim(); room.RoomType = request.Type?.Trim();
         room.Capacity = request.Capacity; room.LocationDescription = request.Location?.Trim();
+        room.Status = newStatus;
         db.AuditLogs.Add(new AuditLog { UserId = CurrentUserId, CenterId = centerId, Action = "UPDATE_ROOM",
-            EntityType = "Room", EntityId = room.Id, CreatedAt = DateTime.UtcNow });
+            EntityType = "Room", EntityId = room.Id, CreatedAt = DateTime.UtcNow,
+            OldValues = oldStatus == newStatus ? null : System.Text.Json.JsonSerializer.Serialize(new { Status = oldStatus }),
+            NewValues = oldStatus == newStatus ? null : System.Text.Json.JsonSerializer.Serialize(new { Status = newStatus }) });
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return Ok(new { room.Id, room.Name, Type = room.RoomType, room.Capacity, Location = room.LocationDescription, room.Status });
@@ -131,8 +150,9 @@ public sealed class ClassResourcesController(
     private static void Validate(RoomRequest r)
     {
         if (string.IsNullOrWhiteSpace(r.Name) || r.Name.Trim().Length > 100 || r.Capacity < 1
-            || r.Type?.Length > 100 || r.Location?.Length > 255)
-            throw new InvalidOperationException("Tên phòng bắt buộc (tối đa 100 ký tự), sức chứa phải dương, loại tối đa 100 và vị trí tối đa 255 ký tự.") { Data = { ["StatusCode"] = 400 } };
+            || r.Type?.Length > 100 || r.Location?.Length > 255
+            || (!string.IsNullOrWhiteSpace(r.Status) && !RoomStatuses.Contains(r.Status.Trim(), StringComparer.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("Tên phòng bắt buộc (tối đa 100 ký tự), sức chứa phải dương, loại tối đa 100, vị trí tối đa 255 ký tự; trạng thái chỉ nhận Active, Inactive hoặc Maintenance.") { Data = { ["StatusCode"] = 400 } };
     }
 
     [NonAction]

@@ -22,17 +22,6 @@ docker exec -i scms-postgres psql -U postgres -d SportsCenterDB -v ON_ERROR_STOP
 
 Không cần chạy file này nếu chỉ muốn schema: backend tự tạo database và áp EF Core migrations khi khởi động.
 
-### Chuyển dữ liệu từ SQL Server cũ
-
-Tool [`tools/SqlServerToPostgres`](../tools/SqlServerToPostgres/Program.cs) chép toàn bộ bảng `dbo` từ database SQL Server cũ sang PostgreSQL đã áp migrations (TRUNCATE rồi nạp lại, đặt lại sequence id):
-
-```powershell
-dotnet ef database update --project .\SportsCenterManagement.DAL --startup-project .\SportsCenterManagement.API
-$env:SCMS_SOURCE_SQLSERVER = "Server=127.0.0.1,14333;Database=SportsCenterDB;User Id=sa;Password=...;TrustServerCertificate=True"
-$env:SCMS_TARGET_POSTGRES  = "Host=localhost;Port=5432;Database=SportsCenterDB;Username=postgres;Password=..."
-dotnet run --project .	ools\SqlServerToPostgres
-```
-
 ### Tài khoản mẫu sau khi chạy:
 - **System Admin**: `admin` / `Admin@SCMS2026!Secure` (hoặc `Admin@123456`)
 - **Manager**: `manager01` / `Member@123456`

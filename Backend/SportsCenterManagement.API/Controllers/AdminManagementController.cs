@@ -2,6 +2,7 @@ using SportsCenterManagement.BLL.Common;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -124,6 +125,21 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
         var name = request.Name.Trim();
         if (await db.Centers.AnyAsync(item => item.Id != centerId && item.Name == name, ct))
             return Conflict(new { message = "Tên cơ sở đã tồn tại." });
+        // Closing a center must not strand a working manager or keep classes/packages open for sale there.
+        if (center.Status == "Active" && NormalizeCenterStatus(request.Status) != "Active")
+        {
+            var activeManagers = await db.StaffProfiles.CountAsync(staff => staff.CenterId == centerId
+                && staff.Position == RoleNames.Manager && staff.Status == "Active", ct);
+            var publishedClasses = await db.Classes.CountAsync(cls => cls.CenterId == centerId && cls.Status == "Published", ct);
+            var activePackages = await db.MembershipPackages.CountAsync(pkg => pkg.CenterId == centerId && pkg.Status == "Active", ct);
+            if (activeManagers + publishedClasses + activePackages > 0)
+                return Conflict(new
+                {
+                    message = $"Không thể ngừng cơ sở khi còn {activeManagers} Manager đang hoạt động, {publishedClasses} lớp đang mở " +
+                              $"và {activePackages} gói tập đang bán. Hãy ngừng các mục này trước.",
+                    activeManagers, publishedClasses, activePackages
+                });
+        }
 
         var oldValues = new { center.Name, center.Address, center.Status, center.OpeningTime, center.ClosingTime };
         center.Name = name;
@@ -174,18 +190,21 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
         var email = request.Email.Trim().ToLowerInvariant();
         var center = await db.Centers.SingleOrDefaultAsync(item => item.Id == request.CenterId && item.Status == "Active", ct);
         if (center is null) return BadRequest(new { message = "Cơ sở không tồn tại hoặc đang ngừng hoạt động." });
-        if (await db.Users.AnyAsync(user => user.Username == username || user.Email == email, ct))
-            return Conflict(new { message = "Tên đăng nhập hoặc email đã được sử dụng." });
+        var phone = EmptyToNull(request.Phone);
+        if (await db.Users.AnyAsync(user => user.Username == username || user.Email == email || (phone != null && user.Phone == phone), ct))
+            return Conflict(new { message = "Tên đăng nhập, email hoặc số điện thoại đã được sử dụng." });
+
+        // The check below is advisory; the filtered unique index UX_staff_profiles_active_manager_per_center is what
+        // stops two concurrent requests (the loser's insert fails and is answered with 409 by the middleware).
+        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         if (await db.StaffProfiles.AnyAsync(staff => staff.CenterId == center.Id && staff.Position == RoleNames.Manager && staff.Status == "Active", ct))
             return Conflict(new { message = "Mỗi cơ sở chỉ có một Manager đang hoạt động." });
-
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
         var managerRole = await db.Roles.SingleAsync(role => role.Name == RoleNames.Manager, ct);
         var manager = new User
         {
             Username = username,
             Email = email,
-            Phone = EmptyToNull(request.Phone),
+            Phone = phone,
             PasswordHash = PasswordHashing.Hash(request.Password),
             RoleId = managerRole.Id,
             Status = "Active",
@@ -215,7 +234,8 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
     {
         if (string.IsNullOrWhiteSpace(request.FullName) || request.FullName.Trim().Length > 150)
             return BadRequest(new { message = "Họ tên Manager không hợp lệ." });
-        var status = NormalizeStatus(request.Status);
+        if (NormalizeStatus(request.Status) is not { } status)
+            return BadRequest(new { message = "Trạng thái Manager chỉ nhận Active hoặc Disabled." });
         var center = await db.Centers.SingleOrDefaultAsync(item => item.Id == request.CenterId, ct);
         if (center is null || (status == "Active" && center.Status != "Active"))
             return BadRequest(new { message = "Cơ sở không tồn tại hoặc đang ngừng hoạt động." });
@@ -407,8 +427,23 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
         if (accountId == actorId) return Conflict(new { message = "Admin không thể thực hiện thao tác bảo mật lên chính tài khoản đang dùng." });
         var account = await db.Users.SingleOrDefaultAsync(user => user.Id == accountId, ct);
         if (account is null) return NotFound(new { message = "Không tìm thấy tài khoản." });
+        if (account.Status == "Deleted")
+            return Conflict(new { message = "Tài khoản đã bị xóa, không thể thực hiện thao tác bảo mật." });
         var staffProfile = await db.StaffProfiles.SingleOrDefaultAsync(staff => staff.UserId == accountId, ct);
-        var oldValues = new { account.Status, account.LockedUntil, account.AuthVersion };
+        // Same rule as UpdateManager: a Manager can only be re-activated at a center that is operating.
+        if (action == "unlock" && staffProfile?.Position == RoleNames.Manager &&
+            !await db.Centers.AnyAsync(center => center.Id == staffProfile.CenterId && center.Status == "Active", ct))
+            return Conflict(new { message = "Cơ sở của Manager đang ngừng hoạt động; hãy kích hoạt cơ sở trước khi mở khóa." });
+        // Same rule as UpdateManager: refuse instead of re-enabling a Manager login whose staff profile must stay Inactive.
+        if (action == "unlock" && staffProfile?.Position == RoleNames.Manager &&
+            await db.StaffProfiles.AnyAsync(s => s.UserId != accountId && s.CenterId == staffProfile.CenterId
+                && s.Position == RoleNames.Manager && s.Status == "Active", ct))
+            return Conflict(new { message = "Cơ sở này đã có Manager khác đang hoạt động; hãy chuyển Manager sang cơ sở khác trước khi mở khóa." });
+        // Coach profile status is checked on its own by class/booking queries, so it must follow the account.
+        var coachProfile = action is "lock" or "unlock"
+            ? await db.CoachProfiles.SingleOrDefaultAsync(coach => coach.UserId == accountId, ct)
+            : null;
+        var oldValues = new { account.Status, account.LockedUntil, account.AuthVersion, StaffStatus = staffProfile?.Status, CoachStatus = coachProfile?.Status };
         switch (action)
         {
             case "lock":
@@ -420,6 +455,7 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
                     staffProfile.Status = "Inactive";
                     staffProfile.UpdatedAt = DateTime.UtcNow;
                 }
+                if (coachProfile is not null) coachProfile.Status = "Inactive";
                 break;
             case "unlock":
                 account.Status = "Active";
@@ -428,14 +464,10 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
                 account.AuthVersion++;
                 if (staffProfile is not null)
                 {
-                    var hasAnotherActiveManager = staffProfile.Position == RoleNames.Manager &&
-                        await db.StaffProfiles.AnyAsync(s => s.UserId != accountId && s.CenterId == staffProfile.CenterId && s.Position == RoleNames.Manager && s.Status == "Active", ct);
-                    if (!hasAnotherActiveManager)
-                    {
-                        staffProfile.Status = "Active";
-                        staffProfile.UpdatedAt = DateTime.UtcNow;
-                    }
+                    staffProfile.Status = "Active";
+                    staffProfile.UpdatedAt = DateTime.UtcNow;
                 }
+                if (coachProfile is not null) coachProfile.Status = "Active";
                 break;
             case "revoke":
                 account.AuthVersion++;
@@ -444,7 +476,8 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
                 return BadRequest();
         }
         account.UpdatedAt = DateTime.UtcNow;
-        AddAudit($"admin.account.{action}", "User", account.Id, oldValues, new { account.Status, account.LockedUntil, account.AuthVersion, Reason = request.Reason.Trim() });
+        AddAudit($"admin.account.{action}", "User", account.Id, oldValues, new { account.Status, account.LockedUntil, account.AuthVersion,
+            StaffStatus = staffProfile?.Status, CoachStatus = coachProfile?.Status, Reason = request.Reason.Trim() });
         await db.SaveChangesAsync(ct);
         return NoContent();
     }
@@ -457,6 +490,10 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
             return "Địa chỉ cơ sở là bắt buộc và tối đa 255 ký tự.";
         if (!string.IsNullOrWhiteSpace(request.Email) && !new EmailAddressAttribute().IsValid(request.Email.Trim()))
             return "Email cơ sở không hợp lệ.";
+        if (!IsValidPhone(request.Phone))
+            return "Số điện thoại cơ sở phải gồm 8-15 chữ số (có thể bắt đầu bằng +).";
+        if (request.Description?.Trim().Length > 500)
+            return "Mô tả cơ sở tối đa 500 ký tự.";
         if (request.OpeningTime.HasValue && request.ClosingTime.HasValue && request.OpeningTime >= request.ClosingTime)
             return "Giờ mở cửa phải trước giờ đóng cửa.";
         var normalized = NormalizeCenterStatus(request.Status);
@@ -476,6 +513,8 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
             return "Email Manager không hợp lệ.";
         if (string.IsNullOrWhiteSpace(request.FullName) || request.FullName.Trim().Length > 150)
             return "Họ tên Manager không hợp lệ.";
+        if (!IsValidPhone(request.Phone))
+            return "Số điện thoại Manager phải gồm 8-15 chữ số (có thể bắt đầu bằng +).";
         return PasswordPolicy.GetValidationError(request.Password, request.Email, request.Phone);
     }
 
@@ -487,8 +526,16 @@ public sealed class AdminManagementController(SportsCenterDbContext db) : Contro
         return "Disabled";
     }
 
-    private static string NormalizeStatus(string? status) =>
-        string.Equals(status?.Trim(), "Active", StringComparison.OrdinalIgnoreCase) ? "Active" : "Disabled";
+    /// <summary>Null for anything other than Active/Disabled, so a typo is a 400 instead of a silent disable.</summary>
+    private static string? NormalizeStatus(string? status) => status?.Trim() switch
+    {
+        { } s when s.Equals("Active", StringComparison.OrdinalIgnoreCase) => "Active",
+        { } s when s.Equals("Disabled", StringComparison.OrdinalIgnoreCase) => "Disabled",
+        _ => null
+    };
+
+    private static bool IsValidPhone(string? phone) =>
+        string.IsNullOrWhiteSpace(phone) || Regex.IsMatch(phone.Trim(), @"^\+?[0-9]{8,15}$");
 
     private static string? EmptyToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 

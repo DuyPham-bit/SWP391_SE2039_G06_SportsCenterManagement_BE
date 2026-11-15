@@ -238,6 +238,7 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork, IBusinessCloc
         var now = DateTime.UtcNow;
         // Preserve credentials, user/member IDs and prior transactions; only add the staff assignment.
         user.RoleId = role.Id; user.UpdatedAt = now;
+        user.AuthVersion++; // member → staff: reload with the staff role on next request
         var staff = new StaffProfile { UserId = user.Id, CenterId = centerId, StaffCode = MakeCode("ST"),
             FullName = member.FullName, Position = role.Name, HireDate = request.HireDate, Status = "Active", CreatedAt = now };
         unitOfWork.Context.StaffProfiles.Add(staff);
@@ -404,7 +405,12 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork, IBusinessCloc
                     }
                 };
             role = await unitOfWork.Context.Roles.SingleAsync(r => r.Name == request.RoleName, cancellationToken);
-            user.RoleId = role.Id;
+            if (user.RoleId != role.Id)
+            {
+                user.RoleId = role.Id;
+                // Revoke open sessions so the UI reloads with the new role's menus/capabilities (401 → re-login).
+                user.AuthVersion++;
+            }
         }
         var sports = await ResolveCoachSportsAsync(centerId, role.Name, request.SportIds, cancellationToken);
         var oldStatus = user.Status;
@@ -418,6 +424,7 @@ public sealed class StaffManagementService(IUnitOfWork unitOfWork, IBusinessCloc
         user.Phone = phone;
         user.Status = request.Status;
         user.UpdatedAt = now;
+        if (oldStatus == "Active" && request.Status != "Active") user.AuthVersion++;
         if (request.Status == "Active")
         {
             user.FailedLoginAttempts = 0;

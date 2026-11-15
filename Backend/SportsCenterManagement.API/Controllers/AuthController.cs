@@ -299,7 +299,8 @@ public sealed class AuthController(
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
         var user = await dbContext.Users
             .SingleOrDefaultAsync(item => item.Email == normalizedEmail && item.Status == "Active", cancellationToken);
-        if (user is null)
+        // A lock set by an Admin (years ahead) is not a failed-login lock: resetting the password must not lift it.
+        if (user is null || user.LockedUntil > DateTime.UtcNow.AddYears(1))
         {
             return BadRequest(new { message = "Mã xác thực không hợp lệ hoặc đã hết hạn." });
         }

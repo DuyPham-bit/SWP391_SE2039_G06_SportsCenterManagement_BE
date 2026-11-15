@@ -47,13 +47,28 @@ public sealed class ClassEnrollmentService(
         {
             var conflict = ex.Message.Contains("full", StringComparison.OrdinalIgnoreCase)
                 || ex.Message.Contains("already enrolled", StringComparison.OrdinalIgnoreCase)
-                || ex.Message.Contains("allowance", StringComparison.OrdinalIgnoreCase);
+                || ex.Message.Contains("allowance", StringComparison.OrdinalIgnoreCase)
+                || ex.Message.Contains("conflict", StringComparison.OrdinalIgnoreCase);
 
             if (conflict)
             {
                 throw BusinessException.Conflict(ex.Message);
             }
+            if (ex.Message.Contains("not included", StringComparison.OrdinalIgnoreCase)
+                || ex.Message.Contains("suspended", StringComparison.OrdinalIgnoreCase))
+            {
+                throw BusinessException.Forbidden(ex.Message);
+            }
             throw BusinessException.BadRequest(ex.Message);
+        }
+        // Core flow signals ownership/lookup failures with BCL exceptions; the middleware only maps BusinessException.
+        catch (KeyNotFoundException ex)
+        {
+            throw BusinessException.NotFound(ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw BusinessException.Forbidden(ex.Message);
         }
     }
 
@@ -85,6 +100,14 @@ public sealed class ClassEnrollmentService(
                 throw BusinessException.Conflict(ex.Message);
             }
             throw BusinessException.BadRequest(ex.Message);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            throw BusinessException.NotFound(ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw BusinessException.Forbidden(ex.Message);
         }
     }
 }

@@ -12,6 +12,9 @@ public sealed class GoogleTokenValidator(IConfiguration configuration, ILogger<G
     private readonly ConfigurationManager<OpenIdConnectConfiguration> _metadata = new(
         "https://accounts.google.com/.well-known/openid-configuration", new OpenIdConnectConfigurationRetriever());
 
+    // FE (Vercel / .env.local) và BE (appsettings / Railway env) đôi khi dùng các
+    // OAuth Web Client ID khác nhau; chấp nhận tất cả Client ID đã cấu hình để
+    // audience mismatch không chặn đăng nhập khi triển khai trên nhiều môi trường.
     private string[] AllowedClientIds() =>
         new[] { configuration["Google:ClientId"] }
             .Concat(configuration.GetSection("Google:AllowedClientIds").Get<string[]>() ?? [])

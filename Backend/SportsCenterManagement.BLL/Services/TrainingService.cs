@@ -99,9 +99,10 @@ public sealed class TrainingService(SportsCenterDbContext db)
         var coach = await db.CoachProfiles.SingleOrDefaultAsync(c => c.UserId == userId && c.Status == "Active", ct)
             ?? throw new InvalidOperationException("Tài khoản chưa có hồ sơ HLV hoạt động.") { Data = { ["StatusCode"] = 403 } };
         var sameCenter = await db.Classes.AnyAsync(c => c.Id == session.ClassId && c.CenterId == coach.CenterId, ct);
-        var isEffectiveCoach = session.CoachId.HasValue
-            ? session.CoachId.Value == coach.Id
-            : await db.ClassCoaches.AnyAsync(a => a.ClassId == session.ClassId && a.CoachId == coach.Id, ct);
+        // Same rule as CoachSessionRules.Taught: assistants always, primary unless handed off.
+        var assignmentIsPrimary = await db.ClassCoaches.Where(a => a.ClassId == session.ClassId && a.CoachId == coach.Id)
+            .Select(a => (bool?)a.IsPrimary).FirstOrDefaultAsync(ct);
+        var isEffectiveCoach = CoachSessionRules.Teaches(session.CoachId, coach.Id, assignmentIsPrimary);
         if (!sameCenter || !isEffectiveCoach)
             throw new InvalidOperationException("Bạn không được phân công phụ trách buổi học này.")
             {
@@ -141,7 +142,8 @@ public sealed class TrainingService(SportsCenterDbContext db)
         var query = db.TrainingPlans.AsNoTracking().Where(p => p.Status == "Active");
         if (member)
         {
-            var profileId = await db.MemberProfiles.Where(m => m.UserId == userId).Select(m => m.Id).SingleAsync(ct);
+            var profileId = await db.MemberProfiles.Where(m => m.UserId == userId).Select(m => (long?)m.Id).SingleOrDefaultAsync(ct)
+                ?? throw new InvalidOperationException("Tài khoản chưa có hồ sơ hội viên.") { Data = { ["StatusCode"] = 404 } };
             query = query.Where(p => p.MemberId == profileId || (p.MemberId == null && p.ClassId != null &&
                 (db.SessionBookings.Any(b => b.MemberId == profileId && b.Status == "Booked" &&
                     db.ClassSessions.Any(s => s.Id == b.SessionId && s.ClassId == p.ClassId)) ||
@@ -230,7 +232,8 @@ public sealed class TrainingService(SportsCenterDbContext db)
         plan.FitnessCondition = request.FitnessCondition?.Trim();
         plan.ExercisesJson = JsonSerializer.Serialize(request.Exercises);
         plan.UpdatedAt = DateTime.UtcNow;
-        AddAudit(userId, coach.CenterId, "TRAINING_PLAN_SAVED", "TrainingPlan");
+        await db.SaveChangesAsync(ct); // assigns plan.Id for a new plan (still inside tx)
+        AddAudit(userId, coach.CenterId, "TRAINING_PLAN_SAVED", "TrainingPlan", plan.Id);
         var recipients = await ClassMembers(request.ClassId)
             .Where(m => (!personal || m.Id == request.MemberId) && db.Users.Any(u => u.Id == m.UserId && u.Status == "Active"))
             .Select(m => m.UserId).ToArrayAsync(ct);
@@ -329,7 +332,8 @@ public sealed class TrainingService(SportsCenterDbContext db)
         row.MuscleMass = request.MuscleMass;
         row.WorkoutResult = workoutResult;
         row.CoachFeedback = coachFeedback;
-        AddAudit(userId, coach.CenterId, isNew ? "TRAINING_PROGRESS_RECORDED" : "TRAINING_PROGRESS_UPDATED", "TrainingResult", row.Id > 0 ? row.Id : null);
+        await db.SaveChangesAsync(ct); // assigns row.Id for a new result (still inside tx)
+        AddAudit(userId, coach.CenterId, isNew ? "TRAINING_PROGRESS_RECORDED" : "TRAINING_PROGRESS_UPDATED", "TrainingResult", row.Id);
         if (request.NotifyMember)
             await FlowNotificationWriter.CreateForMemberAsync(db, userId, request.MemberId, "Có kết quả tập luyện mới",
                 $"HLV {coach.FullName} đã {(isNew ? "ghi nhận" : "cập nhật")} kết quả tập ngày {date:dd/MM/yyyy}. Xem Giáo án & Kết quả tập để biết chi tiết.", "ProgressUpdated", ct);

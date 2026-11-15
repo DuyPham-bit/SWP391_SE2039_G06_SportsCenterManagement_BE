@@ -239,10 +239,6 @@ try {
         await db.SaveChangesAsync();
         var foreignSubscription = new MemberSubscription { MemberId = foreignMember.Id, PackageId = foreignPackage.Id, DurationDays = 30, Price = 500000, Status = "Active", StartDate = today, EndDate = today.AddDays(29), CreatedAt = DateTime.UtcNow };
         db.Add(foreignSubscription); await db.SaveChangesAsync(); db.ChangeTracker.Clear();
-        await Check("sales credit cannot link a subscription from another center", async () => {
-            try { await professional.SaveSalesCredit(manager.Id, new SaveSalesCreditRequest(profile.Id, null, foreignSubscription.Id, 500000, null, null), default); return false; }
-            catch (BusinessException e) { return e.StatusCode == HttpStatusCode.BadRequest; }
-        });
         var reports = new ReportService(new UnitOfWork(db), null!, new ConfigurationBuilder().Build());
         await Check("pending and scheduled subscriptions are not expired members", async () => {
             var report = await reports.GetMembershipReportAsync(center.Id, today, today, "day");
@@ -541,7 +537,6 @@ try {
             using var parsed = JsonDocument.Parse(json);
             var root = parsed.RootElement;
             return root.TryGetProperty("deliverySummary", out _) && root.TryGetProperty("resourceBookings", out _)
-                && root.TryGetProperty("salesCredits", out _)
                 && root.GetProperty("resources").EnumerateArray().Any(r => r.GetProperty("name").GetString() == "Audit treadmill")
                 && root.GetProperty("equipmentIssues").EnumerateArray().Any(i => i.GetProperty("title").GetString() == "Audit belt slipping"
                     && i.GetProperty("resourceName").GetString() == "Audit treadmill");

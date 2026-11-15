@@ -99,7 +99,9 @@ public class MoMoService : IMoMoService
 
         var jsonPayload = JsonSerializer.Serialize(requestPayload, serializerOptions);
         using var requestContent = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
-        var isSandbox = IsSandboxEndpoint(paymentUrl);
+        // The self-signed success redirect below lets a checkout complete without any money moving,
+        // so it is opt-in (Momo:AllowSandboxFallback=true) and only ever for the sandbox endpoint.
+        var isSandbox = IsSandboxFallbackEnabled(_configuration);
 
         HttpResponseMessage? response = null;
         try
@@ -151,6 +153,10 @@ public class MoMoService : IMoMoService
         return CreateSignedSandboxFallbackResponse(
             partnerCode, accessKey, secretKey, orderId, requestId, amountLong, orderInfo, redirectUrl, extraData);
     }
+
+    internal static bool IsSandboxFallbackEnabled(IConfiguration configuration) =>
+        bool.TryParse(configuration["Momo:AllowSandboxFallback"], out var enabled) && enabled &&
+        IsSandboxEndpoint(configuration["Momo:PaymentUrl"] ?? "https://test-payment.momo.vn/v2/gateway/api/create");
 
     internal static bool IsSandboxEndpoint(string? paymentUrl) =>
         Uri.TryCreate(paymentUrl?.Trim(), UriKind.Absolute, out var uri) &&

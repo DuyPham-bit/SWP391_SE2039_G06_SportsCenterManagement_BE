@@ -116,6 +116,20 @@ public sealed class MembersController(
             GetUserId(), centerId, memberId, request, cancellationToken)));
     }
 
+    /// <summary>Receptionist/Manager fix of name, birth date, gender and emergency contact (no login identifiers).</summary>
+    [HttpPatch("centers/{centerId:long}/members/{memberId:long}/basic-info")]
+    [CenterCapability("register_counter_package")]
+    [RequirePermission(PermissionCodes.MemberCenterCreate)]
+    public async Task<IActionResult> UpdateBasicInfoAtCenter(
+        long centerId,
+        long memberId,
+        MembersRequests.UpdateMemberBasicInfoRequest request,
+        CancellationToken cancellationToken)
+    {
+        return await Run(async () => Ok(await memberService.UpdateBasicInfoAtCenterAsync(
+            GetUserId(), centerId, memberId, request, cancellationToken)));
+    }
+
     [HttpPatch("centers/{centerId:long}/members/{memberId:long}/status")]
     [RequirePermission(PermissionCodes.MemberCenterManageStatus)]
     public async Task<IActionResult> SetMemberStatus(

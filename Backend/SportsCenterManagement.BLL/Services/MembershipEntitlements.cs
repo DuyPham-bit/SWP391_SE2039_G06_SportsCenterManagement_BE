@@ -164,6 +164,7 @@ internal static class MembershipEntitlements
         foreach (var other in replaced)
         {
             other.Status = StatusUpgraded;
+            other.UpgradedBySubscriptionId = subscription.Id;
             other.UpdatedAt = now;
         }
     }

@@ -72,8 +72,15 @@ public sealed class MemberEnrollmentOptionsService(SportsCenterDbContext db, IBu
                 && subscription.StartDate <= today && subscription.EndDate >= today && package.CenterId == centerId
             orderby package.AllowedSports descending, subscription.EndDate descending
             select new { subscription.Id, PackageName = package.Name, subscription.StartDate, subscription.EndDate,
-                package.AllowedSports, package.MaxClasses }).ToListAsync(ct);
+                package.AllowedSports, package.MaxClasses, package.IsAllAccess }).ToListAsync(ct);
         var subscriptionIds = subscriptions.Select(x => x.Id).ToArray();
+        var pickedSports = (await db.SubscriptionSports.AsNoTracking()
+                .Where(row => subscriptionIds.Contains(row.SubscriptionId))
+                .Select(row => new { row.SubscriptionId, row.SportId }).ToListAsync(ct))
+            .GroupBy(row => row.SubscriptionId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyCollection<long>)g.Select(row => row.SportId).ToHashSet());
+        IReadOnlyCollection<long> PickedOf(long subscriptionId) =>
+            pickedSports.TryGetValue(subscriptionId, out var picked) ? picked : [];
         var enrolledUsage = await (
             from enrollment in db.ClassEnrollments.AsNoTracking()
             join cls in db.Classes on enrollment.ClassId equals cls.Id
@@ -119,9 +126,11 @@ public sealed class MemberEnrollmentOptionsService(SportsCenterDbContext db, IBu
                 else
                 {
                     var verdicts = subscriptions.Select(s => (s.Id, Verdict: EnrollmentEntitlementRules.Evaluate(
-                        s.MaxClasses, s.AllowedSports, UsageOf(s.Id), classId, sportId))).ToArray();
+                        s.MaxClasses, s.AllowedSports, s.IsAllAccess, PickedOf(s.Id), UsageOf(s.Id), classId, sportId))).ToArray();
                     var allowed = verdicts.FirstOrDefault(v => v.Verdict == EnrollmentEntitlementVerdict.Allowed);
                     if (allowed.Id != 0) eligible = allowed.Id;
+                    else if (verdicts.All(v => v.Verdict == EnrollmentEntitlementVerdict.SportNotInPackage))
+                        (blockedCode, blockedReason) = ("SPORT_NOT_IN_PACKAGE", "Bộ môn này không nằm trong gói tập của bạn.");
                     else if (verdicts.Any(v => v.Verdict == EnrollmentEntitlementVerdict.SportLimitReached))
                         (blockedCode, blockedReason) = ("SPORT_LIMIT", "Gói tập đã dùng hết số môn được phép. Nâng cấp gói để học thêm môn mới.");
                     else

@@ -54,6 +54,8 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
     private IQueryable<long> AssignedClassIds(long coachId) => db.ClassCoaches
         .Where(x => x.CoachId == coachId).Select(x => x.ClassId);
 
+    private IQueryable<ClassSession> TaughtSessions(long coachId) => CoachSessionRules.Taught(db, coachId);
+
     private static (DateTime StartAt, DateTime EndAt) SessionUtc(
         DateOnly sessionDate, TimeOnly startTime, TimeOnly endTime)
     {
@@ -78,9 +80,12 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
         var localEnd = TimeZoneInfo.ConvertTimeFromUtc(endAt, VietnamTimeZone);
         var firstDate = DateOnly.FromDateTime(localStart);
         var lastDate = DateOnly.FromDateTime(localEnd);
-        IQueryable<ClassSession> query = db.ClassSessions.Where(x => AssignedClassIds(coachId).Contains(x.ClassId) &&
-            (x.CoachId == null || x.CoachId == coachId) && x.SessionStatus != "Cancelled" &&
-            x.SessionDate >= firstDate && x.SessionDate <= lastDate);
+        // Sessions this coach leads (needs a substitute when they are away): their substitutions, or their
+        // primary classes not handed off. Assistants do not lead, so their leave reassigns nothing.
+        IQueryable<ClassSession> query = db.ClassSessions.Where(x =>
+            (x.CoachId == coachId || (x.CoachId == null &&
+                db.ClassCoaches.Any(cc => cc.ClassId == x.ClassId && cc.CoachId == coachId && cc.IsPrimary))) &&
+            x.SessionStatus != "Cancelled" && x.SessionDate >= firstDate && x.SessionDate <= lastDate);
         if (!trackChanges) query = query.AsNoTracking();
         var candidates = await query.ToArrayAsync(ct);
         return candidates.Where(x => SessionOverlaps(
@@ -137,11 +142,12 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
         var affectedDates = affectedSessions.Select(x => x.SessionDate).Distinct().ToArray();
         var assignedClasses = await db.ClassCoaches.AsNoTracking()
             .Where(x => qualifiedIds.Contains(x.CoachId))
-            .Select(x => new { x.CoachId, x.ClassId }).ToArrayAsync(ct);
+            .Select(x => new { x.CoachId, x.ClassId, x.IsPrimary }).ToArrayAsync(ct);
         var assignedClassIds = assignedClasses.Select(x => x.ClassId).Distinct().ToArray();
+        // Superset; the exact "who teaches it" rule (CoachSessionRules.Teaches) is applied per candidate below.
         var otherSessions = await db.ClassSessions.AsNoTracking().Where(x =>
                 !affectedIds.Contains(x.Id) && affectedDates.Contains(x.SessionDate) && x.SessionStatus != "Cancelled" &&
-                (qualifiedIds.Contains(x.CoachId ?? 0) || (x.CoachId == null && assignedClassIds.Contains(x.ClassId))))
+                (qualifiedIds.Contains(x.CoachId ?? 0) || assignedClassIds.Contains(x.ClassId)))
             .ToArrayAsync(ct);
         var workEvents = await db.CoachWorkEvents.AsNoTracking().Where(x => qualifiedIds.Contains(x.CoachId) &&
                 (x.Status == "Confirmed" || x.Status == "PendingMemberConfirmation") &&
@@ -155,8 +161,9 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
         {
             var interval = SessionUtc(session.SessionDate, session.StartTime, session.EndTime);
             return otherSessions.Any(other =>
-                       (other.CoachId == candidate.Id || (other.CoachId == null && assignedClasses.Any(link =>
-                           link.CoachId == candidate.Id && link.ClassId == other.ClassId))) &&
+                       CoachSessionRules.Teaches(other.CoachId, candidate.Id, assignedClasses
+                           .Where(link => link.CoachId == candidate.Id && link.ClassId == other.ClassId)
+                           .Select(link => (bool?)link.IsPrimary).FirstOrDefault()) &&
                        SessionOverlaps(other.SessionDate, other.StartTime, other.EndTime, interval.StartAt, interval.EndAt)) ||
                    workEvents.Any(work => work.CoachId == candidate.Id && work.StartAt < interval.EndAt && work.EndAt > interval.StartAt) ||
                    approvedLeaves.Any(leave => leave.CoachId == candidate.Id && leave.StartAt < interval.EndAt && leave.EndAt > interval.StartAt);
@@ -212,7 +219,14 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
             (x.Status == "Active" || x.Status == "Confirmed" || x.Status == "Enrolled")).Select(x => x.MemberId);
         var booked = db.SessionBookings.Where(x => x.Status == "Booked" && db.ClassSessions.Any(s =>
             s.Id == x.SessionId && classIds.Contains(s.ClassId))).Select(x => x.MemberId);
-        return enrolled.Union(booked).Distinct();
+        // Substitutions (session.CoachId) also link the coach to that class's members, mirrored in MemberWorkspace.
+        var substitutedClassIds = db.ClassSessions
+            .Where(s => s.CoachId == coachId && s.SessionStatus != FlowStatuses.SessionCancelled).Select(s => s.ClassId);
+        var substituteEnrolled = db.ClassEnrollments.Where(x => substitutedClassIds.Contains(x.ClassId) &&
+            (x.Status == "Active" || x.Status == "Confirmed" || x.Status == "Enrolled")).Select(x => x.MemberId);
+        var substituteBooked = db.SessionBookings.Where(x => x.Status == "Booked" && db.ClassSessions.Any(s =>
+            s.Id == x.SessionId && s.CoachId == coachId)).Select(x => x.MemberId);
+        return enrolled.Union(booked).Union(substituteEnrolled).Union(substituteBooked).Distinct();
     }
 
     private async Task EnsureCoachMember(long coachId, long memberId, CancellationToken ct)
@@ -230,7 +244,11 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
             throw Invalid("Khoảng thời gian phải tăng dần và không quá 370 ngày.");
 
         var memberIds = await AssignedMemberIds(coach.Id).ToArrayAsync(ct);
-        var classIds = await AssignedClassIds(coach.Id).ToArrayAsync(ct);
+        var assignments = await db.ClassCoaches.AsNoTracking().Where(x => x.CoachId == coach.Id)
+            .Select(x => new { x.ClassId, x.IsPrimary }).ToArrayAsync(ct);
+        var classIds = assignments.Select(x => x.ClassId).ToArray();
+        bool? AssignmentIsPrimary(long classId) =>
+            assignments.Where(x => x.ClassId == classId).Select(x => (bool?)x.IsPrimary).FirstOrDefault();
         var approvedLeaves = await db.CoachLeaves.AsNoTracking()
             .Where(x => x.CoachId == coach.Id && x.Status == "Approved" && x.StartAt < rangeEnd && x.EndAt > rangeStart)
             .ToArrayAsync(ct);
@@ -276,7 +294,8 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
             var leave = approvedLeaves.FirstOrDefault(x => SessionOverlaps(
                 session.SessionDate, session.StartTime, session.EndTime, x.StartAt, x.EndAt));
             var belongsToOriginalClass = classIds.Contains(session.ClassId);
-            var shouldDisplay = session.CoachId == coach.Id || (session.CoachId is null && belongsToOriginalClass) ||
+            // Taught per CoachSessionRules (assistants included), or own class covered by a substitute while on leave.
+            var shouldDisplay = CoachSessionRules.Teaches(session.CoachId, coach.Id, AssignmentIsPrimary(session.ClassId)) ||
                 (leave is not null && belongsToOriginalClass);
             return new { Session = session, Leave = leave, ShouldDisplay = shouldDisplay };
         }).Where(x => x.ShouldDisplay).Select(x => new { x.Session.Id, x.Session.ClassId, x.Session.Title,
@@ -384,21 +403,43 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
         var metrics = await db.TrainingResults.AsNoTracking().Where(x => memberIds.Contains(x.MemberId))
             .OrderByDescending(x => x.ResultDate).Select(x => new { x.Id, x.MemberId, x.ResultDate, x.Weight,
                 x.BodyFatPercentage, x.MuscleMass, x.WorkoutResult, x.CoachFeedback, x.PerformanceScore }).ToListAsync(ct);
+        // Status "Active" is never flipped to "Expired" in the DB, so expiry is decided by EndDate here.
+        // PendingPayment subscriptions have no dates and grant nothing yet, so they are not a renewal target.
+        var today = Today;
         var subscriptions = await (from subscription in db.MemberSubscriptions.AsNoTracking()
             join package in db.MembershipPackages on subscription.PackageId equals package.Id
-            where memberIds.Contains(subscription.MemberId) && (subscription.Status == "Active" || subscription.Status == "Pending")
-            orderby subscription.EndDate select new { subscription.Id, subscription.MemberId, PackageName = package.Name,
+            where memberIds.Contains(subscription.MemberId) && subscription.Status == "Active"
+                && subscription.StartDate != null && subscription.EndDate != null && subscription.EndDate >= today
+            select new { subscription.Id, subscription.MemberId, PackageName = package.Name,
                 subscription.StartDate, subscription.EndDate, package.MaxClasses, subscription.Status }).ToListAsync(ct);
         var subscriptionIds = subscriptions.Select(x => x.Id).ToArray();
-        var used = await db.SessionBookings.AsNoTracking().Where(x => x.SubscriptionId != null && subscriptionIds.Contains(x.SubscriptionId.Value)
-            && (x.Status == "Booked" || x.Status == "Attended")).GroupBy(x => x.SubscriptionId!.Value)
-            .Select(g => new { SubscriptionId = g.Key, Count = g.Count() }).ToListAsync(ct);
+        // Same allowance rule as EnrollmentEntitlementRules: MaxClasses counts distinct classes used via
+        // confirmed enrollments and booked / late-cancelled (charged) sessions.
+        var usedClasses = await (
+                from booking in db.SessionBookings.AsNoTracking()
+                join session in db.ClassSessions on booking.SessionId equals session.Id
+                where booking.SubscriptionId != null && subscriptionIds.Contains(booking.SubscriptionId.Value)
+                    && (booking.Status == FlowStatuses.BookingBooked || booking.Status == FlowStatuses.BookingCancelledLate)
+                select new { SubscriptionId = booking.SubscriptionId!.Value, session.ClassId })
+            .Concat(
+                from enrollment in db.ClassEnrollments.AsNoTracking()
+                where enrollment.SubscriptionId != null && subscriptionIds.Contains(enrollment.SubscriptionId.Value)
+                    && enrollment.Status == FlowStatuses.EnrollmentConfirmed
+                select new { SubscriptionId = enrollment.SubscriptionId!.Value, enrollment.ClassId })
+            .ToListAsync(ct);
+        var used = usedClasses.GroupBy(x => x.SubscriptionId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.ClassId).Distinct().Count());
         return members.Select(member =>
         {
-            var sub = subscriptions.FirstOrDefault(x => x.MemberId == member.Id);
-            var count = sub is null ? 0 : used.FirstOrDefault(x => x.SubscriptionId == sub.Id)?.Count ?? 0;
+            var memberSubs = subscriptions.Where(x => x.MemberId == member.Id).ToArray();
+            // Current package first (covers today), else the next scheduled one.
+            var sub = memberSubs.Where(x => x.StartDate <= today).OrderByDescending(x => x.EndDate).FirstOrDefault()
+                ?? memberSubs.OrderBy(x => x.StartDate).FirstOrDefault();
+            var count = sub is null ? 0 : used.GetValueOrDefault(sub.Id);
             int? remaining = sub?.MaxClasses is null ? null : Math.Max(0, sub.MaxClasses.Value - count);
-            int? days = sub?.EndDate is null ? null : sub.EndDate.Value.DayNumber - Today.DayNumber;
+            // Stacked renewals/upgrades extend coverage, so measure days to the furthest active end date.
+            var coverageEnd = memberSubs.Length == 0 ? (DateOnly?)null : memberSubs.Max(x => x.EndDate!.Value);
+            int? days = coverageEnd is null ? null : coverageEnd.Value.DayNumber - today.DayNumber;
             return (object)new
             {
                 member.Id, member.UserId, member.MemberCode, member.FullName, member.Email, member.Phone,
@@ -407,7 +448,9 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
                 HealthRecords = health.Where(x => x.MemberId == member.Id).Select(x => new { x.Id, x.RecordType, x.Title, x.Details, x.OccurredOn }),
                 BodyMetrics = metrics.Where(x => x.MemberId == member.Id).Take(24),
                 Renewal = sub is null ? null : new { sub.Id, sub.PackageName, sub.StartDate, sub.EndDate,
-                    sub.MaxClasses, UsedSessions = count, RemainingSessions = remaining, DaysRemaining = days,
+                    // Names kept for the existing UI; values are classes, matching the MaxClasses allowance.
+                    sub.MaxClasses, UsedSessions = count, RemainingSessions = remaining, UsedClasses = count, RemainingClasses = remaining,
+                    DaysRemaining = days, CoverageEndDate = coverageEnd,
                     Alert = days <= 7 || remaining <= 3 }
             };
         }).ToArray();
@@ -421,17 +464,14 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
         var localNow = TimeZoneInfo.ConvertTimeFromUtc(UtcNow, VietnamTimeZone);
         var today = DateOnly.FromDateTime(localNow);
         var currentTime = TimeOnly.FromDateTime(localNow);
-        var classIds = AssignedClassIds(coach.Id);
-
-        var coachSessions = await db.ClassSessions
-            .Where(x => classIds.Contains(x.ClassId) && (x.CoachId == null || x.CoachId == coach.Id) &&
-                x.SessionDate >= from && x.SessionDate < to && x.SessionStatus != "Cancelled")
+        var coachSessions = await TaughtSessions(coach.Id)
+            .Where(x => x.SessionDate >= from && x.SessionDate < to)
             .ToListAsync(ct);
 
         var sessionIds = coachSessions.Select(s => s.Id).ToList();
 
-        var completedClassSessions = coachSessions.Count(x =>
-            x.SessionStatus == "Completed" || x.SessionDate < today || (x.SessionDate == today && x.EndTime <= currentTime));
+        // Same definition as payroll (CoachSessionRules): ended and not cancelled.
+        var completedClassSessions = coachSessions.Count(x => CoachSessionRules.IsCompleted(x, today, currentTime));
 
         var completedPt = await db.CoachWorkEvents.CountAsync(x => x.CoachId == coach.Id && x.EventType == "PersonalTraining" &&
             x.Status == "Completed" && x.StartAt >= ToUtc(from.ToDateTime(TimeOnly.MinValue)) &&
@@ -448,7 +488,8 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
 
         var totalAttendanceRecords = attendances.Count;
         var presentRecords = attendances.Count(a => CoachWorkflowRules.CountsAsPresentAttendance(a.AttendanceStatus));
-        var attendanceRate = totalAttendanceRecords == 0 ? 94.5 : Math.Round(presentRecords * 100.0 / totalAttendanceRecords, 1);
+        // No attendance yet means "no data", not a made-up rate.
+        double? attendanceRate = totalAttendanceRecords == 0 ? null : Math.Round(presentRecords * 100.0 / totalAttendanceRecords, 1);
 
         // Danh sách học viên vắng mặt nhiều để HLV theo dõi & nhắc nhở
         var absentGroup = attendances.Where(a => CoachWorkflowRules.CountsAsAbsentAttendance(a.AttendanceStatus))
@@ -458,8 +499,12 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
             .ToList();
 
         var absentMemberIds = absentGroup.Select(g => g.Key).ToList();
-        var absentProfiles = await db.MemberProfiles
-            .Where(m => absentMemberIds.Contains(m.Id))
+        // The coach calls the member, so use the member's own account phone, not the emergency contact.
+        var absentProfiles = await (
+            from m in db.MemberProfiles
+            join user in db.Users on m.UserId equals user.Id
+            where absentMemberIds.Contains(m.Id)
+            select new { m.Id, m.FullName, m.MemberCode, user.Phone })
             .ToDictionaryAsync(m => m.Id, ct);
 
         var absentStudents = absentGroup.Select(g => {
@@ -468,19 +513,20 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
                 MemberId = g.Key,
                 FullName = prof?.FullName ?? $"Học viên #{g.Key}",
                 MemberCode = prof?.MemberCode ?? "HV",
-                Phone = prof?.EmergencyContactPhone ?? "—",
+                Phone = prof?.Phone ?? "—",
                 AbsentCount = g.Count()
             };
         }).ToArray();
 
         // Danh sách ca dạy gần đây cho Cột bên trái
-        var classDict = await db.Classes.Where(c => classIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, ct);
+        var sessionClassIds = coachSessions.Select(s => s.ClassId).Distinct().ToArray();
+        var classDict = await db.Classes.Where(c => sessionClassIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, ct);
         var recentSessions = coachSessions
             .OrderByDescending(s => s.SessionDate).ThenByDescending(s => s.StartTime)
             .Take(12)
             .Select(s => {
                 classDict.TryGetValue(s.ClassId, out var cls);
-                var isCompleted = s.SessionStatus == "Completed" || s.SessionDate < today || (s.SessionDate == today && s.EndTime <= currentTime);
+                var isCompleted = CoachSessionRules.IsCompleted(s, today, currentTime);
                 return new {
                     s.Id,
                     s.ClassId,
@@ -506,7 +552,7 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
             TotalActiveStudents = totalActiveStudents,
             ActiveClients = totalActiveStudents,
             AttendanceRate = attendanceRate,
-            AverageRating = rating is null ? 5.0 : Math.Round(rating.Value, 1),
+            AverageRating = rating is null ? (double?)null : Math.Round(rating.Value, 1),
             ReviewCount = reviews,
             CompletedClassSessions = completedClassSessions,
             CompletedPersonalSessions = completedPt,
@@ -556,8 +602,9 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
         var localEnd = TimeZoneInfo.ConvertTimeFromUtc(end, VietnamTimeZone);
         var startDate = DateOnly.FromDateTime(localStart);
         var endDate = DateOnly.FromDateTime(localEnd);
-        var sessions = await db.ClassSessions.Where(x => AssignedClassIds(coach.Id).Contains(x.ClassId)
-            && x.SessionStatus != "Cancelled" && x.SessionDate >= startDate && x.SessionDate <= endDate)
+        // Sessions handed to a substitute no longer block this coach; substitutions they took do.
+        var sessions = await TaughtSessions(coach.Id)
+            .Where(x => x.SessionDate >= startDate && x.SessionDate <= endDate)
             .Select(x => new { x.SessionDate, x.StartTime, x.EndTime }).ToListAsync(ct);
         if (sessions.Any(x => x.SessionDate.ToDateTime(x.StartTime) < localEnd
             && x.SessionDate.ToDateTime(x.EndTime) > localStart))
@@ -858,7 +905,7 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
         var coach = await Coach(userId, ct);
         var row = await db.ResourceBookings.SingleOrDefaultAsync(x => x.Id == id && x.CoachId == coach.Id, ct)
             ?? throw BusinessException.NotFound("Không tìm thấy lượt đặt tài nguyên.");
-        if (row.EndAt < UtcNow) throw BusinessException.Conflict("Không thể hủy lượt đặt đã kết thúc.");
+        if (row.StartAt <= UtcNow) throw BusinessException.Conflict("Không thể hủy lượt đặt đã bắt đầu hoặc đã kết thúc.");
         row.Status = "Cancelled"; await db.SaveChangesAsync(ct);
     }
 
@@ -878,7 +925,12 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
             Title = request.Title.Trim(), Description = request.Description.Trim(), Severity = request.Severity,
             PhotoUrl = request.PhotoUrl?.Trim(), Status = "Open", ReportedAt = UtcNow };
         db.EquipmentIssues.Add(row); await db.SaveChangesAsync(ct);
-        var managers = await db.StaffProfiles.Where(x => x.CenterId == coach.CenterId && x.Status == "Active").Select(x => x.UserId).ToArrayAsync(ct);
+        // Equipment issues go to the center's active Manager accounts only, not every staff member.
+        var managers = await (from staff in db.StaffProfiles
+            join user in db.Users on staff.UserId equals user.Id
+            join role in db.Roles on user.RoleId equals role.Id
+            where staff.CenterId == coach.CenterId && staff.Status == "Active" && user.Status == "Active" && role.Name == "Manager"
+            select staff.UserId).ToArrayAsync(ct);
         await NotifyUsers(userId, managers, $"Sự cố thiết bị {request.Severity}", request.Title.Trim(), "EquipmentIssue", ["InApp"], ct);
         return row.Id;
     }
@@ -920,6 +972,9 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
                 .Join(db.ClassSessions, booking => booking.SessionId, session => session.Id, (booking, session) => session.ClassId));
         var coachIds = await db.CoachProfiles.Where(coach => coach.Status == "Active" &&
                 (db.ClassCoaches.Any(link => link.CoachId == coach.Id && memberClassIds.Contains(link.ClassId)) ||
+                 // Substitute coaches of the member's classes (same link as AssignedMemberIds, so chat/review are allowed).
+                 db.ClassSessions.Any(s => s.CoachId == coach.Id && s.SessionStatus != FlowStatuses.SessionCancelled
+                     && memberClassIds.Contains(s.ClassId)) ||
                  db.CoachWorkEvents.Any(e => e.CoachId == coach.Id && e.MemberId == member.Id)))
             .Select(x => x.Id).Distinct().ToArrayAsync(ct);
         var coaches = await db.CoachProfiles.AsNoTracking().Where(x => coachIds.Contains(x.Id))
@@ -959,6 +1014,11 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
                  db.SessionBookings.Any(b => b.MemberId == member.Id && b.Status == "Booked" && db.ClassSessions.Any(s => s.Id == b.SessionId && s.ClassId == x.ClassId))))), ct)
             ?? throw BusinessException.NotFound("Không tìm thấy bài tập được giao cho bạn.");
         var row = await db.AssignmentSubmissions.SingleOrDefaultAsync(x => x.AssignmentId == assignmentId && x.MemberId == member.Id, ct);
+        // Resubmitting would wipe the coach's score/feedback, and late work must not overwrite an on-time submission.
+        if (row is not null && (row.Status == "Reviewed" || row.Score.HasValue))
+            throw BusinessException.Conflict("Bài tập đã được HLV chấm, không thể nộp lại.");
+        if (assignment.DueDate is { } due && UtcNow > due)
+            throw BusinessException.Conflict("Bài tập đã quá hạn nộp.");
         if (row is null)
         {
             row = new AssignmentSubmission { AssignmentId = assignmentId, MemberId = member.Id };
@@ -998,6 +1058,12 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
                 x.CoachId == request.CoachId && x.MemberId == member.Id && x.Status == "Completed", ct)
                 ?? throw BusinessException.Conflict("Chỉ đánh giá lịch PT đã hoàn thành.");
             row = await db.CoachReviews.SingleOrDefaultAsync(x => x.WorkEventId == appointment.Id && x.MemberId == member.Id, ct);
+        }
+        else
+        {
+            // One general review per member and coach: re-posting edits it instead of stacking ratings.
+            row = await db.CoachReviews.Where(x => x.CoachId == request.CoachId && x.MemberId == member.Id && x.WorkEventId == null)
+                .OrderByDescending(x => x.UpdatedAt ?? x.CreatedAt).FirstOrDefaultAsync(ct);
         }
         if (row is null)
         {
@@ -1055,8 +1121,6 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
         var policies = await db.CoachCompensationPolicies.AsNoTracking().Where(x => coachIds.Contains(x.CoachId) && x.Status == "Active")
             .OrderByDescending(x => x.EffectiveFrom).ToArrayAsync(ct);
         // Restored: the Resources / Equipment issues / Delivery tabs read these from the DB again.
-        var sales = await db.CoachSalesCredits.AsNoTracking().Where(x => coachIds.Contains(x.CoachId))
-            .OrderByDescending(x => x.CreditedAt).Take(200).ToArrayAsync(ct);
         var resources = await db.FacilityResources.AsNoTracking().Where(x => x.CenterId == manager.CenterId).OrderBy(x => x.Name).ToArrayAsync(ct);
         var resourceIds = resources.Select(x => x.Id).ToArray();
         var bookings = await (from booking in db.ResourceBookings.AsNoTracking()
@@ -1076,7 +1140,7 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
                     (db.MemberProfiles.Any(m => m.UserId == u.Id && m.CenterId == manager.CenterId) ||
                      db.CoachProfiles.Any(c => c.UserId == u.Id && c.CenterId == manager.CenterId))))
             .GroupBy(x => new { x.Channel, x.Status }).Select(g => new { g.Key.Channel, g.Key.Status, Count = g.Count() }).ToArrayAsync(ct);
-        return new { Coaches = coaches, Leaves = leaves, Policies = policies, SalesCredits = sales,
+        return new { Coaches = coaches, Leaves = leaves, Policies = policies,
             Resources = resources, ResourceBookings = bookings, EquipmentIssues = issues, DeliverySummary = deliveries };
     }
 
@@ -1112,12 +1176,19 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
             if (affectedSessions.Length > 0 && replacementCoach is not null)
             {
                 var affectedIds = affectedSessions.Select(x => x.Id).ToArray();
-                var replacementClassIds = await AssignedClassIds(replacementCoach.Id).ToArrayAsync(ct);
+                var replacementAssignments = await db.ClassCoaches.AsNoTracking()
+                    .Where(x => x.CoachId == replacementCoach.Id)
+                    .Select(x => new { x.ClassId, x.IsPrimary }).ToArrayAsync(ct);
+                var replacementClassIds = replacementAssignments.Select(x => x.ClassId).ToArray();
                 var affectedDates = affectedSessions.Select(x => x.SessionDate).Distinct().ToArray();
-                var otherSessions = await db.ClassSessions.AsNoTracking().Where(x =>
+                // Busy = any session the replacement teaches (incl. as assistant), per CoachSessionRules.Teaches.
+                var otherSessions = (await db.ClassSessions.AsNoTracking().Where(x =>
                     !affectedIds.Contains(x.Id) && affectedDates.Contains(x.SessionDate) && x.SessionStatus != "Cancelled" &&
-                    (x.CoachId == replacementCoach.Id || (x.CoachId == null && replacementClassIds.Contains(x.ClassId))))
-                    .ToArrayAsync(ct);
+                    (x.CoachId == replacementCoach.Id || replacementClassIds.Contains(x.ClassId)))
+                    .ToArrayAsync(ct))
+                    .Where(x => CoachSessionRules.Teaches(x.CoachId, replacementCoach.Id, replacementAssignments
+                        .Where(a => a.ClassId == x.ClassId).Select(a => (bool?)a.IsPrimary).FirstOrDefault()))
+                    .ToArray();
                 var workEvents = await db.CoachWorkEvents.AsNoTracking().Where(x => x.CoachId == replacementCoach.Id &&
                     (x.Status == "Confirmed" || x.Status == "PendingMemberConfirmation") &&
                     x.StartAt < row.EndAt && x.EndAt > row.StartAt).ToArrayAsync(ct);
@@ -1152,6 +1223,31 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
             await NotifyUsers(userId, [replacementCoach.UserId], "Phân công dạy bù",
                 $"Bạn được phân công nhận {affectedSessions.Length} ca trong thời gian HLV khác nghỉ.",
                 "CoachLeaveReplacement", ["InApp", "Email"], ct);
+        if (replacementCoach is not null && affectedSessions.Length > 0)
+        {
+            // Members who booked a covered session, or are enrolled in its class, learn who will teach it.
+            var sessionIds = affectedSessions.Select(x => x.Id).ToArray();
+            var classIds = affectedSessions.Select(x => x.ClassId).Distinct().ToArray();
+            var memberUserIds = await (
+                    from booking in db.SessionBookings
+                    join member in db.MemberProfiles on booking.MemberId equals member.Id
+                    where sessionIds.Contains(booking.SessionId) && booking.Status == FlowStatuses.BookingBooked
+                    select member.UserId)
+                .Union(
+                    from enrollment in db.ClassEnrollments
+                    join member in db.MemberProfiles on enrollment.MemberId equals member.Id
+                    where classIds.Contains(enrollment.ClassId) && enrollment.Status == FlowStatuses.EnrollmentConfirmed
+                    select member.UserId)
+                .ToArrayAsync(ct);
+            if (memberUserIds.Length > 0)
+            {
+                var first = affectedSessions.Min(x => x.SessionDate);
+                var last = affectedSessions.Max(x => x.SessionDate);
+                await NotifyUsers(userId, memberUserIds, "Thay đổi HLV buổi tập",
+                    $"HLV {replacementCoach.FullName} sẽ dạy thay các buổi từ {first:dd/MM/yyyy} đến {last:dd/MM/yyyy}. Lịch học của bạn không thay đổi.",
+                    "SessionCoachChanged", ["InApp"], ct);
+            }
+        }
         AddAudit(userId, manager.CenterId, "COACH_LEAVE_REVIEWED", "CoachLeave", row.Id); await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
     }
@@ -1166,41 +1262,23 @@ public sealed class CoachProfessionalService(SportsCenterDbContext db, TimeProvi
             throw BusinessException.NotFound("HLV không thuộc danh sách nhân sự đang hoạt động của trung tâm.");
         if (request.EffectiveTo.HasValue && request.EffectiveTo < request.EffectiveFrom) throw Invalid("Ngày hiệu lực chính sách không hợp lệ.");
         var previous = await db.CoachCompensationPolicies.Where(x => x.CoachId == request.CoachId && x.Status == "Active").ToListAsync(ct);
-        foreach (var item in previous) item.Status = "Archived";
+        // Same rule as PayrollService: an older policy keeps paying the months before the new one starts.
+        foreach (var item in previous)
+        {
+            var (effectiveTo, status) = PayrollService.Supersede(item.EffectiveFrom, item.EffectiveTo, request.EffectiveFrom);
+            item.EffectiveTo = effectiveTo; item.Status = status;
+        }
         var row = new CoachCompensationPolicy { CoachId = request.CoachId, MonthlyBaseSalary = request.MonthlyBaseSalary,
             CommissionPerSession = request.CommissionPerSession,
-            SalesCommissionPercent = request.SalesCommissionPercent,
             TargetSessions = request.TargetSessions,
-            TargetSales = request.TargetSales,
             EffectiveFrom = request.EffectiveFrom,
             EffectiveTo = request.EffectiveTo, UpdatedBy = userId, UpdatedAt = UtcNow };
-        db.CoachCompensationPolicies.Add(row); await db.SaveChangesAsync(ct); return row.Id;
+        db.CoachCompensationPolicies.Add(row); await db.SaveChangesAsync(ct);
+        AddAudit(userId, manager.CenterId, "payroll.coach_policy.saved", nameof(CoachCompensationPolicy), row.Id);
+        await db.SaveChangesAsync(ct);
+        return row.Id;
     }
 
-    public async Task<long> SaveSalesCredit(long userId, SaveSalesCreditRequest request, CancellationToken ct)
-    {
-        var manager = await Manager(userId, ct);
-        if (!await db.CoachProfiles.AnyAsync(x => x.Id == request.CoachId && x.CenterId == manager.CenterId, ct))
-            throw BusinessException.NotFound("HLV không thuộc trung tâm.");
-        if (request.MemberId.HasValue && !await db.MemberProfiles.AnyAsync(x => x.Id == request.MemberId && x.CenterId == manager.CenterId, ct))
-            throw Invalid("Hội viên không thuộc trung tâm.");
-        var memberId = request.MemberId;
-        if (request.SubscriptionId.HasValue)
-        {
-            var subscription = await (from sub in db.MemberSubscriptions
-                join member in db.MemberProfiles on sub.MemberId equals member.Id
-                join package in db.MembershipPackages on sub.PackageId equals package.Id
-                where sub.Id == request.SubscriptionId && member.CenterId == manager.CenterId
-                    && package.CenterId == manager.CenterId && (!memberId.HasValue || sub.MemberId == memberId)
-                select new { sub.MemberId }).SingleOrDefaultAsync(ct)
-                ?? throw Invalid("Gói hội viên không thuộc hội viên hoặc trung tâm đang quản lý.");
-            memberId = subscription.MemberId;
-        }
-        var row = new CoachSalesCredit { CoachId = request.CoachId, MemberId = memberId,
-            SubscriptionId = request.SubscriptionId, Amount = request.Amount, CreditedAt = request.CreditedAt.HasValue ? ToUtc(request.CreditedAt.Value) : UtcNow,
-            Note = request.Note?.Trim(), CreatedBy = userId };
-        db.CoachSalesCredits.Add(row); await db.SaveChangesAsync(ct); return row.Id;
-    }
 
     public async Task<long> CreateResource(long userId, CreateResourceRequest request, CancellationToken ct)
     {

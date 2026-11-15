@@ -598,7 +598,10 @@
   "Chưa cấu hình VnPay:TmnCode": "VnPay:TmnCode is not configured",
   "Đã tạo tài khoản và gửi email xác nhận cho hội viên.": "Account created and a confirmation email was sent to the member.",
   "Đã tạo tài khoản nhưng chưa gửi được email xác nhận. Vui lòng bấm \"Gửi lại mail\".": "Account created, but the confirmation email could not be sent. Please click \"Resend email\".",
-  "Đã gửi lại email xác nhận cho hội viên.": "The confirmation email was resent to the member."
+  "Đã gửi lại email xác nhận cho hội viên.": "The confirmation email was resent to the member.",
+  "Tài khoản đã bị xóa, không thể thực hiện thao tác bảo mật.": "This account has been deleted; security actions are not available.",
+  "Cơ sở của Manager đang ngừng hoạt động; hãy kích hoạt cơ sở trước khi mở khóa.": "The Manager's center is not operating; activate the center before unlocking.",
+  "Gói hội viên này đã được ghi doanh số cho HLV.": "A coach sales credit has already been recorded for this membership."
  },
  "patterns": [
   {

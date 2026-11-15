@@ -187,7 +187,8 @@ Check("MoMo sandbox rejection synthesizes signed ReturnUrl accepted by ProcessCa
         ["Momo:SecretKey"] = "audit-secret-key",
         ["Momo:PaymentUrl"] = "https://test-payment.momo.vn/v2/gateway/api/create",
         ["Momo:ReturnUrl"] = "https://app.example.test/payment-result",
-        ["Momo:NotifyUrl"] = "https://api.example.test/api/payments/momo-ipn"
+        ["Momo:NotifyUrl"] = "https://api.example.test/api/payments/momo-ipn",
+        ["Momo:AllowSandboxFallback"] = "true"
     });
     using var http = new HttpClient(new StubStatusHandler(System.Net.HttpStatusCode.Forbidden, "403 Forbidden"));
     var momo = new MoMoService(config, http);
@@ -212,6 +213,32 @@ Check("MoMo sandbox rejection synthesizes signed ReturnUrl accepted by ProcessCa
     var tampered = new Dictionary<string, string>(fields, StringComparer.Ordinal) { ["amount"] = "1" };
     var rejected = momo.ProcessCallback(tampered);
     return !rejected.IsValidSignature && !rejected.IsSuccess;
+});
+
+Check("MoMo sandbox 403 without AllowSandboxFallback fails instead of faking a paid checkout", () =>
+{
+    var config = new AuditConfiguration(new Dictionary<string, string?>
+    {
+        ["Momo:PartnerCode"] = "MOMO",
+        ["Momo:AccessKey"] = "audit-access",
+        ["Momo:SecretKey"] = "audit-secret-key",
+        ["Momo:PaymentUrl"] = "https://test-payment.momo.vn/v2/gateway/api/create",
+        ["Momo:ReturnUrl"] = "https://app.example.test/payment-result",
+        ["Momo:NotifyUrl"] = "https://api.example.test/api/payments/momo-ipn"
+    });
+    if (PaymentService.IsValidMomoPayUri(new Uri("https://app.example.test/payment-result?resultCode=0"), config))
+        return false;
+    using var http = new HttpClient(new StubStatusHandler(System.Net.HttpStatusCode.Forbidden, "403"));
+    var momo = new MoMoService(config, http);
+    try
+    {
+        momo.CreatePaymentUrlAsync("PAY-MOMO-SANDBOX-OFF", 650000m, "Thanh toan hoa don SC-003").GetAwaiter().GetResult();
+        return false;
+    }
+    catch (HttpRequestException ex)
+    {
+        return ex.StatusCode == System.Net.HttpStatusCode.Forbidden;
+    }
 });
 
 Check("Production MoMo 403 does not trigger sandbox fallback and rejects non-momo PayUrl", () =>

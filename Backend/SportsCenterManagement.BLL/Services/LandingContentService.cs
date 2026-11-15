@@ -35,6 +35,7 @@ public sealed class LandingContentService(SportsCenterDbContext db, IConfigurati
         var storedContent = TransformR2Urls(content, toPublicUrl: false);
         Validate(storedContent);
         var setting = await db.SystemSettings.SingleOrDefaultAsync(s => s.SettingKey == SettingKey, ct);
+        var previous = new { setting?.UpdatedAt, setting?.UpdatedBy };
         if (setting is null)
         {
             setting = new SystemSetting { SettingKey = SettingKey, Description = "Nội dung trang chủ công khai" };
@@ -43,6 +44,7 @@ public sealed class LandingContentService(SportsCenterDbContext db, IConfigurati
         setting.SettingValue = storedContent.GetRawText();
         setting.UpdatedBy = userId;
         setting.UpdatedAt = DateTime.UtcNow;
+        AddAudit(userId, "landing.content.published", previous, new { setting.UpdatedAt, Bytes = setting.SettingValue.Length });
         await db.SaveChangesAsync(ct);
         // Publishing consumes the draft — only once the published content is safely stored.
         await db.SystemSettings.Where(s => s.SettingKey == DraftKey).ExecuteDeleteAsync(ct);
@@ -58,12 +60,21 @@ public sealed class LandingContentService(SportsCenterDbContext db, IConfigurati
     }
 
     /// <summary>Autosaved, possibly incomplete content: only shape-checked, never shown publicly.</summary>
-    public async Task<LandingContentResponse> SaveDraftAsync(JsonElement content, long userId, CancellationToken ct)
+    /// <param name="expectedUpdatedAt">
+    /// The draft version the editor last loaded/saved. When given and another editor has saved since,
+    /// the write is rejected (409) instead of silently overwriting their work. Omitted = legacy last-write-wins.
+    /// </param>
+    public async Task<LandingContentResponse> SaveDraftAsync(JsonElement content, long userId, CancellationToken ct,
+        DateTime? expectedUpdatedAt = null)
     {
         if (content.ValueKind != JsonValueKind.Object)
             throw new FlowException(400, "Bản nháp trang chủ phải là một đối tượng JSON.");
         var stored = TransformR2Urls(content, toPublicUrl: false);
         var draft = await db.SystemSettings.SingleOrDefaultAsync(s => s.SettingKey == DraftKey, ct);
+        // Postgres keeps microseconds while the echoed value may carry ticks, so compare with a 1 ms tolerance.
+        if (expectedUpdatedAt is { } expected && draft?.UpdatedAt is { } current
+            && Math.Abs((current.ToUniversalTime() - expected.ToUniversalTime()).TotalMilliseconds) >= 1)
+            throw new FlowException(409, "Bản nháp trang chủ vừa được người khác chỉnh sửa. Tải lại trang để xem bản mới nhất trước khi tiếp tục.");
         if (draft is null)
         {
             draft = new SystemSetting { SettingKey = DraftKey, Description = "Bản nháp nội dung trang chủ (chưa xuất bản)" };
@@ -76,8 +87,26 @@ public sealed class LandingContentService(SportsCenterDbContext db, IConfigurati
         return new(TransformR2Urls(stored, toPublicUrl: true), draft.UpdatedAt);
     }
 
-    public Task DiscardDraftAsync(CancellationToken ct) =>
-        db.SystemSettings.Where(s => s.SettingKey == DraftKey).ExecuteDeleteAsync(ct);
+    public async Task DiscardDraftAsync(long userId, CancellationToken ct)
+    {
+        var draft = await db.SystemSettings.SingleOrDefaultAsync(s => s.SettingKey == DraftKey, ct);
+        if (draft is null) return;
+        // Delete and audit commit together.
+        db.SystemSettings.Remove(draft);
+        AddAudit(userId, "landing.draft.discarded", new { draft.UpdatedAt, draft.UpdatedBy }, null);
+        await db.SaveChangesAsync(ct);
+    }
+
+    private void AddAudit(long userId, string action, object? oldValues, object? newValues) =>
+        db.AuditLogs.Add(new AuditLog
+        {
+            UserId = userId,
+            Action = action,
+            EntityType = "SystemSetting",
+            OldValues = oldValues is null ? null : JsonSerializer.Serialize(oldValues),
+            NewValues = newValues is null ? null : JsonSerializer.Serialize(newValues),
+            CreatedAt = DateTime.UtcNow
+        });
 
     private JsonElement TransformR2Urls(JsonElement content, bool toPublicUrl)
     {

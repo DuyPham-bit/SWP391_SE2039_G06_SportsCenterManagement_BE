@@ -54,6 +54,51 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
         return await UpdateProfileAsync(actorUserId, centerId, memberId, profileRequest, "member.profile.updated.by_staff", cancellationToken);
     }
 
+    /// <summary>
+    /// Counter correction of typos (Manager or Receptionist of the member's center). Login identifiers, address
+    /// and account status stay Manager-only via <see cref="UpdateAtCenterAsync"/> / SetMemberStatusAsync.
+    /// </summary>
+    public async Task<MembersResponses.MemberProfileResponse> UpdateBasicInfoAtCenterAsync(
+        long actorUserId,
+        long centerId,
+        long memberId,
+        MembersRequests.UpdateMemberBasicInfoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureCenterStaffAsync(actorUserId, centerId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(request.FullName) || request.FullName.Trim().Length > 150)
+            throw new ValidationException("Họ tên không được để trống và tối đa 150 ký tự.");
+        if (request.DateOfBirth > VietnamTime.Today)
+            throw new ValidationException("Ngày sinh không được ở tương lai.");
+        if (request.Gender is not null && request.Gender is not ("Male" or "Female" or "Other"))
+            throw new ValidationException("Giới tính không hợp lệ.");
+        if (request.EmergencyContactName?.Trim().Length > 150)
+            throw new ValidationException("Tên người liên hệ khẩn cấp tối đa 150 ký tự.");
+        var emergencyPhone = PhoneNumberNormalization.Normalize(request.EmergencyContactPhone);
+        if (emergencyPhone is not null && !Regex.IsMatch(emergencyPhone, @"^\+?[0-9]{8,15}$"))
+            throw new ValidationException("Số điện thoại khẩn cấp cần có từ 8 đến 15 chữ số.");
+
+        var profile = await unitOfWork.Context.MemberProfiles
+            .SingleOrDefaultAsync(item => item.Id == memberId && item.CenterId == centerId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy thành viên tại trung tâm này.");
+        var user = await unitOfWork.Repository<User>().GetByIdAsync(profile.UserId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+        if (user.Status == "Deleted")
+            throw new KeyNotFoundException("Không tìm thấy thành viên tại trung tâm này.");
+
+        var oldValues = new { profile.FullName, profile.DateOfBirth, profile.Gender, profile.EmergencyContactName, profile.EmergencyContactPhone };
+        profile.FullName = request.FullName.Trim();
+        profile.DateOfBirth = request.DateOfBirth;
+        profile.Gender = Normalize(request.Gender);
+        profile.EmergencyContactName = Normalize(request.EmergencyContactName);
+        profile.EmergencyContactPhone = emergencyPhone;
+        profile.UpdatedAt = DateTime.UtcNow;
+        AuditLogWriter.Add(unitOfWork, actorUserId, centerId, "member.basic_info.updated.by_counter", "MemberProfile", profile.Id,
+            oldValues, new { profile.FullName, profile.DateOfBirth, profile.Gender, profile.EmergencyContactName, profile.EmergencyContactPhone });
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return (await EnrichMemberSubscriptionsAsync([Map(profile, user) with { AvatarUrl = user.AvatarKey }], cancellationToken))[0];
+    }
+
     private async Task<MembersResponses.MemberProfileResponse> UpdateProfileAsync(
         long actorUserId,
         long? requiredCenterId,
@@ -247,7 +292,8 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
                 Response = new MembersResponses.MemberProfileResponse(profile.Id, user.Id, profile.MemberCode, user.Username,
                     user.Email, user.Phone, profile.FullName, profile.DateOfBirth, profile.Gender,
                     profile.Address, profile.CreatedAt, user.Status, null, null, null, null, null, null,
-                    user.IsEmailVerified, user.AvatarKey)
+                    user.IsEmailVerified, user.AvatarKey, profile.FitnessLevel,
+                    profile.EmergencyContactName, profile.EmergencyContactPhone)
             };
         var totalCount = await matches.CountAsync(cancellationToken);
         // KPI counts over all matches so the cards agree with TotalCount instead of one page.
@@ -390,13 +436,9 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             throw new KeyNotFoundException("Không tìm thấy trung tâm đang hoạt động.");
         }
 
-        if (!member.CenterId.HasValue)
-        {
-            member.CenterId = package.CenterId;
-            member.UpdatedAt = DateTime.UtcNow;
-            await unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-        else if (member.CenterId.Value != package.CenterId)
+        // Validation only: the purchase flow binds CenterId in the same save as the invoice/subscription,
+        // so a failed checkout never pins the member to a center.
+        if (member.CenterId.HasValue && member.CenterId.Value != package.CenterId)
         {
             throw new UnauthorizedAccessException("Gói tập không thuộc trung tâm của thành viên.");
         }
@@ -466,7 +508,8 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             select new MembersResponses.MemberProfileResponse(profile.Id, user.Id, profile.MemberCode, user.Username,
                 user.Email, user.Phone, profile.FullName, profile.DateOfBirth, profile.Gender,
                 profile.Address, profile.CreatedAt, user.Status, null, null, null, null, null, null,
-                user.IsEmailVerified, user.AvatarKey, profile.FitnessLevel))
+                user.IsEmailVerified, user.AvatarKey, profile.FitnessLevel,
+                profile.EmergencyContactName, profile.EmergencyContactPhone))
             .SingleOrDefaultAsync(cancellationToken);
 
         if (item == null) return null;
@@ -567,7 +610,9 @@ public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authServi
             profile.Address, profile.CreatedAt, user.Status,
             IsEmailVerified: user.IsEmailVerified,
             AvatarUrl: mediaUrls?.PublicUrl(user.AvatarKey),
-            FitnessLevel: profile.FitnessLevel);
+            FitnessLevel: profile.FitnessLevel,
+            EmergencyContactName: profile.EmergencyContactName,
+            EmergencyContactPhone: profile.EmergencyContactPhone);
     }
 
     private static string? Normalize(string? value)

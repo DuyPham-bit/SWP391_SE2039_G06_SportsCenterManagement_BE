@@ -123,6 +123,10 @@ public sealed class RolesController(IRolePermissionService rolePermissionService
                 roleId, request, currentUserId, cancellationToken);
             return Ok(result);
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });

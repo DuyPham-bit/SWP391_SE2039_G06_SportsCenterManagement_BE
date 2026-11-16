@@ -44,6 +44,7 @@ public sealed class LandingContentService(SportsCenterDbContext db, IConfigurati
         setting.SettingValue = storedContent.GetRawText();
         setting.UpdatedBy = userId;
         setting.UpdatedAt = DateTime.UtcNow;
+        await SyncCenterPhoneAsync(storedContent, userId, ct);
         AddAudit(userId, "landing.content.published", previous, new { setting.UpdatedAt, Bytes = setting.SettingValue.Length });
         await db.SaveChangesAsync(ct);
         // Publishing consumes the draft — only once the published content is safely stored.
@@ -97,6 +98,39 @@ public sealed class LandingContentService(SportsCenterDbContext db, IConfigurati
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>Keeps Center.Phone aligned with the published footer hotline for the publisher's center (or sole active center).</summary>
+    internal async Task SyncCenterPhoneAsync(JsonElement content, long userId, CancellationToken ct)
+    {
+        if (!content.TryGetProperty("ctaAndFooter", out var footer)
+            || !footer.TryGetProperty("contactPhone", out var phoneProp)
+            || phoneProp.ValueKind != JsonValueKind.String)
+            return;
+
+        var phone = phoneProp.GetString()?.Trim();
+        if (string.IsNullOrWhiteSpace(phone) || phone.Length > 20) return;
+
+        var actorCenterId = await db.StaffProfiles.AsNoTracking()
+            .Where(staff => staff.UserId == userId && staff.Status == "Active")
+            .Select(staff => (long?)staff.CenterId)
+            .FirstOrDefaultAsync(ct);
+
+        Center? center = null;
+        if (actorCenterId.HasValue)
+        {
+            center = await db.Centers.SingleOrDefaultAsync(item => item.Id == actorCenterId.Value, ct);
+        }
+        else
+        {
+            var activeCenters = await db.Centers.Where(item => item.Status == "Active").Take(2).ToListAsync(ct);
+            if (activeCenters.Count == 1) center = activeCenters[0];
+        }
+
+        if (center is not null && !string.Equals(center.Phone, phone, StringComparison.Ordinal))
+        {
+            center.Phone = phone;
+        }
+    }
+
     private void AddAudit(long userId, string action, object? oldValues, object? newValues) =>
         db.AuditLogs.Add(new AuditLog
         {
@@ -143,7 +177,7 @@ public sealed class LandingContentService(SportsCenterDbContext db, IConfigurati
         }
     }
 
-    private static void Validate(JsonElement content)
+    internal static void Validate(JsonElement content)
     {
         if (content.ValueKind != JsonValueKind.Object || Encoding.UTF8.GetByteCount(content.GetRawText()) > 1024 * 1024)
             throw InvalidContent();

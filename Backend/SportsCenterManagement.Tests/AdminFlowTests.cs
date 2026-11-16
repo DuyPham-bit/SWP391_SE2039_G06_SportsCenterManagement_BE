@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using SportsCenterManagement.BLL.Exceptions;
 using SportsCenterManagement.BLL.Services;
+using SportsCenterManagement.DAL.Entities;
 
 namespace SportsCenterManagement.Tests;
 
@@ -59,6 +60,52 @@ public class AdminFlowTests
         await service.DiscardDraftAsync(5, default);
 
         Assert.Equal(5, (await db.AuditLogs.SingleAsync()).UserId);
+    }
+
+    [Fact]
+    public async Task SaveAsync_SyncsCenterPhoneFromFooterHotline()
+    {
+        using var db = TestDb.Create();
+        db.Centers.Add(new Center
+        {
+            Id = 1,
+            Name = "Olympic Center",
+            Address = "123 Main",
+            Phone = "0859859367",
+            Status = "Active"
+        });
+        await db.SaveChangesAsync();
+
+        var service = new LandingContentService(db, new ConfigurationBuilder().Build());
+        await service.SyncCenterPhoneAsync(Json("""
+        {
+          "ctaAndFooter": { "contactPhone": "0353716249" }
+        }
+        """), 1, default);
+        await db.SaveChangesAsync();
+
+        Assert.Equal("0353716249", (await db.Centers.SingleAsync()).Phone);
+    }
+
+    [Fact]
+    public void Validate_ZonesLayout_AcceptsCustomModel3dUrlAndRejectsUnsafeScheme()
+    {
+        var valid = (string url) => Json($$"""
+        {
+          "heroBanner": {},
+          "whyUs": {},
+          "coursesSection": {},
+          "facilitiesSection": {},
+          "zonesLayout": { "model3dUrl": "{{url}}" },
+          "ctaAndFooter": {}
+        }
+        """);
+
+        LandingContentService.Validate(valid("/3d-campus.html"));
+        LandingContentService.Validate(valid("https://r2.example.com/campus-3d/2026/11/model.html"));
+
+        var error = Assert.Throws<FlowException>(() => LandingContentService.Validate(valid("javascript:alert(1)")));
+        Assert.Equal(400, error.StatusCode);
     }
 
     private static JsonElement Json(string raw) => JsonDocument.Parse(raw).RootElement.Clone();

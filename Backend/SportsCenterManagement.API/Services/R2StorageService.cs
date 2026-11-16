@@ -132,6 +132,75 @@ public sealed class R2StorageService(
             await ValidateSignatureAsync(stream, extension, cancellationToken);
         }
 
+        return await PutObjectAndRecordAsync(
+            stream,
+            file.FileName,
+            file.Length,
+            folder,
+            extension,
+            contentType,
+            scope,
+            privateCache: folder == "refund-bills",
+            cancellationToken);
+    }
+
+    public async Task<string> UploadHtmlAsync(IFormFile file, CancellationToken cancellationToken = default)
+    {
+        const long maxHtmlBytes = 5 * 1024 * 1024;
+        var scope = await CurrentScope(cancellationToken);
+        if (!scope.IsAdmin && (!scope.IsManager || !scope.CenterId.HasValue))
+            throw BusinessException.Forbidden("Tài khoản chưa được giao quyền tại trung tâm.");
+        if (file.Length <= 0)
+            throw BusinessException.BadRequest("Vui lòng chọn tệp .html để tải lên.");
+        if (file.Length > maxHtmlBytes)
+            throw BusinessException.BadRequest("Tệp 3D .html không được vượt quá 5MB.");
+
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (extension is not (".html" or ".htm"))
+            throw BusinessException.BadRequest("Chỉ hỗ trợ tệp định dạng .html hoặc .htm.");
+        if (!string.IsNullOrWhiteSpace(file.ContentType)
+            && !file.ContentType.StartsWith("text/html", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(file.ContentType, "application/octet-stream", StringComparison.OrdinalIgnoreCase))
+            throw BusinessException.BadRequest("Content-Type của tệp không phải HTML hợp lệ.");
+
+        await using var stream = new MemoryStream((int)file.Length);
+        await file.CopyToAsync(stream, cancellationToken);
+        var bytes = stream.GetBuffer();
+        var length = (int)stream.Length;
+        if (bytes.AsSpan(0, length).IndexOf((byte)0) >= 0)
+            throw BusinessException.BadRequest("Nội dung tệp .html không hợp lệ.");
+
+        var htmlText = System.Text.Encoding.UTF8.GetString(bytes, 0, length);
+        if (!htmlText.Contains("<html", StringComparison.OrdinalIgnoreCase)
+            && !htmlText.Contains("<!doctype", StringComparison.OrdinalIgnoreCase)
+            && !htmlText.Contains("<body", StringComparison.OrdinalIgnoreCase)
+            && !htmlText.Contains("<canvas", StringComparison.OrdinalIgnoreCase))
+            throw BusinessException.BadRequest("Tệp phải chứa nội dung trang HTML hợp lệ.");
+
+        stream.Position = 0;
+        return await PutObjectAndRecordAsync(
+            stream,
+            file.FileName,
+            file.Length,
+            "campus-3d",
+            ".html",
+            "text/html; charset=utf-8",
+            scope,
+            privateCache: false,
+            cancellationToken);
+    }
+
+    private async Task<string> PutObjectAndRecordAsync(
+        Stream stream,
+        string originalFileName,
+        long fileLength,
+        string folder,
+        string extension,
+        string contentType,
+        MediaAccessScope scope,
+        bool privateCache,
+        CancellationToken cancellationToken)
+    {
         var now = timeProvider.GetUtcNow();
         var fileName = $"{now:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}{extension}";
         var key = $"{folder}/{now:yyyy/MM}/{fileName}";
@@ -145,7 +214,7 @@ public sealed class R2StorageService(
             AutoCloseStream = false,
             DisablePayloadSigning = true
         };
-        request.Headers.CacheControl = folder == "refund-bills"
+        request.Headers.CacheControl = privateCache
             ? "private, no-cache, no-store, max-age=0"
             : "public, max-age=31536000, immutable";
 
@@ -153,8 +222,8 @@ public sealed class R2StorageService(
         var media = new UploadedMedia
         {
             DriveFileId = MediaAccessScope.R2FileIdPrefix + key,
-            FileName = Path.GetFileName(file.FileName), MimeType = contentType, FileSize = file.Length,
-            FileUrl = folder == "refund-bills" ? key : $"{_options.PublicDomain.TrimEnd('/')}/{key}", UploadedByUserId = scope.UserId,
+            FileName = Path.GetFileName(originalFileName), MimeType = contentType, FileSize = fileLength,
+            FileUrl = privateCache ? key : $"{_options.PublicDomain.TrimEnd('/')}/{key}", UploadedByUserId = scope.UserId,
             CenterId = scope.CenterId, CreatedAt = now.UtcDateTime
         };
         db.UploadedMedias.Add(media);

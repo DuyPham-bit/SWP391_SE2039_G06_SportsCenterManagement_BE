@@ -9,6 +9,7 @@ public interface IR2StorageService
     Task<string> UploadMemberAvatarAsync(IFormFile file, long memberUserId, long maxFileSize, CancellationToken cancellationToken = default);
     Task DeleteMemberAvatarAsync(string key, long memberUserId, CancellationToken cancellationToken = default);
     Task<string> UploadMediaAsync(IFormFile file, CancellationToken cancellationToken = default);
+    Task<string> UploadHtmlAsync(IFormFile file, CancellationToken cancellationToken = default);
     Task<LegacyMediaMigrationResult> MigrateLegacyMediaAsync(CancellationToken cancellationToken = default);
     string GetPresignedUrl(string key, TimeSpan expiresIn);
 }

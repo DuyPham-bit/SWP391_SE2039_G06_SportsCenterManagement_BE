@@ -28,6 +28,19 @@ public sealed class R2ImageStorageController(
         return StatusCode(StatusCodes.Status201Created, BuildResponse(key));
     }
 
+    [HttpPost("campus-3d")]
+    [Authorize(Roles = "MANAGER,ADMIN")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(6 * 1024 * 1024)]
+    public async Task<ActionResult<R2ImageUploadResponse>> UploadCampus3dHtml(
+        IFormFile? file,
+        CancellationToken cancellationToken)
+    {
+        if (file is null) return BadRequest(new ProblemDetails { Detail = "Vui lòng chọn tệp .html." });
+        var key = await storageService.UploadHtmlAsync(file, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, BuildResponse(key));
+    }
+
     [HttpPost("avatar")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(6 * 1024 * 1024)]

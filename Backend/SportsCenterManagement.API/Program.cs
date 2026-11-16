@@ -494,6 +494,17 @@ app.MapHealthChecks("/health", new HealthCheckOptions
 
 app.MapGet("/payment-result", async context =>
 {
+    // Gateway may return to the API host; bounce to the configured SPA so the member lands back in the app.
+    if (Uri.TryCreate(app.Configuration["Frontend:BaseUrl"]?.Trim(), UriKind.Absolute, out var frontendBase)
+        && (frontendBase.Scheme == Uri.UriSchemeHttps || frontendBase.Scheme == Uri.UriSchemeHttp)
+        && !string.Equals(frontendBase.Authority, context.Request.Host.Value, StringComparison.OrdinalIgnoreCase))
+    {
+        var target = frontendBase.GetLeftPart(UriPartial.Authority) + frontendBase.AbsolutePath.TrimEnd('/')
+            + "/payment-result" + context.Request.QueryString.Value;
+        context.Response.Redirect(target);
+        return;
+    }
+
     var frontendIndex = Path.Combine(app.Environment.ContentRootPath, "wwwroot", "index.html");
     if (!File.Exists(frontendIndex))
     {

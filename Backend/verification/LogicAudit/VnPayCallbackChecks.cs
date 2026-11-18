@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Configuration;
 using SportsCenterManagement.BLL.Common.Helpers;
-using SportsCenterManagement.BLL.Services;
 
 /// <summary>
 /// VNPay return/IPN callbacks are signed by VNPay and, in practice, do not include vnp_CurrCode.

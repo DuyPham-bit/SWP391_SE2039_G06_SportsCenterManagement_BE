@@ -1,4 +1,3 @@
-using SportsCenterManagement.BLL.Services;
 
 namespace SportsCenterManagement.API.BackgroundServices;
 

@@ -1,0 +1,26 @@
+using SportsCenterManagement.BLL.DTOs.Classes;
+
+namespace SportsCenterManagement.BLL.Services.Classes;
+
+public interface IClassService
+{
+    Task<IReadOnlyList<ClassCatalogResponse>> GetPublishedClassesAsync(
+        long centerId,
+        CancellationToken cancellationToken = default);
+
+    Task<ClassCoachResponse> AssignCoachToClassAsync(
+        long actorUserId,
+        long classId,
+        AssignCoachRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ClassCoachResponse>> GetAssignedCoachesAsync(
+        long classId,
+        CancellationToken cancellationToken = default);
+
+    Task UnassignCoachFromClassAsync(
+        long actorUserId,
+        long classId,
+        long coachId,
+        CancellationToken cancellationToken = default);
+}

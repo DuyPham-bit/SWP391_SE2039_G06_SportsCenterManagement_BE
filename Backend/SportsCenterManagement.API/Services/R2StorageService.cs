@@ -7,7 +7,6 @@ using System.Security.Claims;
 using System.Text.RegularExpressions;
 using SportsCenterManagement.API.Models;
 using SportsCenterManagement.BLL.Common;
-using SportsCenterManagement.BLL.Services;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
 

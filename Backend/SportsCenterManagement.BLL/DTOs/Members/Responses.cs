@@ -1,3 +1,6 @@
+using System.Text.Json.Serialization;
+using System.ComponentModel.DataAnnotations;
+using MembersResponses = SportsCenterManagement.BLL.DTOs.Members.Responses;
 namespace SportsCenterManagement.BLL.DTOs.Members;
 
 public static class Responses
@@ -45,3 +48,27 @@ public static class Responses
     /// <summary>Counts over every matching member (same scope as TotalCount), not just the current page.</summary>
     public sealed record MemberCountSummary(int ActiveAccounts, int DisabledAccounts, int WithActivePackage);
 }
+
+
+
+/// <summary>
+/// Result of issuing an activation link. <see cref="RawToken"/> must only be placed in the email
+/// and never returned to the receptionist's client.
+/// </summary>
+public sealed record ActivationIssue(
+    MembersResponses.MemberProfileResponse Member,
+    long UserId,
+    string RawToken,
+    DateTime ExpiresAt);
+
+public sealed record ActivationPreviewResponse(string FullName, string Email, string? Phone, DateTime ExpiresAt);
+
+/// <summary>Response to the receptionist after quick-create or resend.</summary>
+public sealed record ActivationDispatchResponse(
+    MembersResponses.MemberProfileResponse Member,
+    bool EmailSent,
+    string Message,
+    int ResendCooldownSeconds);
+
+public sealed record MemberVerificationStatus(long MemberId, string FullName, string MemberCode, bool IsEmailVerified);
+

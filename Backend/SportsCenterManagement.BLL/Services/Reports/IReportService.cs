@@ -1,0 +1,40 @@
+using SportsCenterManagement.BLL.DTOs.CoreFlows;
+
+namespace SportsCenterManagement.BLL.Services.Reports;
+
+public interface IReportService
+{
+    Task<int> GetCheckinCountAsync(long centerId, DateOnly from, DateOnly to,
+        CancellationToken cancellationToken = default);
+
+    Task<RevenueReportResponse> GetRevenueReportAsync(
+        long centerId,
+        DateOnly from,
+        DateOnly to,
+        string groupBy,
+        CancellationToken cancellationToken = default);
+
+    Task<SportRevenueReportResponse> GetSportRevenueReportAsync(
+        long centerId, DateOnly from, DateOnly to,
+        CancellationToken cancellationToken = default);
+
+    Task<MembershipReportResponse> GetMembershipReportAsync(
+        long centerId,
+        DateOnly from,
+        DateOnly to,
+        string groupBy,
+        CancellationToken cancellationToken = default);
+
+    Task<ClassEnrollmentReportResponse> GetClassEnrollmentReportAsync(
+        long centerId,
+        DateOnly from,
+        DateOnly to,
+        string groupBy,
+        CancellationToken cancellationToken = default);
+
+    Task<OperationsReportResponse> GetOperationsReportAsync(
+        long centerId,
+        DateOnly from,
+        DateOnly to,
+        CancellationToken cancellationToken = default);
+}

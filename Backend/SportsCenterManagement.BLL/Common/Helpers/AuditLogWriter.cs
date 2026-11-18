@@ -1,6 +1,5 @@
 using System.Text.Json;
 using SportsCenterManagement.DAL.Entities;
-using SportsCenterManagement.DAL.Repositories.Interfaces;
 
 namespace SportsCenterManagement.BLL.Common.Helpers;
 

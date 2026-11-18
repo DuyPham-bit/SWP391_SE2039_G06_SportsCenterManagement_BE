@@ -17,30 +17,6 @@ public static class Responses
 
 namespace SportsCenterManagement.BLL.DTOs.Classes
 {
-public sealed record ClassSessionResponse(
-    long Id,
-    long ClassId,
-    DateOnly SessionDate,
-    TimeOnly StartTime,
-    TimeOnly EndTime,
-    long? RoomId,
-    long? CoachId,
-    string Status);
-
-public sealed record CenterScheduleResponse(
-    long ClassId,
-    string ClassName,
-    long? RoomId,
-    long? CoachId,
-    DateOnly SessionDate,
-    TimeOnly StartTime,
-    TimeOnly EndTime,
-    int Capacity,
-    int ConfirmedEnrollments);
-}
-
-namespace SportsCenterManagement.BLL.DTOs.Classes
-{
 // ---------- UC-12: Manage classes & weekly schedules ----------
 
 public sealed record ClassDetailResponse(
@@ -200,8 +176,6 @@ public sealed record ClassCoachResponse(
 
 namespace SportsCenterManagement.BLL.DTOs.Classes
 {
-public sealed record ClassOptionResponse(long Id, string Name, string? Type, int Capacity);
-public sealed record SportOptionResponse(long Id, string Name, string? Description);
 public sealed record ManagedSportResponse(
     long Id,
     string Name,
@@ -228,4 +202,125 @@ public sealed record CoachAssignmentCandidateResponse(
     string? Certification,
     IReadOnlyList<long> SportIds,
     IReadOnlyList<CoachTeachingSlotResponse> TeachingSlots);
+}
+
+namespace SportsCenterManagement.BLL.DTOs.Classes
+{
+
+
+    public sealed record MemberWaitlistItemDto(
+        long Id,
+        long? SessionId,
+        string ClassName,
+        DateOnly SessionDate,
+        TimeOnly StartTime,
+        TimeOnly EndTime,
+        string Status,
+        DateTime JoinedAt,
+        int Position = 0);
+
+    public sealed record SessionRosterItemDto(
+        long? BookingId,
+        long MemberId,
+        string MemberName,
+        string? MemberCode,
+        string Email,
+        string? Phone,
+        string? FitnessGoal,
+        string? FitnessLevel,
+        string? AttendanceStatus,
+        string? Note);
+
+}
+
+namespace SportsCenterManagement.BLL.DTOs.Classes
+{
+
+
+    public sealed record MemberEnrollmentDto(
+        long Id,
+        long ClassId,
+        string Name,
+        long? SubscriptionId,
+        DateTime RegisteredAt,
+        DateTime? CancelledAt,
+        string Status,
+        string? CancellationReason);
+
+    public sealed record ClassEnrollmentResultDto(
+        long Id,
+        long ClassId,
+        long MemberId,
+        long? SubscriptionId,
+        DateTime RegisteredAt,
+        string Status);
+
+    public sealed record CancelledClassEnrollmentResultDto(
+        long Id,
+        long ClassId,
+        string Status,
+        DateTime? CancelledAt,
+        string? CancellationReason);
+
+}
+
+namespace SportsCenterManagement.BLL.DTOs.Classes
+{
+
+
+    /// <summary>Sport → coach → class tree a member can pick from when signing up for a sport.</summary>
+    public sealed record MemberEnrollmentOptionsDto(
+        long CenterId,
+        IReadOnlyList<EnrollmentSubscriptionDto> Subscriptions,
+        IReadOnlyList<EnrollmentSportOptionDto> Sports);
+
+    /// <summary>An active package and how much of its sport/class allowance is already used.</summary>
+    public sealed record EnrollmentSubscriptionDto(
+        long SubscriptionId,
+        string PackageName,
+        DateOnly? StartDate,
+        DateOnly? EndDate,
+        int AllowedSports,
+        int? MaxClasses,
+        IReadOnlyList<long> UsedSportIds,
+        int UsedClasses);
+
+    public sealed record EnrollmentSportOptionDto(
+        long SportId,
+        string Name,
+        string? Description,
+        bool IsEnrolled,
+        IReadOnlyList<EnrollmentCoachOptionDto> Coaches);
+
+    public sealed record EnrollmentCoachOptionDto(
+        long CoachId,
+        string FullName,
+        string? Specialization,
+        string? Certification,
+        int? ExperienceYears,
+        string? Bio,
+        double? AverageRating,
+        int ReviewCount,
+        IReadOnlyList<EnrollmentClassOptionDto> Classes);
+
+    /// <summary>
+    /// One class taught by the coach. Exactly one of these holds: <see cref="EnrollmentId"/> (already joined),
+    /// <see cref="EligibleSubscriptionId"/> (can join with that package) or <see cref="BlockedCode"/> (why not).
+    /// </summary>
+    public sealed record EnrollmentClassOptionDto(
+        long ClassId,
+        string Name,
+        string? Level,
+        string? Description,
+        string? RoomName,
+        int Capacity,
+        int EnrolledCount,
+        IReadOnlyList<EnrollmentScheduleDto> Schedules,
+        long? EnrollmentId,
+        long? EligibleSubscriptionId,
+        string? BlockedCode,
+        string? BlockedReason);
+
+    public sealed record EnrollmentScheduleDto(int DayOfWeek, TimeOnly StartTime, TimeOnly EndTime, string? RoomName);
+
 }

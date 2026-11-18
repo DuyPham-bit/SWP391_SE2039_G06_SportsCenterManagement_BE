@@ -72,3 +72,12 @@ namespace SportsCenterManagement.BLL.DTOs.Classes
         long? CenterId = null,
         long? MemberUserId = null);
 }
+
+namespace SportsCenterManagement.BLL.DTOs.Classes
+{
+    public sealed record AttendanceRecordDto(
+        long MemberId,
+        string Status,
+        string? Note = null);
+
+}

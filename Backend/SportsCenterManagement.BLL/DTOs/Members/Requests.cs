@@ -38,3 +38,29 @@ namespace SportsCenterManagement.BLL.DTOs.Members
             [param: Required, RegularExpression("^(Active|Disabled)$")] string Status);
     }
 }
+
+namespace SportsCenterManagement.BLL.DTOs.Members
+{
+    /// <summary>Counter quick-create: the phone number becomes the initial (must-change) password.</summary>
+    [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+    public sealed record QuickCreateMemberRequest(
+        [param: Required, StringLength(150, MinimumLength = 1)] string FullName,
+        [param: Required, StringLength(20)] string PhoneNumber,
+        [param: Required, StringLength(150)] string Email,
+        [param: StringLength(20)] string? Gender = null,
+        DateOnly? DateOfBirth = null,
+        [param: StringLength(255)] string? Address = null);
+
+    public sealed record ActivationPreviewRequest([param: Required, StringLength(128)] string Token);
+
+    public sealed record VerifyAndChangePasswordRequest(
+        [param: Required, StringLength(128)] string Token,
+        [param: Required, StringLength(128)] string NewPassword,
+        [param: Required, StringLength(128)] string ConfirmPassword);
+
+    public sealed record InitialPasswordChangeRequest(
+        [param: Required, StringLength(128)] string CurrentPassword,
+        [param: Required, StringLength(128)] string NewPassword,
+        [param: Required, StringLength(128)] string ConfirmPassword);
+
+}

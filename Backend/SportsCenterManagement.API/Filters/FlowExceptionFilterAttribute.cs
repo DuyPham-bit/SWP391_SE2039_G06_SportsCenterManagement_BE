@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using SportsCenterManagement.BLL.Exceptions;
 
 namespace SportsCenterManagement.API.Filters;
 

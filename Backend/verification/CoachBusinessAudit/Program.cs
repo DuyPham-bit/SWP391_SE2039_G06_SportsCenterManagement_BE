@@ -2,7 +2,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Primitives;
 using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.DTOs.Training;
-using SportsCenterManagement.BLL.Services;
 
 var failures = new List<string>();
 var checks = 0;

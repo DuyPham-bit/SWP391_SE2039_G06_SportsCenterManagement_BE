@@ -3,4 +3,10 @@
   <Project Path="SportsCenterManagement.BLL/SportsCenterManagement.BLL.csproj" />
   <Project Path="SportsCenterManagement.DAL/SportsCenterManagement.DAL.csproj" />
   <Project Path="SportsCenterManagement.Tests/SportsCenterManagement.Tests.csproj" />
+  <Folder Name="/verification/">
+    <Project Path="verification/AiSafetyAudit/AiSafetyAudit.csproj" />
+    <Project Path="verification/CoachBusinessAudit/CoachBusinessAudit.csproj" />
+    <Project Path="verification/LogicAudit/LogicAudit.csproj" />
+    <Project Path="verification/TimezoneAudit/TimezoneAudit.csproj" />
+  </Folder>
 </Solution>

@@ -1,0 +1,584 @@
+using System.Data;
+using System.ComponentModel.DataAnnotations;
+using System.Security.Cryptography;
+using System.Text;
+using Microsoft.EntityFrameworkCore;
+using SportsCenterManagement.BLL.Common.Helpers;
+using Microsoft.Extensions.Configuration;
+using SportsCenterManagement.BLL.DTOs.CoreFlows;
+using SportsCenterManagement.DAL.Entities;
+
+namespace SportsCenterManagement.BLL.Services.CoreFlows;
+
+public sealed class CoreFlowService(IUnitOfWork unitOfWork, IConfiguration configuration) : ICoreFlowService
+{
+    private readonly IUnitOfWork _unitOfWork = unitOfWork;
+    private readonly IConfiguration _configuration = configuration;
+    private static readonly TimeSpan EnrollmentCancellationCutoff = TimeSpan.FromHours(2);
+
+    public async Task<IReadOnlyList<MembershipPackage>> GetActivePackagesAsync(
+        long centerId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _unitOfWork.Repository<MembershipPackage>()
+            .Find(package => package.CenterId == centerId && package.Status == "Active")
+            .OrderBy(package => package.Price)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>Rejects a long-term enrollment whose weekly slots overlap another confirmed class of the member.</summary>
+    private async Task EnsureNoScheduleClashAsync(long classId, long memberId, DateOnly today, CancellationToken ct)
+    {
+        var activeSchedules = _unitOfWork.Context.ClassSchedules
+            .Where(s => s.Status == "Active" && (s.EndDate == null || s.EndDate >= today));
+        var target = await activeSchedules.Where(s => s.ClassId == classId)
+            .Select(s => new { s.DayOfWeek, s.StartTime, s.EndTime, s.StartDate, s.EndDate })
+            .ToListAsync(ct);
+        if (target.Count == 0) return;
+        var days = target.Select(s => s.DayOfWeek).Distinct().ToArray();
+        var others = await (
+            from enrollment in _unitOfWork.Context.ClassEnrollments
+            join schedule in activeSchedules on enrollment.ClassId equals schedule.ClassId
+            join cls in _unitOfWork.Context.Classes on enrollment.ClassId equals cls.Id
+            where enrollment.MemberId == memberId && enrollment.Status == "Confirmed"
+                && enrollment.ClassId != classId && days.Contains(schedule.DayOfWeek)
+            select new { schedule.DayOfWeek, schedule.StartTime, schedule.EndTime, schedule.StartDate, schedule.EndDate, cls.Name })
+            .ToListAsync(ct);
+        static bool DatesOverlap(DateOnly? startA, DateOnly? endA, DateOnly? startB, DateOnly? endB) =>
+            (startA ?? DateOnly.MinValue) <= (endB ?? DateOnly.MaxValue)
+            && (startB ?? DateOnly.MinValue) <= (endA ?? DateOnly.MaxValue);
+        var clash = others.FirstOrDefault(o => target.Any(t => t.DayOfWeek == o.DayOfWeek
+            && ScheduleTime.Overlaps(t.StartTime, t.EndTime, o.StartTime, o.EndTime)
+            && DatesOverlap(t.StartDate, t.EndDate, o.StartDate, o.EndDate)));
+        if (clash is not null)
+        {
+            throw new InvalidOperationException(
+                $"Schedule conflict: class '{clash.Name}' already occupies {clash.StartTime:HH\\:mm}-{clash.EndTime:HH\\:mm} on the same weekday.");
+        }
+    }
+
+    public async Task<PendingMembershipResult> CreatePendingMembershipAsync(
+        long memberId,
+        long packageId,
+        long? createdBy,
+        CancellationToken cancellationToken = default,
+        IReadOnlyCollection<long>? sportIds = null)
+    {
+        // Serializable ngăn retry đồng thời tạo hai hóa đơn cho cùng member và gói.
+        await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
+        var member = await _unitOfWork.Repository<MemberProfile>().GetByIdAsync(memberId, cancellationToken)
+            ?? throw new KeyNotFoundException("Member was not found.");
+        var user = await _unitOfWork.Repository<User>().GetByIdAsync(member.UserId, cancellationToken);
+        if (user?.Status != "Active" || user.LockedUntil > DateTime.UtcNow)
+        {
+            throw new UnauthorizedAccessException("Member account is not active.");
+        }
+
+        var package = await _unitOfWork.Repository<MembershipPackage>().Find(
+            item => item.Id == packageId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (package is null || package.Status != "Active")
+        {
+            throw new InvalidOperationException("Membership package is unavailable.");
+        }
+
+        if (member.CenterId.HasValue && member.CenterId.Value != package.CenterId)
+        {
+            throw new UnauthorizedAccessException("Membership package belongs to another center.");
+        }
+
+        var pending = await (
+            from item in _unitOfWork.Context.InvoiceItems
+            join pendingInvoice in _unitOfWork.Context.Invoices on item.InvoiceId equals pendingInvoice.Id
+            join pendingSubscription in _unitOfWork.Context.MemberSubscriptions on item.SubscriptionId equals pendingSubscription.Id
+            where pendingInvoice.MemberId == memberId
+                  && item.PackageId == packageId
+                  && pendingSubscription.Status == "PendingPayment"
+                  && (pendingInvoice.Status == "Issued" || pendingInvoice.Status == "PartiallyPaid")
+            orderby pendingInvoice.IssuedAt descending
+            select new { Invoice = pendingInvoice, Subscription = pendingSubscription })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (pending is not null)
+        {
+            if (!member.CenterId.HasValue)
+            {
+                member.CenterId = package.CenterId;
+                _unitOfWork.Repository<MemberProfile>().Update(member);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            var paidAmount = await _unitOfWork.Repository<Payment>()
+                .Find(payment => payment.InvoiceId == pending.Invoice.Id && payment.PaymentStatus == "Succeeded")
+                .SumAsync(payment => (decimal?)payment.Amount, cancellationToken) ?? 0m;
+            if (sportIds is not null)
+            {
+                // Retrying the same package with a new sport choice must not silently keep the abandoned one.
+                var requested = await MembershipEntitlements.ResolvePurchaseSportsAsync(_unitOfWork.Context, memberId,
+                    package, sportIds, ToBusinessDate(DateTime.UtcNow), cancellationToken);
+                var current = await _unitOfWork.Context.SubscriptionSports
+                    .Where(row => row.SubscriptionId == pending.Subscription.Id).ToListAsync(cancellationToken);
+                if (!current.Select(row => row.SportId).ToHashSet().SetEquals(requested))
+                {
+                    if (paidAmount > 0)
+                        throw new InvalidOperationException(
+                            "Đơn gói này đã được thanh toán một phần nên không thể đổi bộ môn.");
+                    _unitOfWork.Context.SubscriptionSports.RemoveRange(current);
+                    MembershipEntitlements.AddSports(_unitOfWork.Context, pending.Subscription.Id, requested);
+                    await _unitOfWork.SaveChangesAsync(cancellationToken);
+                }
+            }
+            await transaction.CommitAsync(cancellationToken);
+            return new PendingMembershipResult(pending.Subscription.Id, pending.Invoice.Id,
+                pending.Invoice.InvoiceNumber, pending.Invoice.TotalAmount - paidAmount);
+        }
+
+        var centerIsActive = await _unitOfWork.Repository<Center>()
+            .AnyAsync(center => center.Id == package.CenterId && center.Status == "Active", cancellationToken);
+        if (!centerIsActive)
+        {
+            throw new InvalidOperationException("Membership center is unavailable.");
+        }
+
+        if (package.Price <= 0 || package.DurationDays <= 0)
+        {
+            throw new InvalidOperationException("Membership package has an invalid price or duration.");
+        }
+
+        var now = DateTime.UtcNow;
+        // Gắn member vào center cùng transaction với hóa đơn và subscription.
+        if (!member.CenterId.HasValue)
+        {
+            member.CenterId = package.CenterId;
+            member.UpdatedAt = now;
+            _unitOfWork.Repository<MemberProfile>().Update(member);
+        }
+
+        var subscription = new MemberSubscription
+        {
+            MemberId = memberId,
+            PackageId = package.Id,
+            // Chỉ chốt ngày hiệu lực khi payment đủ; thời hạn đã được snapshot tại lúc mua.
+            StartDate = null,
+            EndDate = null,
+            DurationDays = package.DurationDays,
+            Price = package.Price,
+            Status = "PendingPayment",
+            AutoRenew = false,
+            CreatedAt = now
+        };
+        // Downgrade guard + renewal inherits the current sport selection.
+        var resolvedSportIds = await MembershipEntitlements.ResolvePurchaseSportsAsync(_unitOfWork.Context, memberId, package,
+            sportIds, ToBusinessDate(now), cancellationToken);
+        await _unitOfWork.Repository<MemberSubscription>().AddAsync(subscription, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        MembershipEntitlements.AddSports(_unitOfWork.Context, subscription.Id, resolvedSportIds);
+
+        var invoiceNumber = $"SC-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..31];
+        var invoice = new Invoice
+        {
+            InvoiceNumber = invoiceNumber,
+            MemberId = memberId,
+            CenterId = package.CenterId,
+            CreatedBy = createdBy,
+            Subtotal = package.Price,
+            Discount = 0,
+            Tax = 0,
+            TotalAmount = package.Price,
+            Status = "Issued",
+            IssuedAt = now
+        };
+        await _unitOfWork.Repository<Invoice>().AddAsync(invoice, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await _unitOfWork.Repository<InvoiceItem>().AddAsync(new InvoiceItem
+        {
+            InvoiceId = invoice.Id,
+            PackageId = package.Id,
+            SubscriptionId = subscription.Id,
+            Description = package.Name,
+            Quantity = 1,
+            UnitPrice = package.Price,
+            Amount = package.Price
+        }, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        AuditLogWriter.Add(_unitOfWork, createdBy ?? user.Id, package.CenterId,
+            "membership.payment_requested", "MemberSubscription", subscription.Id,
+            newValues: new { PackageId = package.Id, InvoiceId = invoice.Id, invoice.TotalAmount, subscription.DurationDays });
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return new PendingMembershipResult(subscription.Id, invoice.Id, invoiceNumber, package.Price);
+    }
+
+    public async Task<ClassEnrollment> EnrollMemberAsync(
+        long classId,
+        long memberId,
+        long subscriptionId,
+        long? registeredBy,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable, cancellationToken);
+        var classEntity = await _unitOfWork.Repository<ClassEntity>().GetByIdAsync(classId, cancellationToken)
+            ?? throw new InvalidOperationException("Class was not found.");
+        if (classEntity.Status != "Published")
+        {
+            throw new InvalidOperationException("Class is not open for enrollment.");
+        }
+
+        if (!await _unitOfWork.Repository<Center>().AnyAsync(
+                center => center.Id == classEntity.CenterId && center.Status == "Active", cancellationToken))
+        {
+            throw new InvalidOperationException("Class center is not active.");
+        }
+        if (!await _unitOfWork.Repository<Sport>().AnyAsync(
+                sport => sport.Id == classEntity.SportId && sport.Status == "Active"
+                    && (!sport.CenterId.HasValue || sport.CenterId.Value == classEntity.CenterId), cancellationToken))
+        {
+            throw new InvalidOperationException("Class sport is not active at this center.");
+        }
+        if (classEntity.RoomId.HasValue && !await _unitOfWork.Repository<Room>().AnyAsync(
+                room => room.Id == classEntity.RoomId.Value && room.CenterId == classEntity.CenterId
+                    && room.Status == "Active", cancellationToken))
+        {
+            throw new InvalidOperationException("Class room is no longer active at this center.");
+        }
+        var activePrimaryCoach = await (
+            from assignment in _unitOfWork.Context.ClassCoaches
+            join coach in _unitOfWork.Context.CoachProfiles on assignment.CoachId equals coach.Id
+            join user in _unitOfWork.Context.Users on coach.UserId equals user.Id
+            where assignment.ClassId == classId && assignment.IsPrimary
+                && coach.CenterId == classEntity.CenterId && coach.Status == "Active" && user.Status == "Active"
+                && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
+            select assignment.CoachId).AnyAsync(cancellationToken);
+        if (!activePrimaryCoach)
+        {
+            throw new InvalidOperationException("Class does not have an active primary coach.");
+        }
+
+        if (classEntity.Capacity <= 0)
+        {
+            throw new InvalidOperationException("Class capacity is not configured.");
+        }
+
+        var member = await _unitOfWork.Repository<MemberProfile>().GetByIdAsync(memberId, cancellationToken)
+            ?? throw new KeyNotFoundException("Member was not found.");
+        if (!await _unitOfWork.Repository<User>().AnyAsync(
+                user => user.Id == member.UserId && user.Status == "Active"
+                        && (!user.LockedUntil.HasValue || user.LockedUntil <= DateTime.UtcNow), cancellationToken))
+        {
+            throw new UnauthorizedAccessException("Member account is not active.");
+        }
+        if (member.CenterId.HasValue && member.CenterId.Value != classEntity.CenterId)
+        {
+            throw new UnauthorizedAccessException("Member and class belong to different centers.");
+        }
+        // Same suspension rule as single-session booking (SessionBookingService.EnsureEligibleAsync).
+        if (member.BookingSuspendedUntil is { } suspendedUntil && suspendedUntil > DateTime.UtcNow)
+        {
+            throw new InvalidOperationException($"Member booking is suspended until {suspendedUntil:dd/MM/yyyy HH:mm} UTC.");
+        }
+
+        var today = ToBusinessDate(DateTime.UtcNow);
+        var subscription = await _unitOfWork.Repository<MemberSubscription>().Find(
+                item => item.Id == subscriptionId && item.MemberId == memberId && item.Status == "Active")
+            .SingleOrDefaultAsync(cancellationToken);
+        if (subscription is null || !subscription.StartDate.HasValue || !subscription.EndDate.HasValue
+            || subscription.StartDate.Value > today || subscription.EndDate.Value < today)
+        {
+            throw new InvalidOperationException("An active membership is required to enroll.");
+        }
+
+        var membershipPackage = await _unitOfWork.Repository<MembershipPackage>().Find(
+            package => package.Id == subscription.PackageId)
+            .SingleAsync(cancellationToken);
+        if (membershipPackage.CenterId != classEntity.CenterId)
+        {
+            throw new InvalidOperationException("Membership and class belong to different centers.");
+        }
+
+        if (member.CenterId.HasValue && member.CenterId.Value != membershipPackage.CenterId)
+        {
+            throw new UnauthorizedAccessException("Member and membership package belong to different centers.");
+        }
+
+        var enrolledEntitlements = await (
+            from enrollment in _unitOfWork.Context.ClassEnrollments
+            join enrolledClass in _unitOfWork.Context.Classes on enrollment.ClassId equals enrolledClass.Id
+            where enrollment.MemberId == memberId && enrollment.SubscriptionId == subscription.Id
+                && enrollment.Status == "Confirmed"
+            select new { enrollment.ClassId, enrolledClass.SportId }).ToListAsync(cancellationToken);
+        var bookedEntitlements = await (
+            from booking in _unitOfWork.Context.SessionBookings
+            join session in _unitOfWork.Context.ClassSessions on booking.SessionId equals session.Id
+            join bookedClass in _unitOfWork.Context.Classes on session.ClassId equals bookedClass.Id
+            where booking.MemberId == memberId && booking.SubscriptionId == subscription.Id
+                && (booking.Status == "Booked" || booking.Status == "CANCELLED_LATE_CHARGED")
+            select new { ClassId = session.ClassId, bookedClass.SportId }).ToListAsync(cancellationToken);
+        var usedEntitlements = enrolledEntitlements.Concat(bookedEntitlements)
+            .DistinctBy(item => item.ClassId)
+            .Select(item => (item.ClassId, item.SportId)).ToArray();
+        var pickedSports = await _unitOfWork.Context.SubscriptionSports
+            .Where(row => row.SubscriptionId == subscription.Id)
+            .Select(row => row.SportId).ToListAsync(cancellationToken);
+        switch (EnrollmentEntitlementRules.Evaluate(membershipPackage.MaxClasses, membershipPackage.AllowedSports,
+                    membershipPackage.IsAllAccess, pickedSports, usedEntitlements, classId, classEntity.SportId))
+        {
+            case EnrollmentEntitlementVerdict.SportNotInPackage:
+                throw new InvalidOperationException("Class sport is not included in this membership.");
+            case EnrollmentEntitlementVerdict.ClassLimitReached:
+                throw new InvalidOperationException("Membership class allowance has been reached.");
+            case EnrollmentEntitlementVerdict.SportLimitReached:
+                throw new InvalidOperationException("Membership sport allowance has been reached.");
+        }
+
+        var existing = await _unitOfWork.Repository<ClassEnrollment>().Find(
+            enrollment => enrollment.ClassId == classId && enrollment.MemberId == memberId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (existing is not null && existing.Status == "Confirmed")
+        {
+            if (existing.SubscriptionId == subscription.Id)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return existing;
+            }
+            throw new InvalidOperationException("Member is already enrolled in this class.");
+        }
+        await EnsureNoScheduleClashAsync(classId, memberId, today, cancellationToken);
+
+        var confirmedCount = await _unitOfWork.Repository<ClassEnrollment>().CountAsync(
+            enrollment => enrollment.ClassId == classId && enrollment.Status == "Confirmed",
+            cancellationToken);
+        if (confirmedCount >= classEntity.Capacity)
+        {
+            throw new InvalidOperationException("Class is full.");
+        }
+
+        var now = DateTime.UtcNow;
+        if (existing is null)
+        {
+            existing = new ClassEnrollment
+            {
+                ClassId = classId,
+                MemberId = memberId,
+                RegisteredAt = now
+            };
+            await _unitOfWork.Repository<ClassEnrollment>().AddAsync(existing, cancellationToken);
+        }
+
+        existing.SubscriptionId = subscription.Id;
+        existing.RegisteredBy = registeredBy;
+        existing.RegisteredAt = now;
+        existing.CancelledAt = null;
+        existing.CancellationReason = null;
+        existing.Status = "Confirmed";
+        await FlowNotificationWriter.CreateForMemberAsync(_unitOfWork.Context, registeredBy, memberId,
+            "Ghi danh lớp thành công", "Bạn đã được xác nhận ghi danh lớp. Xem lịch học để biết chi tiết.", "BookingConfirmed", cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return existing;
+    }
+
+    public async Task<ClassEnrollment> CancelClassEnrollmentAsync(long classId, long memberId, string? reason, CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var enrollment = await _unitOfWork.Repository<ClassEnrollment>().Find(x => x.ClassId == classId && x.MemberId == memberId)
+            .SingleOrDefaultAsync(cancellationToken) ?? throw new InvalidOperationException("Không tìm thấy ghi danh của Member trong lớp này.");
+        if (enrollment.Status != "Confirmed") throw new InvalidOperationException("Ghi danh không ở trạng thái có thể hủy.");
+
+        // Schedules are expressed in the center's local time; current centers use Vietnam time (UTC+7).
+        var nowLocal = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(7)).DateTime;
+        var upcomingSessions = await _unitOfWork.Context.ClassSessions
+            .Where(x => x.ClassId == classId && x.SessionStatus == "Scheduled")
+            .OrderBy(x => x.SessionDate).ThenBy(x => x.StartTime)
+            .Select(x => new { x.SessionDate, x.StartTime }).ToListAsync(cancellationToken);
+        var nextSession = upcomingSessions.FirstOrDefault(x => x.SessionDate.ToDateTime(x.StartTime) > nowLocal);
+        if (nextSession is null) throw new InvalidOperationException("Lớp không còn buổi học có thể hủy ghi danh.");
+        if (nowLocal >= nextSession.SessionDate.ToDateTime(nextSession.StartTime) - EnrollmentCancellationCutoff)
+            throw new InvalidOperationException("Chỉ được hủy ghi danh trước giờ học ít nhất 2 tiếng.");
+
+        enrollment.Status = "Cancelled";
+        enrollment.CancelledAt = DateTime.UtcNow;
+        enrollment.CancellationReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim()[..Math.Min(reason.Trim().Length, 500)];
+        await FlowNotificationWriter.CreateForMemberAsync(_unitOfWork.Context, null, memberId,
+            "Đã hủy ghi danh lớp", "Ghi danh lớp của bạn đã được hủy.", "BookingCancelled", cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return enrollment;
+    }
+
+    public async Task<Payment> RecordCashPaymentAsync(
+        long invoiceId,
+        long processedBy,
+        decimal amount,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (amount <= 0 || amount > 9_999_999_999.99m || decimal.Round(amount, 2) != amount)
+        {
+            throw new ValidationException("Số tiền phải lớn hơn 0, tối đa 2 chữ số thập phân và nằm trong giới hạn hóa đơn.");
+        }
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            throw new ValidationException("Idempotency key là bắt buộc.");
+        }
+        var normalizedKey = idempotencyKey.Trim();
+        if (normalizedKey.Length is < 16 or > 100)
+        {
+            throw new ValidationException("Idempotency key cần từ 16 đến 100 ký tự.");
+        }
+
+        var keyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedKey)));
+        var transactionCode = $"CASH-{keyHash}";
+
+        await using var transaction = await _unitOfWork.Context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        var previousAttempt = await _unitOfWork.Repository<Payment>()
+            .Find(payment => payment.TransactionCode == transactionCode)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (previousAttempt is not null)
+        {
+            if (previousAttempt.InvoiceId != invoiceId || previousAttempt.Amount != amount
+                || previousAttempt.PaymentStatus != "Succeeded")
+            {
+                throw new InvalidOperationException("Idempotency key was already used for a different payment request.");
+            }
+            await transaction.CommitAsync(cancellationToken);
+            return previousAttempt;
+        }
+
+        var invoice = await _unitOfWork.Repository<Invoice>().GetByIdAsync(invoiceId, cancellationToken)
+            ?? throw new InvalidOperationException("Invoice was not found.");
+        if (invoice.Status is not ("Issued" or "PartiallyPaid"))
+        {
+            throw new InvalidOperationException("Invoice cannot accept another payment.");
+        }
+        if (!await (
+                from profile in _unitOfWork.Context.MemberProfiles
+                join user in _unitOfWork.Context.Users on profile.UserId equals user.Id
+                where profile.Id == invoice.MemberId && user.Status == "Active"
+                    && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)
+                select profile.Id).AnyAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("Member account is not active or is temporarily locked.");
+        }
+
+        var paidAmount = await _unitOfWork.Repository<Payment>()
+            .Find(payment => payment.InvoiceId == invoiceId && payment.PaymentStatus == "Succeeded")
+            .SumAsync(payment => (decimal?)payment.Amount, cancellationToken) ?? 0m;
+        var remaining = invoice.TotalAmount - paidAmount;
+        if (amount > remaining)
+        {
+            throw new InvalidOperationException("Payment exceeds the outstanding invoice balance.");
+        }
+
+        var now = DateTime.UtcNow;
+        var payment = new Payment
+        {
+            InvoiceId = invoice.Id,
+            MemberId = invoice.MemberId,
+            ProcessedBy = processedBy,
+            PaymentMethod = "Cash",
+            TransactionCode = transactionCode,
+            Amount = amount,
+            PaymentStatus = "Succeeded",
+            AmountReceived = amount,
+            CreatedAt = now,
+            PaidAt = now
+        };
+        await _unitOfWork.Repository<Payment>().AddAsync(payment, cancellationToken);
+
+        var newPaidAmount = paidAmount + amount;
+        invoice.Status = newPaidAmount == invoice.TotalAmount ? "Paid" : "PartiallyPaid";
+        invoice.PaidAt = invoice.Status == "Paid" ? now : null;
+
+        if (invoice.Status == "Paid")
+        {
+            var db = _unitOfWork.Context;
+            var subscriptions = await (
+                from item in db.InvoiceItems
+                join sub in db.MemberSubscriptions on item.SubscriptionId equals sub.Id
+                where item.InvoiceId == invoice.Id
+                select sub).ToListAsync(cancellationToken);
+            foreach (var subscription in subscriptions)
+            {
+                if (subscription.Status != "PendingPayment")
+                {
+                    continue;
+                }
+                var package = await _unitOfWork.Repository<MembershipPackage>().Find(item => item.Id == subscription.PackageId)
+                    .SingleAsync(cancellationToken);
+                var today = ToBusinessDate(now);
+                await MembershipEntitlements.ActivateAsync(db, subscription, package, today, now, cancellationToken);
+                await FlowNotificationWriter.MembershipPaidAsync(db, processedBy, subscription,
+                    package.Name, today, cancellationToken);
+            }
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        AuditLogWriter.Add(_unitOfWork, processedBy, invoice.CenterId, "payment.cash.recorded", "Payment", payment.Id,
+            newValues: new { InvoiceId = invoice.Id, PaymentAmount = amount, InvoiceStatus = invoice.Status, IdempotencyKeyHash = keyHash });
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return payment;
+    }
+
+    public async Task<RevenueSummary> GetRevenueAsync(
+        long centerId,
+        DateOnly from,
+        DateOnly to,
+        CancellationToken cancellationToken = default)
+    {
+        if (from > to || to == DateOnly.MaxValue || to.DayNumber - from.DayNumber > 366)
+        {
+            throw new InvalidOperationException("The report date range must be valid and no longer than 367 days.");
+        }
+
+        var timeZone = GetReportTimeZone();
+        var startLocal = from.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+        var endLocal = to.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+        var start = TimeZoneInfo.ConvertTimeToUtc(startLocal, timeZone);
+        var endExclusive = TimeZoneInfo.ConvertTimeToUtc(endLocal, timeZone);
+        var db = _unitOfWork.Context;
+        var gross = await (
+            from payment in db.Payments
+            join invoice in db.Invoices on payment.InvoiceId equals invoice.Id
+            where invoice.CenterId == centerId
+                && payment.PaymentStatus == "Succeeded"
+                && payment.PaidAt.HasValue
+                && payment.PaidAt.Value >= start && payment.PaidAt.Value < endExclusive
+            select (decimal?)payment.Amount).SumAsync(cancellationToken) ?? 0m;
+
+        var refunds = await (
+            from refund in db.PaymentRefunds
+            join payment in db.Payments on refund.PaymentId equals payment.Id
+            join invoice in db.Invoices on payment.InvoiceId equals invoice.Id
+            where invoice.CenterId == centerId
+                && refund.Status == "Succeeded"
+                && refund.ProcessedAt >= start && refund.ProcessedAt < endExclusive
+            select (decimal?)refund.Amount).SumAsync(cancellationToken) ?? 0m;
+
+        return new RevenueSummary(centerId, from, to, gross, refunds, gross - refunds);
+    }
+
+    private TimeZoneInfo GetReportTimeZone()
+    {
+        var configured = _configuration["Reports:TimeZoneId"];
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(configured);
+        }
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+        }
+    }
+
+    private DateOnly ToBusinessDate(DateTime utcDateTime) =>
+        DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
+            DateTime.SpecifyKind(utcDateTime, DateTimeKind.Utc), GetReportTimeZone()));
+}

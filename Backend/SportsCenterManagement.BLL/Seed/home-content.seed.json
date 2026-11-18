@@ -1,0 +1,2438 @@
+{
+ "content": {
+  "heroBanner": {
+   "badge": {
+    "vi": "TRUNG TÂM THỂ THAO ĐẲNG CẤP QUỐC TẾ SCMS",
+    "en": "SCMS WORLD-CLASS OLYMPIC SPORTS ARENA"
+   },
+   "title": {
+    "vi": "SHAPING RESILIENCE THROUGH SPORTS",
+    "en": "SHAPING RESILIENCE THROUGH SPORTS"
+   },
+   "description": {
+    "vi": "Phát triển thể lực, tôi luyện ý chí và bứt phá mọi giới hạn cùng hệ thống {{facilityCount}} cụm sân, phòng tập phục vụ {{sportCount}} bộ môn thể thao.",
+    "en": "Develop fitness, forge resilience, and push boundaries across {{facilityCount}} athletic facilities and {{sportCount}} sports disciplines."
+   },
+   "videoUrl": "./hero-video.mp4",
+   "posterUrl": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=75&w=1280&auto=format&fit=crop",
+   "primaryCtaText": {
+    "vi": "ĐĂNG KÝ HỘI VIÊN MỚI",
+    "en": "REGISTER NEW MEMBER"
+   },
+   "primaryCtaLink": "#/register",
+   "secondaryCtaText": {
+    "vi": "KHÁM PHÁ MÔN HỌC",
+    "en": "EXPLORE DISCIPLINES"
+   },
+   "secondaryCtaLink": "#khoa-hoc",
+   "metrics": [
+    {
+     "id": "m1",
+     "value": "100%",
+     "label": {
+      "vi": "Chuẩn Thi Đấu",
+      "en": "Competition Standard"
+     }
+    },
+    {
+     "id": "m2",
+     "value": "24/7",
+     "label": {
+      "vi": "Lọc Khí & Điều Hòa",
+      "en": "Air Filtration & AC"
+     }
+    },
+    {
+     "id": "m3",
+     "value": "50+",
+     "label": {
+      "vi": "Chuyên Gia Huấn Luyện",
+      "en": "Coaching Experts"
+     }
+    },
+    {
+     "id": "m4",
+     "value": "5.0 ★",
+     "label": {
+      "vi": "Đánh Giá Hội Viên",
+      "en": "Member Rating"
+     }
+    }
+   ]
+  },
+  "whyUs": {
+   "badge": {
+    "vi": "TẠI SAO NÊN CHỌN SCMS",
+    "en": "WHY CHOOSE SCMS"
+   },
+   "title": {
+    "vi": "Nền Tảng Vững Chắc Cho Hành Trình Chinh Phục Đỉnh Cao",
+    "en": "Solid Foundation For Your Journey To Athletic Excellence"
+   },
+   "description": {
+    "vi": "SCMS tự hào là tổ hợp thể thao đa năng chuẩn quốc tế, mang đến không gian tập luyện chuyên nghiệp, đội ngũ huấn luyện viên chứng chỉ AFC & NASM cùng quy trình cá nhân hóa toàn diện cho từng học viên.",
+    "en": "SCMS is a premier multi-sport athletic complex offering international standard facilities, certified coaching staff, and comprehensive personalized training programs."
+   },
+   "features": [
+    {
+     "id": "f1",
+     "icon": "workspace_premium",
+     "title": {
+      "vi": "Huấn luyện viên đạt chuẩn quốc tế",
+      "en": "Certified International Coaching Staff"
+     },
+     "description": {
+      "vi": "100% đội ngũ huấn luyện sở hữu chứng chỉ AFC, FIBA, BWF hoặc NASM với kinh nghiệm đào tạo thực chiến.",
+      "en": "100% of our coaches hold AFC, FIBA, BWF or NASM certificates with competitive training experience."
+     }
+    },
+    {
+     "id": "f2",
+     "icon": "tune",
+     "title": {
+      "vi": "Giáo án cá nhân hóa theo từng thể trạng",
+      "en": "Personalized Curricula for Every Athlete"
+     },
+     "description": {
+      "vi": "Đo lường chỉ số InBody định kỳ, thiết lập biểu đồ vận động riêng biệt và AI Workout Recommender theo mục tiêu.",
+      "en": "Periodic InBody scans, custom workout tracking, and AI workout recommendations."
+     }
+    },
+    {
+     "id": "f3",
+     "icon": "local_fire_department",
+     "title": {
+      "vi": "Môi trường năng động và truyền cảm hứng",
+      "en": "Inspiring & Dynamic Athletic Environment"
+     },
+     "description": {
+      "vi": "Cộng đồng hội viên văn minh, các giải đấu nội bộ định kỳ và hệ thống sân bãi đạt chuẩn thi đấu Olympic.",
+      "en": "Active athletic community, regular internal tournaments, and Olympic-standard court facilities."
+     }
+    }
+   ],
+   "stats": [
+    {
+     "id": "s1",
+     "number": 10,
+     "suffix": "",
+     "title": {
+      "vi": "CỤM SÂN & PHÒNG TẬP",
+      "en": "ROOMS & COURTS"
+     },
+     "subtitle": {
+      "vi": "Tiêu chuẩn thi đấu chuyên nghiệp",
+      "en": "Professional competition standards"
+     },
+     "icon": "stadium",
+     "isAutoCount": true
+    },
+    {
+     "id": "s2",
+     "number": 10,
+     "suffix": "",
+     "title": {
+      "vi": "MÔN THỂ THAO",
+      "en": "SPORTS DISCIPLINES"
+     },
+     "subtitle": {
+      "vi": "Đa dạng lựa chọn cho mọi lứa tuổi",
+      "en": "Diverse options for all ages"
+     },
+     "icon": "sports_kabaddi",
+     "isAutoCount": true
+    },
+    {
+     "id": "s3",
+     "number": 400,
+     "suffix": "+",
+     "title": {
+      "vi": "HỌC VIÊN",
+      "en": "ACTIVE ATHLETES"
+     },
+     "subtitle": {
+      "vi": "Thường xuyên rèn luyện mỗi ngày",
+      "en": "Daily regular training"
+     },
+     "icon": "diversity_3",
+     "isAutoCount": false
+    },
+    {
+     "id": "s4",
+     "number": 13000,
+     "suffix": " m²",
+     "title": {
+      "vi": "DIỆN TÍCH",
+      "en": "TOTAL AREA"
+     },
+     "subtitle": {
+      "vi": "Tổ hợp liên hợp khép kín hiện đại",
+      "en": "Modern integrated sports complex"
+     },
+     "icon": "domain",
+     "formatThousands": true,
+     "isAutoCount": false
+    }
+   ],
+   "trustBanner": {
+    "title": {
+     "vi": "Bảo hiểm rèn luyện toàn diện",
+     "en": "Comprehensive Training Insurance & Safety"
+    },
+    "description": {
+     "vi": "Tất cả hội viên được trang bị y tế sơ cấp cứu tại sân 24/7",
+     "en": "All athletes and members covered with 24/7 on-site first-aid medical care"
+    },
+    "certificate": {
+     "vi": "ISO 9001",
+     "en": "ISO 9001"
+    }
+   }
+  },
+  "coursesSection": {
+   "badge": {
+    "vi": "CHƯƠNG TRÌNH ĐÀO TẠO CHUYÊN NGHIỆP",
+    "en": "PROFESSIONAL TRAINING PROGRAMS"
+   },
+   "title": {
+    "vi": "Khóa Học Thể Thao Đa Năng",
+    "en": "Multi-Discipline Sports Courses"
+   },
+   "description": {
+    "vi": "Thiết kế bài bản từ nền tảng đến chuyên sâu thi đấu, đáp ứng mọi nhu cầu rèn luyện thể chất chuẩn Olympic cùng đội ngũ huấn luyện viên kiện tướng quốc gia.",
+    "en": "Structured programs from beginner to competitive mastery, meeting Olympic athletic standards with national master coaches."
+   },
+   "trustBadges": [
+    {
+     "id": "tb1",
+     "icon": "military_tech",
+     "text": {
+      "vi": "Chuẩn Đào Tạo Olympic",
+      "en": "Olympic Standard Training"
+     }
+    },
+    {
+     "id": "tb2",
+     "icon": "verified",
+     "text": {
+      "vi": "100% HLV Chứng Chỉ Quốc Tế",
+      "en": "100% Certified Pro Coaches"
+     }
+    },
+    {
+     "id": "tb3",
+     "icon": "shield",
+     "text": {
+      "vi": "Bảo Hiểm & Y Tế 24/7",
+      "en": "24/7 Medical & Safety Coverage"
+     }
+    }
+   ],
+   "sportsList": [
+    {
+     "id": "golf",
+     "name": {
+      "vi": "Golf",
+      "en": "Golf"
+     },
+     "icon": "sports_golf",
+     "category": {
+      "vi": "Kỹ thuật & Đẳng cấp",
+      "en": "Technique & Prestige"
+     },
+     "facilityId": "room-golf",
+     "venue": {
+      "vi": "Tổ Hợp Sân Tập Golf & 3D Simulator",
+      "en": "Golf Driving Range & 3D Simulator Complex"
+     },
+     "location": {
+      "vi": "Khu VIP • Tầng 3",
+      "en": "VIP Zone • 3rd Floor"
+     },
+     "rating": "5.0",
+     "ratingCount": "96",
+     "level": {
+      "vi": "Nhập môn • Kỹ thuật Swing TrackMan • Nâng cao",
+      "en": "Beginner • TrackMan Swing Technique • Advanced"
+     },
+     "coach": {
+      "vi": "HLV PGA & Chuyên gia Kỹ thuật TrackMan",
+      "en": "PGA Coach & TrackMan Technique Specialist"
+     },
+     "schedule": {
+      "vi": "06:00 - 22:00 hàng ngày",
+      "en": "06:00 - 22:00 Daily"
+     },
+     "highlight": {
+      "vi": "Phòng tập Golf 3D màn hình cong độ nét cao, cảm biến TrackMan 4 phân tích đường bóng chính xác từng cú Swing.",
+      "en": "HD curved-screen 3D golf studio with TrackMan 4 sensors analysing every swing precisely."
+     },
+     "price": {
+      "vi": "Từ 150.000đ/giờ",
+      "en": "Included in Packages"
+     },
+     "capacity": {
+      "vi": "8 - 12 golfer/ca",
+      "en": "8 - 12 golfers / session"
+     },
+     "badges": [
+      {
+       "vi": "CÔNG NGHỆ 3D",
+       "en": "3D TECHNOLOGY"
+      },
+      {
+       "vi": "TRACKMAN 4",
+       "en": "TRACKMAN 4"
+      },
+      {
+       "vi": "PGA COACH",
+       "en": "PGA COACH"
+      }
+     ],
+     "image": "https://images.unsplash.com/photo-1535131749006-b7f58c99034b?q=80&w=1200&auto=format&fit=crop",
+     "isVisible": true
+    },
+    {
+     "id": "boi-loi",
+     "name": {
+      "vi": "Bơi lội",
+      "en": "Swimming"
+     },
+     "icon": "pool",
+     "category": {
+      "vi": "Sức bền & Tĩnh tâm",
+      "en": "Endurance & Mindful"
+     },
+     "facilityId": "room-01",
+     "venue": {
+      "vi": "Bể Bơi 4 Mùa Nước Ấm 25m",
+      "en": "25m 4-Season Heated Indoor Pool"
+     },
+     "location": {
+      "vi": "Khu A • Tầng 1",
+      "en": "Zone A • 1st Floor"
+     },
+     "rating": "4.9",
+     "ratingCount": "128",
+     "level": {
+      "vi": "Mọi lứa tuổi • Nhập môn đến Thi đấu",
+      "en": "All ages • Beginner to Competitive"
+     },
+     "coach": {
+      "vi": "Kiện tướng Bơi lội Quốc Gia",
+      "en": "National Swimming Master"
+     },
+     "schedule": {
+      "vi": "06:00 - 21:00",
+      "en": "06:00 - 21:00"
+     },
+     "highlight": {
+      "vi": "Bể bơi 25m tiêu chuẩn tập luyện, 5 làn bơi nước ấm 4 mùa, lọc ozone an toàn tuyệt đối.",
+      "en": "25m standard pool with 5 heated 4-season lanes and safe ozone water purification."
+     },
+     "price": {
+      "vi": "Từ 50.000đ/buổi",
+      "en": "Included in Packages"
+     },
+     "capacity": {
+      "vi": "25 - 35 người/ca",
+      "en": "25 - 35 athletes / session"
+     },
+     "badges": [
+      {
+       "vi": "SỨC BỀN",
+       "en": "ENDURANCE"
+      },
+      {
+       "vi": "NƯỚC ẤM 4 MÙA",
+       "en": "4-SEASON HEATED WATER"
+      }
+     ],
+     "image": "https://images.unsplash.com/photo-1519315901367-f34ff9154487?q=80&w=1200&auto=format&fit=crop",
+     "isVisible": true
+    },
+    {
+     "id": "gym-fitness",
+     "name": {
+      "vi": "Gym & Fitness",
+      "en": "Gym & Fitness"
+     },
+     "icon": "fitness_center",
+     "category": {
+      "vi": "Sức bền & Tĩnh tâm",
+      "en": "Endurance & Mindful"
+     },
+     "facilityId": "room-08",
+     "venue": {
+      "vi": "Phòng Tập Gym & Fitness",
+      "en": "Gym & Fitness Studio"
+     },
+     "location": {
+      "vi": "Khu A • Tầng 2",
+      "en": "Zone A • 2nd Floor"
+     },
+     "rating": "5.0",
+     "ratingCount": "240",
+     "level": {
+      "vi": "Tăng cơ • Giảm mỡ • Thể lực toàn diện",
+      "en": "Muscle gain • Fat loss • Total fitness"
+     },
+     "coach": {
+      "vi": "Master Trainer & Chuyên gia Thể Hình",
+      "en": "Master Trainer & Bodybuilding Expert"
+     },
+     "schedule": {
+      "vi": "05:30 - 21:30",
+      "en": "05:30 - 21:30"
+     },
+     "highlight": {
+      "vi": "Không gian 250m² trang bị giàn máy kháng lực Matrix, dàn tạ tự do đa dạng và máy đo InBody 770.",
+      "en": "250m² fitness floor featuring Matrix selectorized equipment, versatile free weights, and InBody 770 scanner."
+     },
+     "price": {
+      "vi": "Từ 30.000đ/ngày",
+      "en": "From 30.000 VND / day"
+     },
+     "capacity": {
+      "vi": "30 - 45 hội viên/ca",
+      "en": "30 - 45 members / session"
+     },
+     "badges": [
+      {
+       "vi": "SỨC BỀN",
+       "en": "ENDURANCE"
+      },
+      {
+       "vi": "MÁY TẬP ĐẦY ĐỦ",
+       "en": "FULLY EQUIPPED"
+      }
+     ],
+     "image": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=1200&auto=format&fit=crop",
+     "isVisible": true
+    },
+    {
+     "id": "yoga-pilates",
+     "name": {
+      "vi": "Yoga & Pilates",
+      "en": "Yoga & Pilates"
+     },
+     "icon": "self_improvement",
+     "category": {
+      "vi": "Sức bền & Tĩnh tâm",
+      "en": "Endurance & Mindful"
+     },
+     "facilityId": "room-09",
+     "venue": {
+      "vi": "Phòng Tập Yoga & Pilates",
+      "en": "Yoga & Pilates Studio"
+     },
+     "location": {
+      "vi": "Khu C • Tầng 3",
+      "en": "Zone C • 3rd Floor"
+     },
+     "rating": "4.9",
+     "ratingCount": "165",
+     "level": {
+      "vi": "Tĩnh tâm • Dẻo dai • Cân bằng cột sống",
+      "en": "Mindfulness • Flexibility • Spinal balance"
+     },
+     "coach": {
+      "vi": "Giảng viên Yoga Alliance Quốc Tế",
+      "en": "International Yoga Alliance Instructor"
+     },
+     "schedule": {
+      "vi": "06:00 - 21:00",
+      "en": "06:00 - 21:00"
+     },
+     "highlight": {
+      "vi": "Không gian yên tĩnh sàn gỗ tự nhiên, trang bị máy Pilates Reformer và thảm tập cao cấp lớp nhóm nhỏ.",
+      "en": "Peaceful natural wood studio equipped with Pilates Reformers and premium mats for small-group sessions."
+     },
+     "price": {
+      "vi": "Từ 50.000đ/buổi",
+      "en": "Included in Packages"
+     },
+     "capacity": {
+      "vi": "15 - 20 học viên/lớp",
+      "en": "15 - 20 students / class"
+     },
+     "badges": [
+      {
+       "vi": "SỨC BỀN",
+       "en": "ENDURANCE"
+      },
+      {
+       "vi": "THƯ GIÃN & TĨNH TÂM",
+       "en": "RELAX & UNWIND"
+      }
+     ],
+     "image": "https://images.unsplash.com/photo-1545205597-3d9d02c29597?q=80&w=1200&auto=format&fit=crop",
+     "isVisible": true
+    },
+    {
+     "id": "vo-thuat",
+     "name": {
+      "vi": "Võ thuật & Boxing",
+      "en": "Boxing & Martial Arts"
+     },
+     "icon": "sports_mma",
+     "category": {
+      "vi": "Thể thao đối kháng",
+      "en": "Combat & Martial Arts"
+     },
+     "facilityId": "room-07",
+     "venue": {
+      "vi": "Phòng Tập Võ Thuật & Boxing",
+      "en": "Martial Arts & Boxing Studio"
+     },
+     "location": {
+      "vi": "Khu C • Tầng 1",
+      "en": "Zone C • 1st Floor"
+     },
+     "rating": "4.9",
+     "ratingCount": "98",
+     "level": {
+      "vi": "Boxing • Muay Thai • Vovinam • Tự vệ",
+      "en": "Boxing • Muay Thai • Vovinam • Self-defence"
+     },
+     "coach": {
+      "vi": "Võ sư Đai Đen & HLV Đội tuyển",
+      "en": "Black Belt Master & National Team Coach"
+     },
+     "schedule": {
+      "vi": "06:00 - 21:30",
+      "en": "06:00 - 21:30"
+     },
+     "highlight": {
+      "vi": "Sàn tập trải thảm xốp EVA dày 3cm chống trơn, dàn bao cát thi đấu kiên cố và trang bị bảo hộ đầy đủ.",
+      "en": "3cm anti-slip high-density EVA mats, sturdy competition bag rack, and comprehensive protective gear."
+     },
+     "price": {
+      "vi": "Từ 300.000đ/tháng",
+      "en": "From 300.000 VND / mo"
+     },
+     "capacity": {
+      "vi": "15 - 25 võ sinh/ca",
+      "en": "15 - 25 students / session"
+     },
+     "badges": [
+      {
+       "vi": "ĐỐI KHÁNG",
+       "en": "COMBAT"
+      },
+      {
+       "vi": "ĐẤU TẬP CHUẨN",
+       "en": "REGULATION SPARRING"
+      }
+     ],
+     "image": "https://images.unsplash.com/photo-1549719386-74dfcbf7dbed?q=80&w=1200&auto=format&fit=crop",
+     "isVisible": true
+    },
+    {
+     "id": "bong-da",
+     "name": {
+      "vi": "Bóng đá",
+      "en": "Football / Soccer"
+     },
+     "icon": "sports_soccer",
+     "category": {
+      "vi": "Bóng & Vợt",
+      "en": "Ball & Racket"
+     },
+     "facilityId": "room-02",
+     "venue": {
+      "vi": "Sân Bóng Đá Cỏ Nhân Tạo",
+      "en": "Artificial Turf Football Pitch"
+     },
+     "location": {
+      "vi": "Khu Ngoài trời",
+      "en": "Outdoor Zone"
+     },
+     "rating": "4.8",
+     "ratingCount": "310",
+     "level": {
+      "vi": "Sân 5 & Sân 7 • Phong trào & Năng khiếu",
+      "en": "5-a-side & 7-a-side • Recreational & Talent"
+     },
+     "coach": {
+      "vi": "Cựu Cầu Thủ Chuyên Nghiệp",
+      "en": "Former Professional Footballer"
+     },
+     "schedule": {
+      "vi": "06:00 - 22:30",
+      "en": "06:00 - 22:30"
+     },
+     "highlight": {
+      "vi": "Mặt cỏ nhân tạo dày êm chân rải hạt cao su giảm chấn, thoát nước nhanh và dàn đèn LED cao áp đêm.",
+      "en": "Shock-absorbing cushioned artificial turf with rapid drainage and powerful night LED illumination."
+     },
+     "price": {
+      "vi": "Từ 180.000đ/giờ",
+      "en": "Included in Packages"
+     },
+     "capacity": {
+      "vi": "10 - 20 cầu thủ/sân",
+      "en": "10 - 20 players / pitch"
+     },
+     "badges": [
+      {
+       "vi": "BÓNG & VỢT",
+       "en": "BALL & RACKET"
+      },
+      {
+       "vi": "CỎ TIÊU CHUẨN",
+       "en": "STANDARD TURF"
+      }
+     ],
+     "image": "https://images.unsplash.com/photo-1574629810360-7efbbe195018?q=80&w=1200&auto=format&fit=crop",
+     "isVisible": true
+    },
+    {
+     "id": "cau-long",
+     "name": {
+      "vi": "Cầu lông",
+      "en": "Badminton"
+     },
+     "icon": "sports_tennis",
+     "category": {
+      "vi": "Bóng & Vợt",
+      "en": "Ball & Racket"
+     },
+     "facilityId": "room-03",
+     "venue": {
+      "vi": "Cụm Sân Cầu Lông Thảm Chống Trượt",
+      "en": "Cluster of 4 Anti-Slip Badminton Courts"
+     },
+     "location": {
+      "vi": "Khu B • Tầng 2",
+      "en": "Zone B • 2nd Floor"
+     },
+     "rating": "4.9",
+     "ratingCount": "280",
+     "level": {
+      "vi": "Kỹ thuật • Tốc độ • Đánh đơn & Đánh đôi",
+      "en": "Technique • Speed • Singles & Doubles"
+     },
+     "coach": {
+      "vi": "HLV Liên đoàn Cầu Lông Cấp 1",
+      "en": "Level 1 Badminton Federation Coach"
+     },
+     "schedule": {
+      "vi": "06:00 - 22:00",
+      "en": "06:00 - 22:00"
+     },
+     "highlight": {
+      "vi": "4 sân cầu lông trong nhà với thảm PVC vân kim cương chống trơn, trần 8m không gió tạt, đèn chống lóa.",
+      "en": "4 indoor badminton courts with diamond-textured anti-slip PVC mats, 8m ceiling, and glare-free lights."
+     },
+     "price": {
+      "vi": "Từ 60.000đ/giờ",
+      "en": "Included in Packages"
+     },
+     "capacity": {
+      "vi": "16 - 24 người chơi",
+      "en": "16 - 24 players"
+     },
+     "badges": [
+      {
+       "vi": "BÓNG & VỢT",
+       "en": "BALL & RACKET"
+      },
+      {
+       "vi": "THẢM CHUYÊN DỤNG",
+       "en": "DEDICATED FLOORING"
+      }
+     ],
+     "image": "https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?q=80&w=1200&auto=format&fit=crop",
+     "isVisible": true
+    },
+    {
+     "id": "bong-ro",
+     "name": {
+      "vi": "Bóng rổ",
+      "en": "Basketball"
+     },
+     "icon": "sports_basketball",
+     "category": {
+      "vi": "Bóng & Vợt",
+      "en": "Ball & Racket"
+     },
+     "facilityId": "room-05",
+     "venue": {
+      "vi": "Sân Bóng Rổ Tiêu Chuẩn Phong Trào",
+      "en": "Covered Recreational Basketball Court"
+     },
+     "location": {
+      "vi": "Khu B • Tầng 1",
+      "en": "Zone B • 1st Floor"
+     },
+     "rating": "4.8",
+     "ratingCount": "190",
+     "level": {
+      "vi": "Dẫn bóng • Sức bật • Chiến thuật nhóm",
+      "en": "Dribbling • Explosiveness • Team tactics"
+     },
+     "coach": {
+      "vi": "VĐV Bóng Rổ Giải Quốc Gia",
+      "en": "National League Basketball Player"
+     },
+     "schedule": {
+      "vi": "06:00 - 22:00",
+      "en": "06:00 - 22:00"
+     },
+     "highlight": {
+      "vi": "Mặt sân sơn thể thao Acrylic chống trượt, trụ rổ kiên cố bảng kính cường lực độ nảy tốt, mái che mát.",
+      "en": "Non-slip acrylic sport coating, heavy-duty hoops with tempered glass backboards, and shaded roof."
+     },
+     "price": {
+      "vi": "Từ 80.000đ/nửa sân",
+      "en": "From 80.000 VND / half court"
+     },
+     "capacity": {
+      "vi": "15 - 20 người chơi",
+      "en": "15 - 20 players"
+     },
+     "badges": [
+      {
+       "vi": "BÓNG & VỢT",
+       "en": "BALL & RACKET"
+      },
+      {
+       "vi": "MÁI CHE MÁT",
+       "en": "COVERED COURT"
+      }
+     ],
+     "image": "https://images.unsplash.com/photo-1504450758481-7338eba7524a?q=80&w=1200&auto=format&fit=crop",
+     "isVisible": true
+    },
+    {
+     "id": "bong-ban",
+     "name": {
+      "vi": "Bóng bàn",
+      "en": "Table Tennis"
+     },
+     "icon": "sports_score",
+     "category": {
+      "vi": "Bóng & Vợt",
+      "en": "Ball & Racket"
+     },
+     "facilityId": "room-04",
+     "venue": {
+      "vi": "Khu Bóng Bàn Trong Nhà",
+      "en": "Indoor Table Tennis Studio"
+     },
+     "location": {
+      "vi": "Khu B • Tầng 3",
+      "en": "Zone B • 3rd Floor"
+     },
+     "rating": "4.8",
+     "ratingCount": "115",
+     "level": {
+      "vi": "Phản xạ • Kỹ thuật giật bóng & cắt bóng",
+      "en": "Reflexes • Topspin & backspin technique"
+     },
+     "coach": {
+      "vi": "Kiện tướng Bóng Bàn Quốc Gia",
+      "en": "National Table Tennis Master"
+     },
+     "schedule": {
+      "vi": "06:00 - 22:00",
+      "en": "06:00 - 22:00"
+     },
+     "highlight": {
+      "vi": "4 bàn thi đấu đạt chuẩn quốc tế, ánh sáng đều hạn chế chói mắt, khoảng trống di chuyển an toàn.",
+      "en": "4 international tournament tables with uniform anti-glare illumination and generous movement clearance."
+     },
+     "price": {
+      "vi": "Từ 40.000đ/giờ",
+      "en": "Included in Packages"
+     },
+     "capacity": {
+      "vi": "8 - 16 người chơi",
+      "en": "8 - 16 players"
+     },
+     "badges": [
+      {
+       "vi": "BÓNG & VỢT",
+       "en": "BALL & RACKET"
+      },
+      {
+       "vi": "PHÒNG MÁY LẠNH",
+       "en": "AC ROOM"
+      }
+     ],
+     "image": "https://images.unsplash.com/photo-1708268411988-d30e0e1eef0c?q=80&w=1200&auto=format&fit=crop",
+     "isVisible": true
+    },
+    {
+     "id": "pickleball",
+     "name": {
+      "vi": "Pickleball",
+      "en": "Pickleball"
+     },
+     "icon": "sports_tennis",
+     "category": {
+      "vi": "Bóng & Vợt",
+      "en": "Ball & Racket"
+     },
+     "facilityId": "room-06",
+     "venue": {
+      "vi": "Cụm Sân Pickleball Ngoài Trời",
+      "en": "Outdoor Pickleball Court Complex"
+     },
+     "location": {
+      "vi": "Khu Ngoài trời",
+      "en": "Outdoor Zone"
+     },
+     "rating": "5.0",
+     "ratingCount": "210",
+     "level": {
+      "vi": "Nhập môn • Dinking • Giao lưu phong trào",
+      "en": "Beginner • Dinking • Community play"
+     },
+     "coach": {
+      "vi": "HLV Chứng chỉ Pickleball Pro",
+      "en": "Certified Pickleball Pro Coach"
+     },
+     "schedule": {
+      "vi": "05:30 - 22:00",
+      "en": "05:30 - 22:00"
+     },
+     "highlight": {
+      "vi": "Cụm 4 sân ngoài trời mới nhất, mặt sơn Acrylic chống trơn, vạch bếp chuẩn và rào chắn bóng kiên cố.",
+      "en": "4 brand new outdoor courts with non-slip acrylic surface, regulation kitchen lines, and ball fencing."
+     },
+     "price": {
+      "vi": "Từ 50.000đ/giờ",
+      "en": "Included in Packages"
+     },
+     "capacity": {
+      "vi": "8 - 16 người chơi",
+      "en": "8 - 16 players"
+     },
+     "badges": [
+      {
+       "vi": "BÓNG & VỢT",
+       "en": "BALL & RACKET"
+      },
+      {
+       "vi": "BỘ MÔN HOT 2026",
+       "en": "TRENDING SPORT 2026"
+      }
+     ],
+     "image": "https://images.unsplash.com/photo-1693142517898-2f986215e412?q=80&w=1200&auto=format&fit=crop",
+     "isVisible": true
+    }
+   ]
+  },
+  "facilitiesSection": {
+   "badge": {
+    "vi": "HẠ TẦNG THỂ THAO TIÊU CHUẨN",
+    "en": "STANDARD ATHLETIC INFRASTRUCTURE"
+   },
+   "title": {
+    "vi": "HỆ THỐNG CƠ SỞ VẬT CHẤT TIỆN NGHI & CHẤT LƯỢNG",
+    "en": "MODERN & QUALITY OLYMPIC FACILITY COMPLEX"
+   },
+   "description": {
+    "vi": "Khu liên hợp thể thao rộng rãi, sạch đẹp với {{facilityCount}} cụm sân bãi và phòng tập dành cho bơi lội, Gym & Fitness, Yoga & Pilates, Võ thuật & Boxing, bóng đá, cầu lông, bóng rổ, bóng bàn và Pickleball. Phục vụ nhu cầu học tập, rèn luyện sức khỏe, sinh hoạt câu lạc bộ và thi đấu phong trào.",
+    "en": "Spacious, modern athletic complex featuring {{facilityCount}} state-of-the-art courts, studios and pools for swimming, gym & fitness, yoga & pilates, martial arts & boxing, football, badminton, basketball, table tennis, pickleball and golf. Ideal for fitness training, club activities and tournament competitions."
+   },
+   "metrics": [
+    {
+     "id": "fm1",
+     "icon": "domain",
+     "value": {
+      "vi": "3.500m²",
+      "en": "3,500m²"
+     },
+     "label": {
+      "vi": "TỔNG DIỆN TÍCH MẶT SÀN",
+      "en": "TOTAL FLOOR AREA"
+     }
+    },
+    {
+     "id": "fm2",
+     "icon": "verified",
+     "value": {
+      "vi": "{{facilityCount}} Khu Vực",
+      "en": "{{facilityCount}} Zones"
+     },
+     "label": {
+      "vi": "ĐA DẠNG MÔN TẬP LUYỆN",
+      "en": "DIVERSE SPORT DISCIPLINES"
+     }
+    },
+    {
+     "id": "fm3",
+     "icon": "groups",
+     "value": {
+      "vi": "600+",
+      "en": "600+"
+     },
+     "label": {
+      "vi": "LƯỢT TẬP LUYỆN/NGÀY",
+      "en": "DAILY SESSIONS / DAY"
+     }
+    },
+    {
+     "id": "fm4",
+     "icon": "cleaning_services",
+     "value": {
+      "vi": "100%",
+      "en": "100%"
+     },
+     "label": {
+      "vi": "VỆ SINH & BẢO TRÌ ĐỊNH KỲ",
+      "en": "REGULAR CLEANING & MAINTENANCE"
+     }
+    }
+   ],
+   "facilitiesList": [
+    {
+     "id": "room-golf",
+     "name": {
+      "vi": "Tổ Hợp Sân Tập Golf & 3D Simulator",
+      "en": "Golf Driving Range & 3D Simulator Complex"
+     },
+     "category": {
+      "vi": "golf",
+      "en": "golf"
+     },
+     "categoryName": {
+      "vi": "Golf",
+      "en": "Golf"
+     },
+     "location": {
+      "vi": "Khu VIP • Tầng 3",
+      "en": "VIP Zone • 3rd Floor"
+     },
+     "zone": {
+      "vi": "Khu VIP",
+      "en": "VIP Zone"
+     },
+     "capacity": {
+      "vi": "8 - 12 người/ca",
+      "en": "8 - 12 athletes / session"
+     },
+     "openHours": {
+      "vi": "06:00 - 22:00 hàng ngày",
+      "en": "06:00 - 22:00 Daily"
+     },
+     "priceRate": {
+      "vi": "Từ 150.000đ/giờ • Gói hội viên Golf",
+      "en": "Included in Packages"
+     },
+     "badge": {
+      "vi": "TrackMan 4 & 3D Simulator",
+      "en": "TrackMan 4 & 3D Simulator"
+     },
+     "badgeColor": "bg-emerald-600",
+     "image": "https://images.unsplash.com/photo-1535131749006-b7f58c99034b?q=80&w=1200&auto=format&fit=crop",
+     "secondaryImage": "https://images.unsplash.com/photo-1587174486073-ae5e5cff23aa?q=80&w=800&auto=format&fit=crop",
+     "highlights": {
+      "vi": "Màn hình cong 4K • Cảm biến TrackMan 4 • Huấn luyện viên PGA",
+      "en": "4K curved screen • TrackMan 4 sensors • PGA coaches"
+     },
+     "description": {
+      "vi": "Tổ hợp phòng tập Golf 3D hiện đại chuẩn quốc tế trang bị hệ thống cảm biến TrackMan 4 và màn hình cong 4K tái hiện hơn 100 sân golf danh tiếng thế giới. Tích hợp phân tích góc phóng, vận tốc đầu gậy, độ xoáy và camera quay chậm đa góc phục vụ học viên từ cơ bản đến chuyên nghiệp.",
+      "en": "A modern, international-standard 3D golf studio equipped with TrackMan 4 sensors and a 4K curved screen recreating more than 100 world-famous courses. Launch angle, club-head speed, spin and multi-angle slow-motion analysis serve golfers from beginner to professional."
+     },
+     "specs": [
+      {
+       "label": {
+        "vi": "Công nghệ cảm biến",
+        "en": "Sensor technology"
+       },
+       "value": {
+        "vi": "TrackMan 4 Radar kép phân tích đa chỉ số",
+        "en": "TrackMan 4 dual radar, multi-metric analysis"
+       }
+      },
+      {
+       "label": {
+        "vi": "Màn hình mô phỏng",
+        "en": "Simulation screen"
+       },
+       "value": {
+        "vi": "Màn cong 4K High-Definition 180 độ",
+        "en": "180° 4K high-definition curved screen"
+       }
+      },
+      {
+       "label": {
+        "vi": "Thảm & Khu Putting",
+        "en": "Mats & putting area"
+       },
+       "value": {
+        "vi": "Cỏ nhân tạo chuyên dụng & Green dốc tự nhiên",
+        "en": "Pro artificial turf & natural-slope green"
+       }
+      },
+      {
+       "label": {
+        "vi": "Khung giờ mở",
+        "en": "Opening Hours"
+       },
+       "value": {
+        "vi": "06:00 - 22:00 hàng ngày",
+        "en": "06:00 - 22:00 Daily"
+       }
+      }
+     ],
+     "amenities": [
+      {
+       "vi": "Bộ gậy tập TaylorMade & Callaway miễn phí",
+       "en": "Free TaylorMade & Callaway practice clubs"
+      },
+      {
+       "vi": "Tủ đồ thông minh cao cấp & phòng thay đồ",
+       "en": "Premium smart lockers & changing rooms"
+      },
+      {
+       "vi": "Phòng chờ VIP phục vụ trà & cà phê",
+       "en": "VIP lounge serving tea & coffee"
+      },
+      {
+       "vi": "Phân tích dữ liệu cú đánh TrackMan lưu điện thoại",
+       "en": "TrackMan shot data saved to your phone"
+      }
+     ],
+     "tags": [
+      {
+       "vi": "Golf 3D trong nhà",
+       "en": "Indoor 3D golf"
+      },
+      {
+       "vi": "Khóa học Swing cơ bản",
+       "en": "Basic swing course"
+      },
+      {
+       "vi": "TrackMan Simulator",
+       "en": "TrackMan Simulator"
+      },
+      {
+       "vi": "Trải nghiệm sân 18 lỗ",
+       "en": "18-hole course experience"
+      }
+     ],
+     "isVisible": true
+    },
+    {
+     "id": "room-01",
+     "name": {
+      "vi": "Bể Bơi 4 Mùa Nước Ấm 25m",
+      "en": "25m 4-Season Heated Indoor Pool"
+     },
+     "category": {
+      "vi": "aquatics",
+      "en": "aquatics"
+     },
+     "categoryName": {
+      "vi": "Bơi lội",
+      "en": "Swimming"
+     },
+     "location": {
+      "vi": "Khu A • Tầng 1",
+      "en": "Zone A • 1st Floor"
+     },
+     "zone": {
+      "vi": "Khu A",
+      "en": "Zone A"
+     },
+     "capacity": {
+      "vi": "25 - 35 người/ca",
+      "en": "25 - 35 athletes / session"
+     },
+     "openHours": {
+      "vi": "06:00 - 21:00 hàng ngày",
+      "en": "06:00 - 21:00 Daily"
+     },
+     "priceRate": {
+      "vi": "Từ 50.000đ/lượt • 250.000đ/làn/giờ",
+      "en": "Included in Packages"
+     },
+     "badge": {
+      "vi": "Nước Ấm 4 Mùa",
+      "en": "4-Season Heated Water"
+     },
+     "badgeColor": "bg-cyan-600",
+     "image": "https://images.unsplash.com/photo-1519315901367-f34ff9154487?q=80&w=1200&auto=format&fit=crop",
+     "secondaryImage": "https://images.unsplash.com/photo-1530549387789-4c1017266635?q=80&w=800&auto=format&fit=crop",
+     "highlights": {
+      "vi": "Bể bơi 25m tiêu chuẩn tập luyện • Nước ấm quanh năm • Cứu hộ túc trực liên tục",
+      "en": "25m training pool • 4-season heated water • Lifeguards on continuous duty"
+     },
+     "description": {
+      "vi": "Bể bơi trong nhà kích thước 25m x 12.5m với 5 làn bơi riêng biệt, độ sâu an toàn từ 1.2m đến 1.8m. Hệ thống lọc nước tuần hoàn khử khuẩn sạch sẽ mỗi ngày, nước ấm ổn định phù hợp cho việc học bơi và rèn luyện thể lực quanh năm cho cả người lớn lẫn trẻ em.",
+      "en": "Indoor 25m x 12.5m swimming pool featuring 5 lanes and safety depths from 1.2m to 1.8m. Continuous circulation ozone filtration keeps water crystal clear, maintaining comfortable warm temperatures for all ages."
+     },
+     "specs": [
+      {
+       "label": {
+        "vi": "Quy cách hồ",
+        "en": "Pool Specifications"
+       },
+       "value": {
+        "vi": "25m x 12.5m (5 làn bơi)",
+        "en": "25m x 12.5m (5 dedicated lanes)"
+       }
+      },
+      {
+       "label": {
+        "vi": "Độ sâu an toàn",
+        "en": "Safe Depth Range"
+       },
+       "value": {
+        "vi": "1.2m - 1.8m tiện tập luyện",
+        "en": "1.2m - 1.8m safety training depth"
+       }
+      },
+      {
+       "label": {
+        "vi": "Hệ thống nước",
+        "en": "Water Filtration & Heating"
+       },
+       "value": {
+        "vi": "Lọc tuần hoàn & Gia nhiệt 4 mùa",
+        "en": "Circulation filtration & 4-season heating"
+       }
+      },
+      {
+       "label": {
+        "vi": "Khung giờ mở",
+        "en": "Opening Hours"
+       },
+       "value": {
+        "vi": "06:00 - 21:00 hàng ngày",
+        "en": "06:00 - 21:00 Daily"
+       }
+      }
+     ],
+     "amenities": [
+      {
+       "vi": "Phòng thay đồ & tắm tráng nóng lạnh",
+       "en": "Clean changing rooms & hot/cold showers"
+      },
+      {
+       "vi": "Tủ để đồ cá nhân có chìa khóa",
+       "en": "Personal lockers with safety keys"
+      },
+      {
+       "vi": "Phao bơi & áo phao mượn miễn phí",
+       "en": "Free loaner kickboards & life jackets"
+      },
+      {
+       "vi": "Nhân viên cứu hộ quan sát thường trực",
+       "en": "Certified on-duty lifeguards"
+      }
+     ],
+     "tags": [
+      {
+       "vi": "Bơi lội phong trào",
+       "en": "Recreational swimming"
+      },
+      {
+       "vi": "Lớp học bơi cơ bản",
+       "en": "Beginner swim lessons"
+      },
+      {
+       "vi": "Rèn luyện sức khỏe",
+       "en": "Health training"
+      }
+     ],
+     "isVisible": true
+    },
+    {
+     "id": "room-02",
+     "name": {
+      "vi": "Sân Bóng Đá Cỏ Nhân Tạo (Sân 5 & Sân 7)",
+      "en": "Artificial Turf Football Pitches (5- & 7-a-side)"
+     },
+     "category": {
+      "vi": "team-sports",
+      "en": "team-sports"
+     },
+     "categoryName": {
+      "vi": "Sân bóng & Vợt",
+      "en": "Ball & Racket"
+     },
+     "location": {
+      "vi": "Khu Ngoài trời",
+      "en": "Outdoor Zone"
+     },
+     "zone": {
+      "vi": "Ngoài trời",
+      "en": "Outdoor Zone"
+     },
+     "capacity": {
+      "vi": "10 - 20 cầu thủ/sân",
+      "en": "10 - 20 players / pitch"
+     },
+     "openHours": {
+      "vi": "06:00 - 22:30 hàng ngày",
+      "en": "06:00 - 22:30 Daily"
+     },
+     "priceRate": {
+      "vi": "Từ 180.000đ - 350.000đ/giờ",
+      "en": "Included in Packages"
+     },
+     "badge": {
+      "vi": "Cỏ Nhân Tạo Tiêu Chuẩn",
+      "en": "Standard Artificial Turf"
+     },
+     "badgeColor": "bg-emerald-600",
+     "image": "https://images.unsplash.com/photo-1574629810360-7efbbe195018?q=80&w=1200&auto=format&fit=crop",
+     "secondaryImage": "https://images.unsplash.com/photo-1529900748604-07564a03e7a6?q=80&w=800&auto=format&fit=crop",
+     "highlights": {
+      "vi": "Mặt cỏ nhân tạo êm chân • Dàn đèn LED chiếu sáng ban đêm • Lưới bao sân an toàn",
+      "en": "Cushioned artificial turf • Nighttime LED floodlights • High protective netting"
+     },
+     "description": {
+      "vi": "Cụm sân bóng đá cỏ nhân tạo ngoài trời gồm các sân 5 người và có thể ghép thành sân 7 người. Mặt cỏ dày, rải hạt cao su đàn hồi giảm chấn động cho khớp gối và cổ chân. Hệ thống thoát nước nhanh chóng giúp sân luôn khô ráo sau mưa.",
+      "en": "Outdoor artificial turf football complex supporting 5-a-side and 7-a-side matches. High-density grass with rubber granule infill absorbs joint impact, while efficient drainage ensures quick drying after rain."
+     },
+     "specs": [
+      {
+       "label": {
+        "vi": "Quy cách sân",
+        "en": "Pitch Specifications"
+       },
+       "value": {
+        "vi": "2 sân 5 hoặc ghép thành 1 sân 7",
+        "en": "Two 5-a-side pitches or one 7-a-side pitch"
+       }
+      },
+      {
+       "label": {
+        "vi": "Mặt cỏ",
+        "en": "Turf Material"
+       },
+       "value": {
+        "vi": "Cỏ nhân tạo chuyên dụng rải hạt cao su",
+        "en": "High-grade artificial turf with rubber infill"
+       }
+      },
+      {
+       "label": {
+        "vi": "Chiếu sáng",
+        "en": "Lighting System"
+       },
+       "value": {
+        "vi": "Dàn đèn LED cao áp rõ nét ban đêm",
+        "en": "High-power LED floodlights for crisp night play"
+       }
+      },
+      {
+       "label": {
+        "vi": "Bao quanh",
+        "en": "Perimeter Fencing"
+       },
+       "value": {
+        "vi": "Lưới chắn bóng cao 6m chắc chắn",
+        "en": "6m high durable perimeter safety netting"
+       }
+      }
+     ],
+     "amenities": [
+      {
+       "vi": "Ghế ngồi chờ có mái che bên sân",
+       "en": "Sheltered sideline spectator seating"
+      },
+      {
+       "vi": "Phòng thay đồ & vệ sinh sạch sẽ",
+       "en": "Spotless restrooms & changing rooms"
+      },
+      {
+       "vi": "Cho mượn áo bib phân đội & bóng tập",
+       "en": "Free loaner scrimmage bibs & training balls"
+      },
+      {
+       "vi": "Quầy nước giải khát tiện lợi",
+       "en": "Express beverage & energy drink canteen"
+      }
+     ],
+     "tags": [
+      {
+       "vi": "Bóng đá phong trào",
+       "en": "Recreational football"
+      },
+      {
+       "vi": "Giao lưu đội nhóm",
+       "en": "Team meet-ups"
+      },
+      {
+       "vi": "Thi đấu giao hữu",
+       "en": "Friendly matches"
+      }
+     ],
+     "isVisible": true
+    },
+    {
+     "id": "room-03",
+     "name": {
+      "vi": "Cụm Sân Cầu Lông Thảm Chống Trượt",
+      "en": "Cluster of 4 Anti-Slip Badminton Courts"
+     },
+     "category": {
+      "vi": "team-sports",
+      "en": "team-sports"
+     },
+     "categoryName": {
+      "vi": "Sân bóng & Vợt",
+      "en": "Ball & Racket"
+     },
+     "location": {
+      "vi": "Khu B • Tầng 2",
+      "en": "Zone B • 2nd Floor"
+     },
+     "zone": {
+      "vi": "Khu B",
+      "en": "Zone B"
+     },
+     "capacity": {
+      "vi": "16 - 24 người chơi",
+      "en": "16 - 24 players"
+     },
+     "openHours": {
+      "vi": "06:00 - 22:00 hàng ngày",
+      "en": "06:00 - 22:00 Daily"
+     },
+     "priceRate": {
+      "vi": "Từ 60.000đ - 100.000đ/giờ/sân",
+      "en": "Included in Packages"
+     },
+     "badge": {
+      "vi": "Thảm Chuyên Dụng",
+      "en": "Pro Dedicated Flooring"
+     },
+     "badgeColor": "bg-blue-600",
+     "image": "https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?q=80&w=1200&auto=format&fit=crop",
+     "secondaryImage": "https://images.unsplash.com/photo-1613918108466-292b78a8ef95?q=80&w=800&auto=format&fit=crop",
+     "highlights": {
+      "vi": "Thảm cao su chống trơn trượt • Đèn LED góc xiên không lóa mắt • Không gian thoáng mát",
+      "en": "Anti-slip rubber mats • Angled glare-free LED lighting • Well-ventilated airy space"
+     },
+     "description": {
+      "vi": "Khu vực gồm 4 sân cầu lông tiêu chuẩn trong nhà, mặt sàn trải thảm cao su chuyên dụng bám giày và giảm chấn êm ái. Hệ thống đèn chiếu sáng bố trí góc chếch hạn chế chói mắt khi ngửa đầu đón cầu, thông gió tự nhiên không tạo gió xoáy làm bạt cầu.",
+      "en": "Indoor complex with 4 regulation badminton courts, outfitted with cushioned anti-slip PVC mats. Angled ceiling illumination prevents glare, with natural ventilation designed to eliminate wind drift."
+     },
+     "specs": [
+      {
+       "label": {
+        "vi": "Quy mô cụm sân",
+        "en": "Court Capacity"
+       },
+       "value": {
+        "vi": "4 sân cầu lông trong nhà",
+        "en": "4 indoor regulation badminton courts"
+       }
+      },
+      {
+       "label": {
+        "vi": "Mặt sàn",
+        "en": "Floor Surface"
+       },
+       "value": {
+        "vi": "Thảm cao su PVC vân chống trượt",
+        "en": "Textured anti-slip PVC rubber sport matting"
+       }
+      },
+      {
+       "label": {
+        "vi": "Độ cao trần",
+        "en": "Ceiling Clearance"
+       },
+       "value": {
+        "vi": "8m thoáng mát, không gió tạt",
+        "en": "8m ceiling height, zero wind interference"
+       }
+      },
+      {
+       "label": {
+        "vi": "Ánh sáng",
+        "en": "Illumination"
+       },
+       "value": {
+        "vi": "Đèn LED chống chói mắt người chơi",
+        "en": "Anti-glare indirect LED illumination"
+       }
+      }
+     ],
+     "amenities": [
+      {
+       "vi": "Ghế nghỉ có quạt gió mát mẻ",
+       "en": "Sideline rest chairs with cooling fans"
+      },
+      {
+       "vi": "Dịch vụ căng cước và bán cầu tại quầy",
+       "en": "Racket restringing & shuttlecocks at front desk"
+      },
+      {
+       "vi": "Tủ cất balo và giày thể thao",
+       "en": "Dedicated storage for gym bags & sports shoes"
+      },
+      {
+       "vi": "Bình nước lọc phục vụ miễn phí",
+       "en": "Free filtered drinking water stations"
+      }
+     ],
+     "tags": [
+      {
+       "vi": "Cầu lông phong trào",
+       "en": "Recreational badminton"
+      },
+      {
+       "vi": "Giao lưu câu lạc bộ",
+       "en": "Club meet-ups"
+      },
+      {
+       "vi": "Rèn luyện phản xạ",
+       "en": "Reflex training"
+      }
+     ],
+     "isVisible": true
+    },
+    {
+     "id": "room-04",
+     "name": {
+      "vi": "Khu Bóng Bàn Trong Nhà",
+      "en": "Indoor Table Tennis Studio"
+     },
+     "category": {
+      "vi": "team-sports",
+      "en": "team-sports"
+     },
+     "categoryName": {
+      "vi": "Sân bóng & Vợt",
+      "en": "Ball & Racket"
+     },
+     "location": {
+      "vi": "Khu B • Tầng 3",
+      "en": "Zone B • 3rd Floor"
+     },
+     "zone": {
+      "vi": "Khu B",
+      "en": "Zone B"
+     },
+     "capacity": {
+      "vi": "8 - 16 người chơi",
+      "en": "8 - 16 players"
+     },
+     "openHours": {
+      "vi": "06:00 - 22:00 hàng ngày",
+      "en": "06:00 - 22:00 Daily"
+     },
+     "priceRate": {
+      "vi": "Từ 40.000đ - 70.000đ/giờ/bàn",
+      "en": "Included in Packages"
+     },
+     "badge": {
+      "vi": "Bàn Tập Chuyên Dụng",
+      "en": "Pro Practice Tables"
+     },
+     "badgeColor": "bg-purple-600",
+     "image": "https://images.unsplash.com/photo-1708268411988-d30e0e1eef0c?q=80&w=1200&auto=format&fit=crop",
+     "secondaryImage": "https://images.unsplash.com/photo-1621726543096-a8be76db3708?q=80&w=800&auto=format&fit=crop",
+     "highlights": {
+      "vi": "4 bàn bóng bàn chuyên dụng • Lưới và vợt tập đầy đủ • Đèn chiếu sáng đều, hạn chế chói",
+      "en": "4 tournament-grade tables • Complete nets & paddles • Uniform glare-reducing illumination"
+     },
+     "description": {
+      "vi": "Khu bóng bàn trong nhà gồm 4 bàn tập, bố trí khoảng trống quanh bàn để di chuyển và luyện kỹ thuật an toàn. Mặt sàn chống trượt, ánh sáng đều và thông gió nhẹ phù hợp cho các lớp bóng bàn cơ bản, luyện đánh đơn, đánh đôi và giao lưu câu lạc bộ.",
+      "en": "Indoor table tennis hall with 4 competition-standard tables and generous boundary clearance for safe footwork. Shock-absorbing floor and even illumination ideal for coaching and club matches."
+     },
+     "specs": [
+      {
+       "label": {
+        "vi": "Quy mô",
+        "en": "Capacity & Scale"
+       },
+       "value": {
+        "vi": "4 bàn bóng bàn trong nhà",
+        "en": "4 tournament-standard indoor tables"
+       }
+      },
+      {
+       "label": {
+        "vi": "Kích thước bàn",
+        "en": "Table Dimensions"
+       },
+       "value": {
+        "vi": "2.74m x 1.525m, cao 0.76m",
+        "en": "2.74m x 1.525m, height 0.76m"
+       }
+      },
+      {
+       "label": {
+        "vi": "Mặt sàn",
+        "en": "Floor Surface"
+       },
+       "value": {
+        "vi": "Sàn thể thao chống trượt, có khoảng trống di chuyển",
+        "en": "Anti-slip floor with ample court clearance"
+       }
+      },
+      {
+       "label": {
+        "vi": "Thiết bị tập",
+        "en": "Training Equipment"
+       },
+       "value": {
+        "vi": "Lưới, vợt, bóng tập và bảng điểm",
+        "en": "Nets, paddles, practice balls & scoreboard"
+       }
+      }
+     ],
+     "amenities": [
+      {
+       "vi": "Cho mượn vợt và bóng tập cơ bản",
+       "en": "Complimentary practice paddles & balls"
+      },
+      {
+       "vi": "Ghế nghỉ giữa các lượt chơi",
+       "en": "Rest benches between match sets"
+      },
+      {
+       "vi": "Tủ cất đồ cá nhân",
+       "en": "Personal storage lockers"
+      },
+      {
+       "vi": "Bình nước lọc phục vụ miễn phí",
+       "en": "Free filtered drinking water stations"
+      }
+     ],
+     "tags": [
+      {
+       "vi": "Bóng bàn cơ bản",
+       "en": "Table tennis basics"
+      },
+      {
+       "vi": "Đánh đơn & Đánh đôi",
+       "en": "Singles & doubles"
+      },
+      {
+       "vi": "Giao lưu câu lạc bộ",
+       "en": "Club meet-ups"
+      }
+     ],
+     "isVisible": true
+    },
+    {
+     "id": "room-05",
+     "name": {
+      "vi": "Sân Bóng Rổ Tiêu Chuẩn Phong Trào",
+      "en": "Covered Recreational Basketball Court"
+     },
+     "category": {
+      "vi": "team-sports",
+      "en": "team-sports"
+     },
+     "categoryName": {
+      "vi": "Sân bóng & Vợt",
+      "en": "Ball & Racket"
+     },
+     "location": {
+      "vi": "Khu B • Tầng 1",
+      "en": "Zone B • 1st Floor"
+     },
+     "zone": {
+      "vi": "Khu B",
+      "en": "Zone B"
+     },
+     "capacity": {
+      "vi": "15 - 20 người chơi",
+      "en": "15 - 20 players"
+     },
+     "openHours": {
+      "vi": "06:00 - 22:00 hàng ngày",
+      "en": "06:00 - 22:00 Daily"
+     },
+     "priceRate": {
+      "vi": "Từ 80.000đ/nửa sân • 180.000đ/trọn sân/giờ",
+      "en": "Included in Packages"
+     },
+     "badge": {
+      "vi": "Sân Tiêu Chuẩn",
+      "en": "Regulation Court"
+     },
+     "badgeColor": "bg-amber-600",
+     "image": "https://images.unsplash.com/photo-1504450758481-7338eba7524a?q=80&w=1200&auto=format&fit=crop",
+     "secondaryImage": "https://images.unsplash.com/photo-1546519638-68e109498ffc?q=80&w=800&auto=format&fit=crop",
+     "highlights": {
+      "vi": "Mặt sân sơn thể thao chống trơn • Trụ rổ kiên cố bảng kính cường lực • Mái che râm mát",
+      "en": "Non-slip acrylic sport coating • Tempered glass backboards • Shaded covered roof"
+     },
+     "description": {
+      "vi": "Sân bóng rổ trong nhà có mái che, mặt sân sơn phủ thể thao chống trơn trượt và vạch kẻ chuẩn xác. Trụ rổ chắc chắn, bảng rổ kính cường lực có độ nảy bóng tốt, tạo không gian năng động cho các bạn học sinh, sinh viên và hội nhóm giao lưu cuối tuần.",
+      "en": "Covered indoor basketball court with high-traction acrylic coating and precise regulation markings. Heavy-duty backboards and tempered glass hoops create an energetic arena for games and tournaments."
+     },
+     "specs": [
+      {
+       "label": {
+        "vi": "Quy cách",
+        "en": "Court Specs"
+       },
+       "value": {
+        "vi": "1 sân thi đấu chính hoặc 2 nửa sân tập",
+        "en": "1 regulation match court or 2 half practice courts"
+       }
+      },
+      {
+       "label": {
+        "vi": "Mặt sân",
+        "en": "Court surface"
+       },
+       "value": {
+        "vi": "Sơn phủ thể thao Acrylic chống mài mòn",
+        "en": "Wear-resistant acrylic athletic surface coating"
+       }
+      },
+      {
+       "label": {
+        "vi": "Bảng rổ",
+        "en": "Backboard System"
+       },
+       "value": {
+        "vi": "Kính cường lực kèm vành lò xo bền bỉ",
+        "en": "Tempered glass backboard with breakaway spring rims"
+       }
+      },
+      {
+       "label": {
+        "vi": "Chỗ ngồi",
+        "en": "Spectator Seating"
+       },
+       "value": {
+        "vi": "Băng ghế nghỉ bên sân thoáng mát",
+        "en": "Ventilated sideline benches"
+       }
+      }
+     ],
+     "amenities": [
+      {
+       "vi": "Bảng lật điểm số tay",
+       "en": "Manual flip scoreboards"
+      },
+      {
+       "vi": "Cho mượn bóng tập luyện cơ bản",
+       "en": "Free practice balls available"
+      },
+      {
+       "vi": "Quạt công nghiệp làm mát",
+       "en": "High-capacity industrial cooling fans"
+      },
+      {
+       "vi": "Khu vệ sinh và rửa tay gần sân",
+       "en": "Handwash and sanitary facilities near court"
+      }
+     ],
+     "tags": [
+      {
+       "vi": "Bóng rổ học sinh sinh viên",
+       "en": "Student basketball"
+      },
+      {
+       "vi": "Giao lưu cuối tuần",
+       "en": "Weekend meet-ups"
+      },
+      {
+       "vi": "Rèn luyện sức bật",
+       "en": "Jump training"
+      }
+     ],
+     "isVisible": true
+    },
+    {
+     "id": "room-06",
+     "name": {
+      "vi": "Cụm Sân Pickleball Ngoài Trời",
+      "en": "Outdoor Pickleball Court Complex"
+     },
+     "category": {
+      "vi": "team-sports",
+      "en": "team-sports"
+     },
+     "categoryName": {
+      "vi": "Sân bóng & Vợt",
+      "en": "Ball & Racket"
+     },
+     "location": {
+      "vi": "Khu Ngoài trời",
+      "en": "Outdoor Zone"
+     },
+     "zone": {
+      "vi": "Ngoài trời",
+      "en": "Outdoor Zone"
+     },
+     "capacity": {
+      "vi": "8 - 16 người chơi",
+      "en": "8 - 16 players"
+     },
+     "openHours": {
+      "vi": "05:30 - 22:00 hàng ngày",
+      "en": "05:30 - 22:00 Daily"
+     },
+     "priceRate": {
+      "vi": "Từ 50.000đ - 90.000đ/giờ/sân",
+      "en": "Included in Packages"
+     },
+     "badge": {
+      "vi": "Sân Sơn Đạt Chuẩn",
+      "en": "Pro Coated Surface"
+     },
+     "badgeColor": "bg-teal-600",
+     "image": "https://images.unsplash.com/photo-1693142517898-2f986215e412?q=80&w=1200&auto=format&fit=crop",
+     "secondaryImage": "https://images.unsplash.com/photo-1753901821774-22a88913130f?q=80&w=800&auto=format&fit=crop",
+     "highlights": {
+      "vi": "Mặt sân cứng phẳng đẹp • Lưới căng đúng kích thước • Đèn chiếu sáng phục vụ chơi tối",
+      "en": "Smooth pro hardcourt surface • Regulation nets • Floodlights for night sessions"
+     },
+     "description": {
+      "vi": "Cụm 4 sân Pickleball ngoài trời dành cho các lớp nhập môn, luyện đánh đơn, đánh đôi và giao lưu phong trào. Mặt sân phủ sơn thể thao chống trượt, có vạch khu vực bếp rõ ràng và lưới riêng cho từng sân. Hệ thống đèn LED và rào chắn bóng hỗ trợ tập luyện thuận tiện vào buổi tối.",
+      "en": "Cluster of 4 outdoor pickleball courts for clinics, drills, and open play. Non-slip acrylic surfaces with distinct kitchen zones, dedicated nets, and night LED floodlights."
+     },
+     "specs": [
+      {
+       "label": {
+        "vi": "Quy mô",
+        "en": "Capacity & Scale"
+       },
+       "value": {
+        "vi": "4 sân Pickleball, mỗi sân 6.1m x 13.41m",
+        "en": "4 regulation courts, 6.1m x 13.41m each"
+       }
+      },
+      {
+       "label": {
+        "vi": "Mặt sàn",
+        "en": "Floor Surface"
+       },
+       "value": {
+        "vi": "Sơn Acrylic chống trượt, vạch khu vực bếp rõ ràng",
+        "en": "Anti-slip acrylic with distinct non-volley kitchen zones"
+       }
+      },
+      {
+       "label": {
+        "vi": "Hệ thống đèn",
+        "en": "Lighting System"
+       },
+       "value": {
+        "vi": "Đèn pha LED chiếu sáng ban đêm",
+        "en": "Night LED floodlights for evening matches"
+       }
+      },
+      {
+       "label": {
+        "vi": "Rào chắn",
+        "en": "Safety Enclosure"
+       },
+       "value": {
+        "vi": "Lưới thép bọc nhựa bảo vệ quanh sân",
+        "en": "Vinyl-coated steel perimeter chain-link fence"
+       }
+      }
+     ],
+     "amenities": [
+      {
+       "vi": "Ghế ngồi nghỉ có ô che nắng",
+       "en": "Shaded resting benches with parasols"
+      },
+      {
+       "vi": "Dịch vụ cho thuê vợt và bóng tập",
+       "en": "Racket & ball rental desk"
+      },
+      {
+       "vi": "Bình nước uống mát phục vụ người chơi",
+       "en": "Cold filtered drinking water for players"
+      },
+      {
+       "vi": "Bãi đỗ xe rộng rãi ngay cạnh sân",
+       "en": "Spacious parking lot directly adjacent"
+      }
+     ],
+     "tags": [
+      {
+       "vi": "Pickleball cơ bản",
+       "en": "Pickleball basics"
+      },
+      {
+       "vi": "Đánh đơn & Đánh đôi",
+       "en": "Singles & doubles"
+      },
+      {
+       "vi": "Rèn luyện phản xạ",
+       "en": "Reflex training"
+      }
+     ],
+     "isVisible": true
+    },
+    {
+     "id": "room-07",
+     "name": {
+      "vi": "Phòng Tập Võ Thuật & Boxing",
+      "en": "Martial Arts & Boxing Studio"
+     },
+     "category": {
+      "vi": "combat-studio",
+      "en": "combat-studio"
+     },
+     "categoryName": {
+      "vi": "Võ thuật & Boxing",
+      "en": "Martial Arts & Boxing"
+     },
+     "location": {
+      "vi": "Khu C • Tầng 1",
+      "en": "Zone C • 1st Floor"
+     },
+     "zone": {
+      "vi": "Khu C",
+      "en": "Zone C"
+     },
+     "capacity": {
+      "vi": "15 - 25 võ sinh/ca",
+      "en": "15 - 25 students / session"
+     },
+     "openHours": {
+      "vi": "06:00 - 21:30 hàng ngày",
+      "en": "06:00 - 21:30 Daily"
+     },
+     "priceRate": {
+      "vi": "Theo khóa học từ 300.000đ/tháng hoặc thuê sàn từ 150.000đ/giờ",
+      "en": "Included in Packages"
+     },
+     "badge": {
+      "vi": "Sàn Thảm An Toàn",
+      "en": "Safe Padded Flooring"
+     },
+     "badgeColor": "bg-red-700",
+     "image": "https://images.unsplash.com/photo-1517438322307-e67111335449?q=80&w=1200&auto=format&fit=crop",
+     "secondaryImage": "https://images.unsplash.com/photo-1549719386-74dfcbf7dbed?q=80&w=800&auto=format&fit=crop",
+     "highlights": {
+      "vi": "Thảm xốp ghép êm ái • Dàn bao cát tập đấm đá • Dụng cụ bảo hộ tập luyện cơ bản",
+      "en": "High-density interlocking EVA foam • Sturdy punching bag rack • Full protective training gear"
+     },
+     "description": {
+      "vi": "Phòng tập võ thuật sạch sẽ, thoáng mát dành cho các câu lạc bộ Taekwondo, Karate, Vovinam, Boxing và các lớp kỹ năng tự vệ. Mặt sàn trải thảm xốp ghép thể thao êm ái, giảm chấn va đập, trang bị bao đấm và đích đá cơ bản giúp võ sinh an tâm rèn luyện.",
+      "en": "Clean, spacious studio for Taekwondo, Karate, Vovinam, Boxing, and self-defense. 3cm high-density interlocking EVA foam cushions falls, supported by heavy bags and strike pads."
+     },
+     "specs": [
+      {
+       "label": {
+        "vi": "Diện tích",
+        "en": "Floor Area"
+       },
+       "value": {
+        "vi": "90m² mặt sàn thông thoáng",
+        "en": "90m² open training floor"
+       }
+      },
+      {
+       "label": {
+        "vi": "Thảm sàn",
+        "en": "Padded Flooring"
+       },
+       "value": {
+        "vi": "Thảm xốp ghép mút EVA dày 3cm chống trơn",
+        "en": "3cm anti-slip high-density interlocking EVA foam"
+       }
+      },
+      {
+       "label": {
+        "vi": "Dàn bao cát",
+        "en": "Heavy Bags Station"
+       },
+       "value": {
+        "vi": "4 - 6 bao đấm treo kiên cố",
+        "en": "4 - 6 heavy suspended punching bags"
+       }
+      },
+      {
+       "label": {
+        "vi": "Dụng cụ tập",
+        "en": "Gear & Accessories"
+       },
+       "value": {
+        "vi": "Đích đấm, đích đá, găng tay cơ bản",
+        "en": "Focus mitts, kick shields, boxing gloves"
+       }
+      }
+     ],
+     "amenities": [
+      {
+       "vi": "Tủ cất đồ võ phục và dụng cụ cá nhân",
+       "en": "Martial arts uniform & gear cubbies"
+      },
+      {
+       "vi": "Gương dán tường hỗ trợ chỉnh đòn thế",
+       "en": "Full-length mirrors for posture alignment"
+      },
+      {
+       "vi": "Quạt gió công nghiệp thoáng đãng",
+       "en": "Industrial ventilation fans"
+      },
+      {
+       "vi": "Tủ thuốc y tế và băng gạc sơ cứu cơ bản",
+       "en": "First-aid kit & emergency medical supplies"
+      }
+     ],
+     "tags": [
+      {
+       "vi": "Taekwondo & Karate",
+       "en": "Taekwondo & Karate"
+      },
+      {
+       "vi": "Boxing căn bản",
+       "en": "Boxing fundamentals"
+      },
+      {
+       "vi": "Tự vệ & Rèn luyện tính kỷ luật",
+       "en": "Self-defence & discipline"
+      }
+     ],
+     "isVisible": true
+    },
+    {
+     "id": "room-08",
+     "name": {
+      "vi": "Phòng Tập Gym & Fitness",
+      "en": "Gym & Fitness Studio"
+     },
+     "category": {
+      "vi": "fitness",
+      "en": "fitness"
+     },
+     "categoryName": {
+      "vi": "Gym, Yoga & Pilates",
+      "en": "Gym, Yoga & Pilates"
+     },
+     "location": {
+      "vi": "Khu A • Tầng 2",
+      "en": "Zone A • 2nd Floor"
+     },
+     "zone": {
+      "vi": "Khu A",
+      "en": "Zone A"
+     },
+     "capacity": {
+      "vi": "30 - 45 hội viên cùng lúc",
+      "en": "30 - 45 members at once"
+     },
+     "openHours": {
+      "vi": "05:30 - 21:30 hàng ngày",
+      "en": "05:30 - 21:30 Daily"
+     },
+     "priceRate": {
+      "vi": "Vé ngày 30.000đ • Vé tháng từ 250.000đ - 350.000đ/tháng",
+      "en": "Day Pass 30.000 VND • Monthly Pass From 250.000 VND - 350.000 VND / mo"
+     },
+     "badge": {
+      "vi": "Máy Tập Đầy Đủ",
+      "en": "Full Commercial Gear"
+     },
+     "badgeColor": "bg-orange-600",
+     "image": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=1200&auto=format&fit=crop",
+     "secondaryImage": "https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?q=80&w=800&auto=format&fit=crop",
+     "highlights": {
+      "vi": "Đầy đủ máy Cardio & máy khối kháng lực • Dàn tạ đơn đa dạng cân nặng • Không gian sạch sẽ",
+      "en": "Full cardio & selectorized resistance machines • Wide dumbbell range • Spotless hygienic space"
+     },
+     "description": {
+      "vi": "Phòng tập thể hình trang bị đầy đủ máy chạy bộ, xe đạp tập, máy ép ngực, kéo xô và các dàn tạ tay từ nhẹ đến nặng. Không gian tập luyện hòa đồng, thân thiện, có nhân viên túc trực hỗ trợ hướng dẫn cơ bản cho người mới bắt đầu.",
+      "en": "Fully equipped fitness studio featuring treadmills, stationary bikes, selectorized resistance machines, and free weights. Friendly staff on hand to guide members of all experience levels."
+     },
+     "specs": [
+      {
+       "label": {
+        "vi": "Diện tích",
+        "en": "Floor Area"
+       },
+       "value": {
+        "vi": "Khoảng 250m² chia khu hợp lý",
+        "en": "Approx. 250m² efficiently zoned workout floor"
+       }
+      },
+      {
+       "label": {
+        "vi": "Máy Cardio",
+        "en": "Cardio Equipment"
+       },
+       "value": {
+        "vi": "Máy chạy bộ điện & xe đạp tập thể lực",
+        "en": "Commercial treadmills & stationary bikes"
+       }
+      },
+      {
+       "label": {
+        "vi": "Khu tạ tự do",
+        "en": "Free Weights Zone"
+       },
+       "value": {
+        "vi": "Tạ tay cao su từ 2kg đến 35kg, đòn tạ dài",
+        "en": "Rubber hex dumbbells 2kg-35kg, Olympic bars & plates"
+       }
+      },
+      {
+       "label": {
+        "vi": "Giàn máy khối",
+        "en": "Selectorized Machines"
+       },
+       "value": {
+        "vi": "Máy ép ngực, kéo xô, đạp đùi đa năng",
+        "en": "Chest press, lat pulldown, seated leg press"
+       }
+      }
+     ],
+     "amenities": [
+      {
+       "vi": "Tủ gửi đồ có khóa an toàn",
+       "en": "Secure lockers with individual keys"
+      },
+      {
+       "vi": "Cân sức khỏe và thước đo chiều cao",
+       "en": "Body scale & height measurement station"
+      },
+      {
+       "vi": "Phòng tắm và thay đồ riêng biệt",
+       "en": "Private separate bathrooms & changing area"
+      },
+      {
+       "vi": "Quạt gió và điều hòa thông thoáng",
+       "en": "Cooling ventilation & air conditioning"
+      }
+     ],
+     "tags": [
+      {
+       "vi": "Tập Gym tăng cơ giảm mỡ",
+       "en": "Gym for muscle gain & fat loss"
+      },
+      {
+       "vi": "Cardio rèn luyện tim mạch",
+       "en": "Cardio for heart health"
+      },
+      {
+       "vi": "Rèn luyện sức bền hàng ngày",
+       "en": "Daily endurance training"
+      }
+     ],
+     "isVisible": true
+    },
+    {
+     "id": "room-09",
+     "name": {
+      "vi": "Phòng Tập Yoga & Pilates",
+      "en": "Yoga & Pilates Studio"
+     },
+     "category": {
+      "vi": "fitness",
+      "en": "fitness"
+     },
+     "categoryName": {
+      "vi": "Gym, Yoga & Pilates",
+      "en": "Gym, Yoga & Pilates"
+     },
+     "location": {
+      "vi": "Khu C • Tầng 3",
+      "en": "Zone C • 3rd Floor"
+     },
+     "zone": {
+      "vi": "Khu C",
+      "en": "Zone C"
+     },
+     "capacity": {
+      "vi": "15 - 20 học viên/lớp",
+      "en": "15 - 20 students / class"
+     },
+     "openHours": {
+      "vi": "06:00 - 21:00 hàng ngày",
+      "en": "06:00 - 21:00 Daily"
+     },
+     "priceRate": {
+      "vi": "Từ 50.000đ/buổi • Gói tháng từ 350.000đ/tháng",
+      "en": "Included in Packages"
+     },
+     "badge": {
+      "vi": "Thư Giãn & Tĩnh Tâm",
+      "en": "Relaxation & Mindfulness"
+     },
+     "badgeColor": "bg-emerald-700",
+     "image": "https://images.unsplash.com/photo-1545205597-3d9d02c29597?q=80&w=1200&auto=format&fit=crop",
+     "secondaryImage": "https://images.unsplash.com/photo-1506126613408-eca07ce68773?q=80&w=800&auto=format&fit=crop",
+     "highlights": {
+      "vi": "Không gian yên tĩnh • Khu thảm Yoga & Pilates Mat • Máy Reformer tập theo nhóm nhỏ",
+      "en": "Serene tranquil studio • Dedicated mat yoga zone • Reformer machines for small group classes"
+     },
+     "description": {
+      "vi": "Phòng tập Yoga & Pilates có khu thảm cho các bài tập thở, kéo giãn, thăng bằng và Pilates Mat, cùng khu máy Reformer dành cho nhóm nhỏ theo lịch hướng dẫn. Trang bị thảm tập, gạch Yoga, dây đai, vòng Pilates và bóng tập hỗ trợ học viên rèn luyện sự dẻo dai, sức mạnh cơ trung tâm và kiểm soát tư thế.",
+      "en": "Peaceful studio offering mat areas for breathwork, flexibility, and Pilates Mat, alongside a dedicated Reformer zone for small group sessions with full props and accessories."
+     },
+     "specs": [
+      {
+       "label": {
+        "vi": "Không gian",
+        "en": "Studio Ambiance"
+       },
+       "value": {
+        "vi": "Yên tĩnh, thoáng mát, sàn lót gỗ sạch sẽ",
+        "en": "Tranquil, airy studio with polished wood flooring"
+       }
+      },
+      {
+       "label": {
+        "vi": "Khu thảm",
+        "en": "Yoga Mat Zone"
+       },
+       "value": {
+        "vi": "Thảm Yoga TPE và thảm Pilates Mat bám sàn tốt",
+        "en": "High-grip TPE Yoga & Pilates floor mats"
+       }
+      },
+      {
+       "label": {
+        "vi": "Khu Pilates Reformer",
+        "en": "Pilates Reformer Zone"
+       },
+       "value": {
+        "vi": "4 máy Reformer cho lớp nhóm nhỏ theo lịch",
+        "en": "4 Reformer machines for scheduled small group classes"
+       }
+      },
+      {
+       "label": {
+        "vi": "Dụng cụ hỗ trợ",
+        "en": "Props & Accessories"
+       },
+       "value": {
+        "vi": "Gạch Yoga, dây đai, vòng Pilates và bóng tập",
+        "en": "Yoga blocks, straps, Pilates rings & swiss balls"
+       }
+      }
+     ],
+     "amenities": [
+      {
+       "vi": "Bình nước uống lọc miễn phí",
+       "en": "Complimentary pure drinking water"
+      },
+      {
+       "vi": "Giá cất thảm và tủ để đồ cá nhân",
+       "en": "Mat racks & personal lockers"
+      },
+      {
+       "vi": "Phòng thay đồ lịch sự",
+       "en": "Private, discreet changing facilities"
+      },
+      {
+       "vi": "Có mở các lớp cơ bản cho người mới",
+       "en": "Beginner-friendly classes available"
+      }
+     ],
+     "tags": [
+      {
+       "vi": "Yoga cơ bản",
+       "en": "Yoga basics"
+      },
+      {
+       "vi": "Pilates Mat & Reformer",
+       "en": "Pilates Mat & Reformer"
+      },
+      {
+       "vi": "Kéo giãn & Cân bằng tư thế",
+       "en": "Stretching & posture balance"
+      }
+     ],
+     "isVisible": true
+    }
+   ]
+  },
+  "zonesLayout": {
+   "badge": {
+    "vi": "BỐ TRÍ KHÔNG GIAN THUẬN TIỆN",
+    "en": "CONVENIENT SPATIAL LAYOUT"
+   },
+   "title": {
+    "vi": "SƠ ĐỒ CÁC KHU VỰC TẬP LUYỆN",
+    "en": "TRAINING & MATCH ZONE MAP"
+   },
+   "description": {
+    "vi": "{{facilityCount}} cụm sân bãi và phòng tập được quy hoạch gọn gàng, lối đi thông thoáng, biển báo chỉ dẫn rõ ràng. Hệ thống quầy lễ tân tiếp đón chu đáo và hỗ trợ đặt sân nhanh chóng trực tiếp hoặc online.",
+    "en": "{{facilityCount}} neatly planned courts and training studios with open corridors, clear navigation signs, and dedicated front desks for seamless booking in person or online."
+   },
+   "zones": [
+    {
+     "id": "zone-a",
+     "name": {
+      "vi": "Khu A: Bơi Lội, Gym & Fitness",
+      "en": "Zone A: Swimming, Gym & Fitness"
+     },
+     "icon": "pool",
+     "color": "text-red-400",
+     "items": [
+      {
+       "vi": "Tầng 1: Bể bơi 4 mùa 25m trong nhà nước ấm",
+       "en": "1st Floor: 25m indoor 4-season heated pool"
+      },
+      {
+       "vi": "Tầng 2: Phòng tập Gym & Fitness",
+       "en": "2nd Floor: Gym & Fitness studio"
+      },
+      {
+       "vi": "Tầng 3: Khu thay đồ & tắm tráng nóng lạnh",
+       "en": "3rd Floor: Locker rooms & hot/cold showers"
+      }
+     ]
+    },
+    {
+     "id": "zone-b",
+     "name": {
+      "vi": "Khu B: Bóng Rổ, Cầu Lông & Bóng Bàn",
+      "en": "Zone B: Basketball, Badminton & Table Tennis"
+     },
+     "icon": "sports_basketball",
+     "color": "text-blue-400",
+     "items": [
+      {
+       "vi": "Tầng 1: Sân bóng rổ tiêu chuẩn phong trào có mái che",
+       "en": "1st Floor: Covered standard recreational basketball court"
+      },
+      {
+       "vi": "Tầng 2: Cụm 4 sân cầu lông thảm cao su chống trượt",
+       "en": "2nd Floor: Cluster of 4 anti-slip rubber badminton courts"
+      },
+      {
+       "vi": "Tầng 3: Khu bóng bàn trong nhà với 4 bàn tập",
+       "en": "3rd Floor: Indoor table tennis studio (4 tables)"
+      }
+     ]
+    },
+    {
+     "id": "zone-c",
+     "name": {
+      "vi": "Khu C: Võ Thuật, Boxing, Yoga & Pilates",
+      "en": "Zone C: Martial Arts, Boxing, Yoga & Pilates"
+     },
+     "icon": "self_improvement",
+     "color": "text-purple-400",
+     "items": [
+      {
+       "vi": "Tầng 1: Phòng tập võ thuật & Boxing, thảm và bao cát",
+       "en": "1st Floor: Martial arts & boxing gym with mats & heavy bags"
+      },
+      {
+       "vi": "Tầng 3: Phòng tập Yoga & Pilates, khu thảm và máy Reformer",
+       "en": "3rd Floor: Yoga & Pilates studio with mats & Reformers"
+      },
+      {
+       "vi": "Tủ đồ cá nhân và khu thay đồ phục vụ học viên",
+       "en": "Personal lockers and student changing facilities"
+      }
+     ]
+    },
+    {
+     "id": "zone-d",
+     "name": {
+      "vi": "Khu Ngoài Trời: Bóng Đá & Pickleball",
+      "en": "Outdoor Zone: Football & Pickleball"
+     },
+     "icon": "stadium",
+     "color": "text-emerald-400",
+     "items": [
+      {
+       "vi": "Cụm sân bóng đá cỏ nhân tạo (sân 5 và sân 7)",
+       "en": "Artificial turf football pitch complex (5- & 7-a-side)"
+      },
+      {
+       "vi": "Cụm 4 sân Pickleball, có lưới riêng và vạch khu vực bếp",
+       "en": "Cluster of 4 Pickleball courts with regulation nets & kitchen zones"
+      },
+      {
+       "vi": "Dàn đèn pha LED chiếu sáng ban đêm rõ nét",
+       "en": "High-powered LED floodlights for crisp night play"
+      }
+     ]
+    }
+   ],
+   "serviceAmenities": [
+    {
+     "id": "sa1",
+     "icon": "badge",
+     "text": {
+      "vi": "Tủ cất đồ cá nhân có chìa khóa an toàn, thuận tiện sử dụng",
+      "en": "Secure personal lockers with individual keys, convenient to use"
+     }
+    },
+    {
+     "id": "sa2",
+     "icon": "shower",
+     "text": {
+      "vi": "Phòng thay đồ và khu vực tắm tráng nóng lạnh sạch sẽ",
+      "en": "Clean changing rooms with hot & cold shower facilities"
+     }
+    },
+    {
+     "id": "sa3",
+     "icon": "local_cafe",
+     "text": {
+      "vi": "Quầy căn-tin nước giải khát, nước khoáng phục vụ nhanh",
+      "en": "Express refreshment canteen with energy drinks & mineral water"
+     }
+    },
+    {
+     "id": "sa4",
+     "icon": "medical_services",
+     "text": {
+      "vi": "Tủ thuốc y tế và dụng cụ sơ cứu ban đầu luôn sẵn sàng",
+      "en": "Fully stocked first-aid medical station always on standby"
+     }
+    }
+   ]
+  },
+  "ctaAndFooter": {
+   "ctaBadge": {
+    "vi": "DÀNH CHO ĐỘI NHÓM & TỔ CHỨC SỰ KIỆN",
+    "en": "FOR TEAMS & EVENT ORGANIZERS"
+   },
+   "ctaTitle": {
+    "vi": "LIÊN HỆ ĐẶT THUÊ SÂN TẬP & TỔ CHỨC GIẢI ĐẤU",
+    "en": "Court Rental & Tournament Inquiries"
+   },
+   "ctaDescription": {
+    "vi": "Bạn đang tìm sân tập thường xuyên cho đội nhóm hoặc cần thuê sân tổ chức giao lưu, giải đấu phong trào? Hãy liên hệ ngay với chúng tôi để chọn khung giờ đẹp và nhận mức giá ưu đãi nhất.",
+    "en": "Looking for regular team training grounds or hosting friendly matches and tournaments? Contact us to reserve prime hours and get special rates."
+   },
+   "ctaPrimaryText": {
+    "vi": "ĐẶT THUÊ CỤM SÂN NGAY",
+    "en": "Reserve Facility Now"
+   },
+   "ctaPrimaryLink": "#co-so-vat-chat",
+   "ctaSecondaryText": {
+    "vi": "XEM BẢNG GIÁ GÓI TẬP",
+    "en": "View Membership Packages"
+   },
+   "ctaSecondaryLink": "#/login",
+   "brandName": {
+    "vi": "SCMS",
+    "en": "SCMS"
+   },
+   "brandTag": {
+    "vi": "PRO",
+    "en": "PRO"
+   },
+   "brandSubtitle": {
+    "vi": "Olympic Sports Arena",
+    "en": "Olympic Sports Arena"
+   },
+   "brandDescription": {
+    "vi": "Không gian học tập và rèn luyện thể thao dành cho mọi lứa tuổi. Cùng SCMS chọn bộ môn yêu thích, nâng cao thể lực và kết nối cộng đồng.",
+    "en": "A place to learn and train for every age. Choose your favourite sport with SCMS, build fitness and connect with the community."
+   },
+   "contactAddress": {
+    "vi": "123 Nguyễn Thị Minh Khai, Quận 1, TP.HCM",
+    "en": "High-Tech Park, Thu Duc City, Ho Chi Minh City"
+   },
+   "contactPhone": "0353716249",
+   "contactEmail": "center.q1@sportscenter.vn",
+   "contactZaloPhone": "0353716249",
+   "contactFacebookUrl": "https://www.facebook.com/duyppvd",
+   "hoursWeekdays": {
+    "vi": "05:30 - 22:30",
+    "en": "05:30 - 22:30"
+   },
+   "hoursWeekend": {
+    "vi": "06:00 - 22:00",
+    "en": "06:00 - 22:00"
+   },
+   "hoursHolidays": {
+    "vi": "Mở cửa linh hoạt",
+    "en": "Flexible Opening"
+   },
+   "hoursNote": {
+    "vi": "Giờ hoạt động cụ thể được ghi trong thông tin từng sân và phòng tập.",
+    "en": "Specific opening hours are listed with each court and studio."
+   },
+   "copyright": {
+    "vi": "© 2026 SCMS Sports Center. Bảo lưu mọi quyền.",
+    "en": "© 2026 SCMS Sports Center. All rights reserved."
+   }
+  },
+  "authShowcase": {
+   "badge": {
+    "vi": "Sân tập mở cửa 24/7",
+    "en": "Training grounds open 24/7"
+   },
+   "tagline": {
+    "vi": "Khởi đầu bứt phá",
+    "en": "Start your breakthrough"
+   },
+   "loginTitle": {
+    "vi": "Tập luyện hôm nay, bứt phá mỗi ngày.",
+    "en": "Train today, break through every day."
+   },
+   "registerTitle": {
+    "vi": "Hành trình mới, phiên bản khỏe hơn.",
+    "en": "A new journey, a stronger you."
+   },
+   "description": {
+    "vi": "Hệ sinh thái thể thao đa năng với {{facilityCount}} cụm sân thi đấu chuẩn Olympic. Đặt sân siêu tốc, cá nhân hóa lịch tập và theo dõi chỉ số InBody cùng huấn luyện viên hàng đầu.",
+    "en": "A multi-sport ecosystem with {{facilityCount}} Olympic-standard venues. Book in seconds, personalise your schedule and track InBody metrics with top coaches."
+   },
+   "posterUrl": "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=75&w=800&auto=format&fit=crop",
+   "feature1Title": {
+    "vi": "Đặt chỗ trong 30s",
+    "en": "Book in 30s"
+   },
+   "feature1Desc": {
+    "vi": "Giữ sân & lớp học 7 ngày",
+    "en": "Hold courts & classes for 7 days"
+   },
+   "feature1Icon": "bolt",
+   "feature2Title": {
+    "vi": "Chuẩn Olympic 5★",
+    "en": "Olympic 5★ standard"
+   },
+   "feature2Desc": {
+    "vi": "Hệ thống sân bãi cao cấp",
+    "en": "Premium court system"
+   },
+   "feature2Icon": "verified",
+   "stat1Value": "{{sportCount}}",
+   "stat1Label": {
+    "vi": "Bộ môn thi đấu",
+    "en": "Sports disciplines"
+   },
+   "stat2Value": "{{facilityCount}}",
+   "stat2Label": {
+    "vi": "Khu tập luyện",
+    "en": "Training zones"
+   },
+   "stat3Value": "2.5K+",
+   "stat3Label": {
+    "vi": "Hội viên active",
+    "en": "Active members"
+   }
+  },
+  "schemaVersion": 2
+ },
+ "legacyText": {
+  "Phát triển thể lực, tôi luyện ý chí và bứt phá mọi giới hạn cùng hệ thống 9 cụm sân, phòng tập phục vụ 9 bộ môn thể thao.": {
+   "vi": "Phát triển thể lực, tôi luyện ý chí và bứt phá mọi giới hạn cùng hệ thống {{facilityCount}} cụm sân, phòng tập phục vụ {{sportCount}} bộ môn thể thao.",
+   "en": "Develop fitness, forge resilience, and push boundaries across {{facilityCount}} athletic facilities and {{sportCount}} sports disciplines."
+  },
+  "Khu liên hợp thể thao rộng rãi, sạch đẹp với 9 cụm sân bãi và phòng tập dành cho bơi lội, Gym & Fitness, Yoga & Pilates, Võ thuật & Boxing, bóng đá, cầu lông, bóng rổ, bóng bàn và Pickleball. Phục vụ nhu cầu học tập, rèn luyện sức khỏe, sinh hoạt câu lạc bộ và thi đấu phong trào.": {
+   "vi": "Khu liên hợp thể thao rộng rãi, sạch đẹp với {{facilityCount}} cụm sân bãi và phòng tập dành cho bơi lội, Gym & Fitness, Yoga & Pilates, Võ thuật & Boxing, bóng đá, cầu lông, bóng rổ, bóng bàn và Pickleball. Phục vụ nhu cầu học tập, rèn luyện sức khỏe, sinh hoạt câu lạc bộ và thi đấu phong trào.",
+   "en": "Spacious, modern athletic complex featuring {{facilityCount}} state-of-the-art courts, studios and pools for swimming, gym & fitness, yoga & pilates, martial arts & boxing, football, badminton, basketball, table tennis, pickleball and golf. Ideal for fitness training, club activities and tournament competitions."
+  },
+  "9 Khu Vực": {
+   "vi": "{{facilityCount}} Khu Vực",
+   "en": "{{facilityCount}} Zones"
+  },
+  "9 cụm sân bãi và phòng tập được quy hoạch gọn gàng, lối đi thông thoáng, biển báo chỉ dẫn rõ ràng. Hệ thống quầy lễ tân tiếp đón chu đáo và hỗ trợ đặt sân nhanh chóng trực tiếp hoặc online.": {
+   "vi": "{{facilityCount}} cụm sân bãi và phòng tập được quy hoạch gọn gàng, lối đi thông thoáng, biển báo chỉ dẫn rõ ràng. Hệ thống quầy lễ tân tiếp đón chu đáo và hỗ trợ đặt sân nhanh chóng trực tiếp hoặc online.",
+   "en": "{{facilityCount}} neatly planned courts and training studios with open corridors, clear navigation signs, and dedicated front desks for seamless booking in person or online."
+  },
+  "Hệ sinh thái thể thao đa năng với 9 cụm sân thi đấu chuẩn Olympic. Đặt sân siêu tốc, cá nhân hóa lịch tập và theo dõi chỉ số InBody cùng huấn luyện viên hàng đầu.": {
+   "vi": "Hệ sinh thái thể thao đa năng với {{facilityCount}} cụm sân thi đấu chuẩn Olympic. Đặt sân siêu tốc, cá nhân hóa lịch tập và theo dõi chỉ số InBody cùng huấn luyện viên hàng đầu.",
+   "en": "A multi-sport ecosystem with {{facilityCount}} Olympic-standard venues. Book in seconds, personalise your schedule and track InBody metrics with top coaches."
+  }
+ }
+}

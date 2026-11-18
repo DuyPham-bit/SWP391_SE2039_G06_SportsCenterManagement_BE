@@ -4,8 +4,6 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.BLL.DTOs.Support;
-using SportsCenterManagement.BLL.Services;
-using SportsCenterManagement.DAL.Repositories.Implementations;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
 

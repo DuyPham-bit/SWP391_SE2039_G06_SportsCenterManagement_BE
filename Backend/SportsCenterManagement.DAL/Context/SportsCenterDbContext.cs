@@ -17,6 +17,7 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Center> Centers => Set<Center>();
     public DbSet<Room> Rooms => Set<Room>();
+    public DbSet<CampusZone> CampusZones => Set<CampusZone>();
     public DbSet<Sport> Sports => Set<Sport>();
     public DbSet<MembershipPackage> MembershipPackages => Set<MembershipPackage>();
     public DbSet<Exercise> Exercises => Set<Exercise>();
@@ -254,6 +255,20 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
             .WithMany()
             .HasForeignKey(entity => entity.CenterId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<Room>()
+            .HasOne<CampusZone>()
+            .WithMany()
+            .HasForeignKey(entity => entity.ZoneId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<CampusZone>()
+            .HasOne<Center>()
+            .WithMany()
+            .HasForeignKey(entity => entity.CenterId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<CampusZone>().HasIndex(entity => new { entity.CenterId, entity.Code }).IsUnique();
 
         modelBuilder.Entity<Sport>()
             .HasOne<Center>()

@@ -1,8 +1,6 @@
 using SportsCenterManagement.BLL.DTOs.Classes;
-using SportsCenterManagement.BLL.Services;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
-using SportsCenterManagement.DAL.Repositories.Implementations;
 
 /// <summary>Class schedules follow each center's configured opening hours (fallback 05:00–22:00).</summary>
 static class CenterHoursChecks

@@ -2,10 +2,8 @@ using System.Net;
 using Microsoft.Extensions.Configuration;
 using SportsCenterManagement.BLL.Common;
 using SportsCenterManagement.BLL.DTOs.Classes;
-using SportsCenterManagement.BLL.Services;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
-using SportsCenterManagement.DAL.Repositories.Implementations;
 
 /// <summary>
 /// Member self-service sport/coach enrollment: the options tree must only offer classes the member can
@@ -115,7 +113,7 @@ static class EnrollmentOptionsChecks
         db.ChangeTracker.Clear();
 
         var clock = new BusinessClock(new ConfigurationBuilder().Build());
-        MemberEnrollmentOptionsService Service() => new(db, clock);
+        MemberEnrollmentOptionsService Service() => new(new UnitOfWork(db), clock);
 
         EnrollmentClassOptionDto? FindClass(MemberEnrollmentOptionsDto options, long classId) =>
             options.Sports.SelectMany(s => s.Coaches).SelectMany(c => c.Classes).SingleOrDefault(c => c.ClassId == classId);

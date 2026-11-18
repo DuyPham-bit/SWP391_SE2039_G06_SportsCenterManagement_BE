@@ -1,0 +1,619 @@
+using SportsCenterManagement.BLL.Common;
+using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
+using System.Text.RegularExpressions;
+using AuthRequests = SportsCenterManagement.BLL.DTOs.Auth.Requests;
+using AuthResponses = SportsCenterManagement.BLL.DTOs.Auth.Responses;
+using MembersRequests = SportsCenterManagement.BLL.DTOs.Members.Requests;
+using MembersResponses = SportsCenterManagement.BLL.DTOs.Members.Responses;
+using SportsCenterManagement.BLL.Common.Helpers;
+using SportsCenterManagement.DAL.Context;
+using SportsCenterManagement.DAL.Entities;
+
+namespace SportsCenterManagement.BLL.Services.Members;
+
+public sealed class MemberService(IUnitOfWork unitOfWork, IAuthService authService, IBusinessClock clock,
+    MediaUrlBuilder? mediaUrls = null) : IMemberService
+{
+    public async Task<MembersResponses.MemberProfileResponse> GetMeAsync(long userId, CancellationToken cancellationToken = default)
+    {
+        return await ReadProfile(userId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ thành viên.");
+    }
+
+    public async Task<MembersResponses.MemberProfileResponse> UpdateMeAsync(
+        long userId,
+        MembersRequests.UpdateMemberProfileRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var profile = await unitOfWork.Repository<MemberProfile>()
+            .Find(item => item.UserId == userId)
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ thành viên.");
+        return await UpdateProfileAsync(userId, profile.CenterId, profile.Id, request, "member.profile.updated", cancellationToken);
+    }
+
+    public async Task<MembersResponses.MemberProfileResponse> UpdateAtCenterAsync(
+        long actorUserId,
+        long centerId,
+        long memberId,
+        MembersRequests.UpdateMemberAtCenterRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureCenterManagerAsync(actorUserId, centerId, cancellationToken);
+        var profileRequest = new MembersRequests.UpdateMemberProfileRequest(
+            request.FullName,
+            Email: null,
+            request.Phone,
+            request.DateOfBirth,
+            request.Gender,
+            request.Address);
+        return await UpdateProfileAsync(actorUserId, centerId, memberId, profileRequest, "member.profile.updated.by_staff", cancellationToken);
+    }
+
+    /// <summary>
+    /// Counter correction of typos (Manager or Receptionist of the member's center). Login identifiers, address
+    /// and account status stay Manager-only via <see cref="UpdateAtCenterAsync"/> / SetMemberStatusAsync.
+    /// </summary>
+    public async Task<MembersResponses.MemberProfileResponse> UpdateBasicInfoAtCenterAsync(
+        long actorUserId,
+        long centerId,
+        long memberId,
+        MembersRequests.UpdateMemberBasicInfoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureCenterStaffAsync(actorUserId, centerId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(request.FullName) || request.FullName.Trim().Length > 150)
+            throw new ValidationException("Họ tên không được để trống và tối đa 150 ký tự.");
+        if (request.DateOfBirth > VietnamTime.Today)
+            throw new ValidationException("Ngày sinh không được ở tương lai.");
+        if (request.Gender is not null && request.Gender is not ("Male" or "Female" or "Other"))
+            throw new ValidationException("Giới tính không hợp lệ.");
+        if (request.EmergencyContactName?.Trim().Length > 150)
+            throw new ValidationException("Tên người liên hệ khẩn cấp tối đa 150 ký tự.");
+        var emergencyPhone = PhoneNumberNormalization.Normalize(request.EmergencyContactPhone);
+        if (emergencyPhone is not null && !Regex.IsMatch(emergencyPhone, @"^\+?[0-9]{8,15}$"))
+            throw new ValidationException("Số điện thoại khẩn cấp cần có từ 8 đến 15 chữ số.");
+
+        var profile = await unitOfWork.Context.MemberProfiles
+            .SingleOrDefaultAsync(item => item.Id == memberId && item.CenterId == centerId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy thành viên tại trung tâm này.");
+        var user = await unitOfWork.Repository<User>().GetByIdAsync(profile.UserId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+        if (user.Status == "Deleted")
+            throw new KeyNotFoundException("Không tìm thấy thành viên tại trung tâm này.");
+
+        var oldValues = new { profile.FullName, profile.DateOfBirth, profile.Gender, profile.EmergencyContactName, profile.EmergencyContactPhone };
+        profile.FullName = request.FullName.Trim();
+        profile.DateOfBirth = request.DateOfBirth;
+        profile.Gender = Normalize(request.Gender);
+        profile.EmergencyContactName = Normalize(request.EmergencyContactName);
+        profile.EmergencyContactPhone = emergencyPhone;
+        profile.UpdatedAt = DateTime.UtcNow;
+        AuditLogWriter.Add(unitOfWork, actorUserId, centerId, "member.basic_info.updated.by_counter", "MemberProfile", profile.Id,
+            oldValues, new { profile.FullName, profile.DateOfBirth, profile.Gender, profile.EmergencyContactName, profile.EmergencyContactPhone });
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return (await EnrichMemberSubscriptionsAsync([Map(profile, user) with { AvatarUrl = user.AvatarKey }], cancellationToken))[0];
+    }
+
+    private async Task<MembersResponses.MemberProfileResponse> UpdateProfileAsync(
+        long actorUserId,
+        long? requiredCenterId,
+        long memberId,
+        MembersRequests.UpdateMemberProfileRequest request,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.FullName))
+        {
+            throw new ValidationException("Họ tên không được để trống.");
+        }
+        if (request.DateOfBirth > VietnamTime.Today)
+        {
+            throw new ValidationException("Ngày sinh không được ở tương lai.");
+        }
+
+        if (request.Gender is not null && request.Gender is not ("Male" or "Female" or "Other"))
+        {
+            throw new ValidationException("Giới tính không hợp lệ.");
+        }
+
+        if (!CoachWorkflowRules.TryCanonicalFitnessLevel(request.FitnessLevel, out var fitnessLevel))
+        {
+            throw new ValidationException("Trình độ không hợp lệ (Beginner, Intermediate, Advanced, Athlete).");
+        }
+
+        var phone = PhoneNumberNormalization.Normalize(request.Phone);
+        if (phone is not null && !Regex.IsMatch(phone, @"^\+?[0-9]{8,15}$"))
+        {
+            throw new ValidationException("Số điện thoại cần có từ 8 đến 15 chữ số.");
+        }
+        var email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim().ToLowerInvariant();
+        if (email is not null && !new EmailAddressAttribute().IsValid(email))
+        {
+            throw new ValidationException("Email không hợp lệ.");
+        }
+
+        await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+        var profile = await unitOfWork.Repository<MemberProfile>()
+            .GetByIdAsync(memberId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ thành viên.");
+        if (requiredCenterId.HasValue)
+        {
+            if (profile.CenterId != requiredCenterId)
+            {
+                throw new KeyNotFoundException("Không tìm thấy thành viên tại trung tâm này.");
+            }
+        }
+        var user = await unitOfWork.Repository<User>().GetByIdAsync(profile.UserId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+        if (phone is not null && await unitOfWork.Repository<User>()
+                .AnyAsync(item => item.Id != user.Id && item.Phone == phone, cancellationToken))
+        {
+            throw new InvalidOperationException("Số điện thoại đã được sử dụng.");
+        }
+        if (email is not null && await unitOfWork.Repository<User>()
+                .AnyAsync(item => item.Id != user.Id && item.Email == email, cancellationToken))
+        {
+            throw new InvalidOperationException("Email đã được sử dụng.");
+        }
+
+        var oldEmail = user.Email;
+        var oldPhone = user.Phone;
+        var oldNormalizedPhone = PhoneNumberNormalization.Normalize(oldPhone);
+        var phoneChanged = request.Phone is not null && oldNormalizedPhone != phone;
+        profile.FullName = request.FullName.Trim();
+        if (request.DateOfBirth.HasValue)
+            profile.DateOfBirth = request.DateOfBirth;
+        if (request.Gender is not null)
+            profile.Gender = Normalize(request.Gender);
+        if (request.Address is not null)
+            profile.Address = Normalize(request.Address);
+        if (fitnessLevel is not null)
+            profile.FitnessLevel = fitnessLevel;
+        profile.UpdatedAt = DateTime.UtcNow;
+        if (email is not null)
+        {
+            user.Email = email;
+        }
+        if (request.Phone is not null)
+        {
+            user.Phone = phone;
+        }
+        user.UpdatedAt = DateTime.UtcNow;
+        unitOfWork.Repository<MemberProfile>().Update(profile);
+        unitOfWork.Repository<User>().Update(user);
+        AuditLogWriter.Add(unitOfWork, actorUserId, profile.CenterId, action, "MemberProfile", profile.Id,
+            new { EmailPresent = oldEmail is not null, PhonePresent = oldPhone is not null },
+            new { EmailChanged = email is not null && email != oldEmail, PhoneChanged = phoneChanged });
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return Map(profile, user);
+    }
+
+    public async Task<MembersResponses.MemberProfileResponse> SetMemberStatusAsync(
+        long actorUserId,
+        long centerId,
+        long memberId,
+        string status,
+        CancellationToken cancellationToken = default)
+    {
+        if (status is not ("Active" or "Disabled"))
+        {
+            throw new ValidationException("Trạng thái tài khoản chỉ nhận Active hoặc Disabled.");
+        }
+
+        await EnsureCenterManagerAsync(actorUserId, centerId, cancellationToken);
+        await using var transaction = await unitOfWork.Context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.Serializable, cancellationToken);
+        var profile = await unitOfWork.Repository<MemberProfile>().GetByIdAsync(memberId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy thành viên tại trung tâm này.");
+        if (profile.CenterId != centerId)
+        {
+            throw new KeyNotFoundException("Không tìm thấy thành viên tại trung tâm này.");
+        }
+        var user = await unitOfWork.Repository<User>().GetByIdAsync(profile.UserId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+        var previousStatus = user.Status;
+        if (previousStatus == status)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return Map(profile, user);
+        }
+
+        user.Status = status;
+        user.UpdatedAt = DateTime.UtcNow;
+        if (status == "Active")
+        {
+            user.FailedLoginAttempts = 0;
+            user.LockedUntil = null;
+        }
+        unitOfWork.Repository<User>().Update(user);
+        AuditLogWriter.Add(unitOfWork, actorUserId, centerId, "member.account_status.updated", "User", user.Id,
+            new { Status = previousStatus }, new { Status = status });
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return Map(profile, user);
+    }
+
+    public async Task<MembersResponses.PagedResponse<MembersResponses.MemberProfileResponse>> SearchAtCenterAsync(
+        long actorUserId,
+        long centerId,
+        string query,
+        int page,
+        int pageSize,
+        string sortBy,
+        string sortDirection,
+        CancellationToken cancellationToken = default)
+    {
+        var term = query.Trim();
+        var lowerTerm = term.ToLower();
+        // "+84 912…" must find the stored "0912…".
+        var phoneTerm = PhoneNumberNormalization.SearchTerm(term);
+        var normalizedSort = sortBy.Trim().ToLowerInvariant();
+        var normalizedDirection = sortDirection.Trim().ToLowerInvariant();
+        if (centerId <= 0 || (term.Length > 0 && term.Length < 2) || query.Length > 100
+            || page is < 1 or > 1_000_000 || pageSize is < 1 or > 50
+            || normalizedSort is not ("default" or "givenname")
+            || normalizedDirection is not ("asc" or "desc"))
+        {
+            throw new ValidationException("Từ khóa cần từ 2 đến 100 ký tự; page từ 1, pageSize từ 1 đến 50; kiểu sắp xếp không hợp lệ.");
+        }
+        if (term.Length == 0)
+            await EnsureCenterManagerAsync(actorUserId, centerId, cancellationToken);
+        else
+            await EnsureCenterStaffAsync(actorUserId, centerId, cancellationToken);
+        // Lọc center trước khi phân trang để không lộ member của center khác.
+        var matches =
+            from profile in unitOfWork.Context.MemberProfiles.AsNoTracking()
+            join user in unitOfWork.Context.Users.AsNoTracking() on profile.UserId equals user.Id
+            where (profile.CenterId == centerId || (term != "" && profile.CenterId == null))
+                  && user.Status != "Deleted"
+                  && (term == "" || profile.MemberCode.ToLower().Contains(lowerTerm)
+                      || profile.FullName.ToLower().Contains(lowerTerm)
+                      || user.Email.ToLower().Contains(lowerTerm)
+                      || (user.Phone != null && user.Phone.Contains(phoneTerm)))
+            let normalizedName = profile.FullName.Trim()
+            let reversedName = SportsCenterDbContext.Reverse(normalizedName)
+            let separatorIndex = reversedName.IndexOf(" ")
+            let givenName = separatorIndex < 0
+                ? normalizedName
+                : SportsCenterDbContext.Reverse(reversedName.Substring(0, separatorIndex))
+            select new
+            {
+                StatusOrder = user.Status == "Active" ? 0 : 1,
+                GivenName = givenName,
+                FullName = profile.FullName,
+                ProfileId = profile.Id,
+                Response = new MembersResponses.MemberProfileResponse(profile.Id, user.Id, profile.MemberCode, user.Username,
+                    user.Email, user.Phone, profile.FullName, profile.DateOfBirth, profile.Gender,
+                    profile.Address, profile.CreatedAt, user.Status, null, null, null, null, null, null,
+                    user.IsEmailVerified, user.AvatarKey, profile.FitnessLevel,
+                    profile.EmergencyContactName, profile.EmergencyContactPhone)
+            };
+        var totalCount = await matches.CountAsync(cancellationToken);
+        // KPI counts over all matches so the cards agree with TotalCount instead of one page.
+        var today = clock.Today;
+        var activeAccounts = await matches.CountAsync(item => item.StatusOrder == 0, cancellationToken);
+        var withActivePackage = await matches.CountAsync(item => unitOfWork.Context.MemberSubscriptions.Any(sub =>
+            sub.MemberId == item.ProfileId && sub.Status == "Active"
+            && sub.StartDate.HasValue && sub.StartDate <= today
+            && sub.EndDate.HasValue && sub.EndDate >= today), cancellationToken);
+        var summary = new MembersResponses.MemberCountSummary(activeAccounts, totalCount - activeAccounts, withActivePackage);
+        var ordered = normalizedSort == "givenname"
+            ? normalizedDirection == "desc"
+                ? matches.OrderBy(item => item.StatusOrder).ThenByDescending(item => item.GivenName).ThenByDescending(item => item.FullName).ThenBy(item => item.ProfileId)
+                : matches.OrderBy(item => item.StatusOrder).ThenBy(item => item.GivenName).ThenBy(item => item.FullName).ThenBy(item => item.ProfileId)
+            : matches.OrderBy(item => item.StatusOrder).ThenBy(item => item.FullName).ThenBy(item => item.ProfileId);
+        var items = await ordered.Select(item => item.Response)
+            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
+        var enriched = await EnrichMemberSubscriptionsAsync(items, cancellationToken);
+        return new MembersResponses.PagedResponse<MembersResponses.MemberProfileResponse>(enriched, page, pageSize, totalCount, summary);
+    }
+
+    public async Task<MembersResponses.MemberProfileResponse> CreateAtCenterAsync(
+        long actorUserId,
+        long centerId,
+        AuthRequests.RegisterRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureCenterStaffAsync(actorUserId, centerId, cancellationToken);
+        return await authService.RegisterAsync(request, centerId, actorUserId, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<MembersResponses.MemberSubscriptionResponse>> GetSubscriptionsAsync(
+        long actorUserId,
+        long memberId,
+        CancellationToken cancellationToken = default)
+    {
+        var member = await unitOfWork.Repository<MemberProfile>().GetByIdAsync(memberId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ thành viên.");
+        if (member.UserId != actorUserId)
+        {
+            if (!member.CenterId.HasValue)
+            {
+                throw new UnauthorizedAccessException("Không có quyền xem hồ sơ thành viên này.");
+            }
+            await EnsureCenterStaffAsync(actorUserId, member.CenterId.Value, cancellationToken);
+        }
+
+        var today = clock.Today;
+        return await (
+            from subscription in unitOfWork.Context.MemberSubscriptions.AsNoTracking()
+            join package in unitOfWork.Context.MembershipPackages.AsNoTracking() on subscription.PackageId equals package.Id
+            where subscription.MemberId == memberId
+            orderby subscription.CreatedAt descending
+            select new MembersResponses.MemberSubscriptionResponse(subscription.Id, package.Id, package.Name,
+                subscription.Price, subscription.DurationDays, subscription.StartDate,
+                subscription.EndDate, subscription.Status, subscription.CreatedAt,
+                subscription.Status != "Active" ? subscription.Status.ToUpper()
+                    : !subscription.StartDate.HasValue || !subscription.EndDate.HasValue ? "INACTIVE"
+                    : subscription.StartDate > today ? "SCHEDULED"
+                    : subscription.EndDate < today ? "EXPIRED" : "ACTIVE"))
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task EnsureCanSellToMemberAsync(
+        long actorUserId,
+        long memberId,
+        long packageId,
+        CancellationToken cancellationToken = default)
+    {
+        var target = await unitOfWork.Repository<MemberProfile>().GetByIdAsync(memberId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ thành viên.");
+        var package = await unitOfWork.Repository<MembershipPackage>().GetByIdAsync(packageId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy gói tập.");
+
+        // Authorization must succeed before assigning an unowned member to a center.
+        // Otherwise a rejected counter-sale request can still alter tenant ownership.
+        await EnsureCenterStaffAsync(actorUserId, package.CenterId, cancellationToken);
+
+        if (!target.CenterId.HasValue)
+        {
+            target.CenterId = package.CenterId;
+            target.UpdatedAt = DateTime.UtcNow;
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        else if (target.CenterId.Value != package.CenterId)
+        {
+            throw new UnauthorizedAccessException("Thành viên và gói tập không thuộc cùng trung tâm.");
+        }
+    }
+
+    public async Task<long> GetMemberUserIdForStaffAsync(
+        long actorUserId, long centerId, long memberId, CancellationToken cancellationToken = default)
+    {
+        await EnsureCenterStaffAsync(actorUserId, centerId, cancellationToken);
+        return await unitOfWork.Context.MemberProfiles.AsNoTracking()
+            .Where(profile => profile.Id == memberId && profile.CenterId == centerId)
+            .Select(profile => (long?)profile.UserId).SingleOrDefaultAsync(cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy hội viên tại trung tâm này.");
+    }
+
+    public async Task<(MembersResponses.MemberProfileResponse Member, string? PreviousKey)> SetMemberAvatarAsync(
+        long actorUserId, long centerId, long memberId, string? avatarKey, CancellationToken cancellationToken = default)
+    {
+        var userId = await GetMemberUserIdForStaffAsync(actorUserId, centerId, memberId, cancellationToken);
+        if (avatarKey is not null && (!avatarKey.StartsWith($"avatars/{userId}/", StringComparison.Ordinal)
+                                      || avatarKey.Contains("../", StringComparison.Ordinal)))
+            throw new ValidationException("Đường dẫn ảnh hội viên không hợp lệ.");
+        var profile = await unitOfWork.Repository<MemberProfile>().GetByIdAsync(memberId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy hội viên.");
+        var user = await unitOfWork.Repository<User>().GetByIdAsync(userId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy tài khoản.");
+        var previousKey = user.AvatarKey;
+        user.AvatarKey = avatarKey;
+        user.UpdatedAt = DateTime.UtcNow;
+        unitOfWork.Repository<User>().Update(user);
+        AuditLogWriter.Add(unitOfWork, actorUserId, centerId, "member.avatar.updated.by_staff", "User", user.Id,
+            new { HadAvatar = previousKey is not null }, new { HasAvatar = avatarKey is not null });
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return (Map(profile, user), previousKey == avatarKey ? null : previousKey);
+    }
+
+    public async Task EnsureCanBuyPackageAsync(long userId, long packageId, CancellationToken cancellationToken = default)
+    {
+        var member = await unitOfWork.Repository<MemberProfile>()
+            .Find(profile => profile.UserId == userId)
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy hồ sơ thành viên.");
+        var user = await unitOfWork.Repository<User>().GetByIdAsync(userId, cancellationToken);
+        if (user?.Status != "Active" || user.LockedUntil > DateTime.UtcNow)
+        {
+            throw new UnauthorizedAccessException("Tài khoản không hoạt động.");
+        }
+        var package = await unitOfWork.Repository<MembershipPackage>()
+            .Find(item => item.Id == packageId && item.Status == "Active")
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy gói tập.");
+        if (!await unitOfWork.Repository<Center>()
+                .AnyAsync(center => center.Id == package.CenterId && center.Status == "Active", cancellationToken))
+        {
+            throw new KeyNotFoundException("Không tìm thấy trung tâm đang hoạt động.");
+        }
+
+        // Validation only: the purchase flow binds CenterId in the same save as the invoice/subscription,
+        // so a failed checkout never pins the member to a center.
+        if (member.CenterId.HasValue && member.CenterId.Value != package.CenterId)
+        {
+            throw new UnauthorizedAccessException("Gói tập không thuộc trung tâm của thành viên.");
+        }
+        if (package.Price <= 0 || package.DurationDays <= 0)
+        {
+            throw new ValidationException("Gói tập có giá hoặc thời hạn không hợp lệ.");
+        }
+    }
+
+    public async Task EnsureCanProcessInvoiceAsync(
+        long actorUserId,
+        long invoiceId,
+        CancellationToken cancellationToken = default)
+    {
+        var invoice = await unitOfWork.Repository<Invoice>().GetByIdAsync(invoiceId, cancellationToken)
+            ?? throw new KeyNotFoundException("Không tìm thấy hóa đơn.");
+        await EnsureCenterStaffAsync(actorUserId, invoice.CenterId, cancellationToken);
+    }
+
+    private async Task EnsureCenterStaffAsync(long actorUserId, long centerId, CancellationToken cancellationToken)
+    {
+        var user = await unitOfWork.Repository<User>().GetByIdAsync(actorUserId, cancellationToken)
+            ?? throw new UnauthorizedAccessException("Không có quyền thao tác.");
+        var centerIsActive = await unitOfWork.Repository<Center>()
+            .AnyAsync(center => center.Id == centerId && center.Status == "Active", cancellationToken);
+        var role = await unitOfWork.Repository<Role>().GetByIdAsync(user.RoleId, cancellationToken);
+        if (user.Status != "Active" || user.LockedUntil > DateTime.UtcNow || !centerIsActive
+            || role?.Name is not ("Manager" or "Receptionist"))
+        {
+            throw new UnauthorizedAccessException("Chỉ Manager hoặc Receptionist được thao tác tại quầy.");
+        }
+
+        var assigned = await unitOfWork.Repository<StaffProfile>()
+            .AnyAsync(profile => profile.UserId == actorUserId
+                                 && profile.CenterId == centerId
+                                 && profile.Status == "Active", cancellationToken);
+        if (!assigned)
+        {
+            throw new UnauthorizedAccessException("Tài khoản không được gán vào trung tâm này.");
+        }
+    }
+
+    private async Task EnsureCenterManagerAsync(long actorUserId, long centerId, CancellationToken cancellationToken)
+    {
+        var user = await unitOfWork.Repository<User>().GetByIdAsync(actorUserId, cancellationToken)
+            ?? throw new UnauthorizedAccessException("Không có quyền thao tác.");
+        var centerIsActive = await unitOfWork.Repository<Center>()
+            .AnyAsync(center => center.Id == centerId && center.Status == "Active", cancellationToken);
+        var role = await unitOfWork.Repository<Role>().GetByIdAsync(user.RoleId, cancellationToken);
+        var assigned = await unitOfWork.Repository<StaffProfile>()
+            .AnyAsync(profile => profile.UserId == actorUserId
+                                 && profile.CenterId == centerId
+                                 && profile.Status == "Active", cancellationToken);
+        if (user.Status != "Active" || user.LockedUntil > DateTime.UtcNow
+            || !centerIsActive || role?.Name != "Manager" || !assigned)
+        {
+            throw new UnauthorizedAccessException("Chỉ Manager được quản lý thành viên của trung tâm được gán.");
+        }
+    }
+
+    private async Task<MembersResponses.MemberProfileResponse?> ReadProfile(long userId, CancellationToken cancellationToken)
+    {
+        var item = await (
+            from profile in unitOfWork.Context.MemberProfiles.AsNoTracking()
+            join user in unitOfWork.Context.Users.AsNoTracking() on profile.UserId equals user.Id
+            where user.Id == userId && user.Status == "Active"
+            select new MembersResponses.MemberProfileResponse(profile.Id, user.Id, profile.MemberCode, user.Username,
+                user.Email, user.Phone, profile.FullName, profile.DateOfBirth, profile.Gender,
+                profile.Address, profile.CreatedAt, user.Status, null, null, null, null, null, null,
+                user.IsEmailVerified, user.AvatarKey, profile.FitnessLevel,
+                profile.EmergencyContactName, profile.EmergencyContactPhone))
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (item == null) return null;
+        var enriched = await EnrichMemberSubscriptionsAsync(new[] { item }, cancellationToken);
+        return enriched.FirstOrDefault();
+    }
+
+    private async Task<List<MembersResponses.MemberProfileResponse>> EnrichMemberSubscriptionsAsync(
+        IReadOnlyList<MembersResponses.MemberProfileResponse> items,
+        CancellationToken cancellationToken)
+    {
+        if (items.Count == 0) return items.ToList();
+
+        var memberIds = items.Select(m => m.MemberId).Distinct().ToList();
+        var today = clock.Today;
+
+        var subs = await (
+            from sub in unitOfWork.Context.MemberSubscriptions.AsNoTracking()
+            join pkg in unitOfWork.Context.MembershipPackages.AsNoTracking() on sub.PackageId equals pkg.Id
+            where memberIds.Contains(sub.MemberId)
+            orderby sub.CreatedAt descending
+            select new
+            {
+                sub.MemberId,
+                sub.Id,
+                sub.PackageId,
+                PackageName = pkg.Name,
+                sub.StartDate,
+                sub.EndDate,
+                sub.Status,
+                sub.CreatedAt
+            }
+        ).ToListAsync(cancellationToken);
+
+        return items.Select(m =>
+        {
+            var mSubs = subs.Where(s => s.MemberId == m.MemberId).ToList();
+
+            var activeSub = mSubs
+                .Where(s => string.Equals(s.Status, "Active", StringComparison.OrdinalIgnoreCase)
+                    && s.StartDate.HasValue && s.StartDate <= today && s.EndDate.HasValue && s.EndDate >= today)
+                .OrderByDescending(s => s.EndDate)
+                .FirstOrDefault();
+
+            var currentSub = activeSub
+                ?? mSubs.FirstOrDefault(s => string.Equals(s.Status, "PendingPayment", StringComparison.OrdinalIgnoreCase))
+                ?? mSubs.FirstOrDefault(s => string.Equals(s.Status, "Active", StringComparison.OrdinalIgnoreCase))
+                ?? mSubs.FirstOrDefault();
+
+            string pkgName = currentSub?.PackageName ?? "Chưa đăng ký gói";
+            DateOnly? pkgExpiry = currentSub?.EndDate;
+            string pkgStatus = "INACTIVE";
+
+            if (currentSub != null)
+            {
+                if (string.Equals(currentSub.Status, "Active", StringComparison.OrdinalIgnoreCase))
+                {
+                    pkgStatus = !currentSub.StartDate.HasValue || !currentSub.EndDate.HasValue ? "INACTIVE"
+                        : currentSub.StartDate > today ? "SCHEDULED"
+                        : currentSub.EndDate < today ? "EXPIRED" : "ACTIVE";
+                }
+                else if (string.Equals(currentSub.Status, "PendingPayment", StringComparison.OrdinalIgnoreCase))
+                {
+                    pkgStatus = "PENDING";
+                }
+                else if (string.Equals(currentSub.Status, "Expired", StringComparison.OrdinalIgnoreCase))
+                {
+                    pkgStatus = "EXPIRED";
+                }
+                else if (string.Equals(currentSub.Status, "Cancelled", StringComparison.OrdinalIgnoreCase))
+                {
+                    pkgStatus = "CANCELLED";
+                }
+                else
+                {
+                    pkgStatus = currentSub.Status.ToUpperInvariant();
+                }
+            }
+
+            return m with
+            {
+                PackageName = pkgName,
+                PackageExpiry = pkgExpiry,
+                PackageStatus = pkgStatus,
+                PackageId = currentSub?.PackageId,
+                SubscriptionId = currentSub?.Id,
+                PackageStartDate = currentSub?.StartDate,
+                // The SQL projection carried the raw avatar key here; expose the public URL instead.
+                AvatarUrl = mediaUrls?.PublicUrl(m.AvatarUrl)
+            };
+        }).ToList();
+    }
+
+    private MembersResponses.MemberProfileResponse Map(MemberProfile profile, User user)
+    {
+        return new MembersResponses.MemberProfileResponse(profile.Id, user.Id, profile.MemberCode, user.Username,
+            user.Email, user.Phone, profile.FullName, profile.DateOfBirth, profile.Gender,
+            profile.Address, profile.CreatedAt, user.Status,
+            IsEmailVerified: user.IsEmailVerified,
+            AvatarUrl: mediaUrls?.PublicUrl(user.AvatarKey),
+            FitnessLevel: profile.FitnessLevel,
+            EmergencyContactName: profile.EmergencyContactName,
+            EmergencyContactPhone: profile.EmergencyContactPhone);
+    }
+
+    private static string? Normalize(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+}

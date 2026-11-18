@@ -2,7 +2,6 @@ using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using SportsCenterManagement.API.Services;
 using SportsCenterManagement.BLL.DTOs.Training;
-using SportsCenterManagement.BLL.Services;
 
 var failures = new List<string>();
 var checks = 0;
@@ -405,13 +404,13 @@ Check("bad output and safety violations are retried; quota, timeout, block and o
         if (code is not null) exception.Data["Code"] = code;
         return exception;
     }
-    return SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(502, "AI_INVALID_OUTPUT")) &&
-        SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(422, "AI_SAFETY_CHECK_FAILED")) &&
-        SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(502)) &&
-        !SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(429)) &&
-        !SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(504)) &&
-        !SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(422)) &&
-        !SportsCenterManagement.API.Controllers.AiController.IsRetryableRecommendationFailure(Error(503));
+    return SportsCenterManagement.API.Controllers.Training.AiController.IsRetryableRecommendationFailure(Error(502, "AI_INVALID_OUTPUT")) &&
+        SportsCenterManagement.API.Controllers.Training.AiController.IsRetryableRecommendationFailure(Error(422, "AI_SAFETY_CHECK_FAILED")) &&
+        SportsCenterManagement.API.Controllers.Training.AiController.IsRetryableRecommendationFailure(Error(502)) &&
+        !SportsCenterManagement.API.Controllers.Training.AiController.IsRetryableRecommendationFailure(Error(429)) &&
+        !SportsCenterManagement.API.Controllers.Training.AiController.IsRetryableRecommendationFailure(Error(504)) &&
+        !SportsCenterManagement.API.Controllers.Training.AiController.IsRetryableRecommendationFailure(Error(422)) &&
+        !SportsCenterManagement.API.Controllers.Training.AiController.IsRetryableRecommendationFailure(Error(503));
 });
 
 // ---- Reply language detection ----
@@ -447,20 +446,20 @@ Check("misspelled 'tomorow' still resolves to tomorrow", () =>
     Window("can you help me slot yoga in tomorow") is { From.Day: 15, To.Day: 15 });
 Check("chat instruction ends with an explicit reply-language rule", () =>
 {
-    var instruction = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("vi", "can you help me slot yoga in tomorow", "{}");
-    var requestedThai = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("vi", "hãy nói tiếng thái", "{}");
-    var firstTurnMalay = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("vi", "Apakah pakej-pakej yang ada di sini?", "{}");
-    var firstTurnUnlisted = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("vi", "Koji paketi postoje ovdje?", "{}");
-    var historyThai = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction(
+    var instruction = SportsCenterManagement.API.Controllers.Training.AiController.BuildChatInstruction("vi", "can you help me slot yoga in tomorow", "{}");
+    var requestedThai = SportsCenterManagement.API.Controllers.Training.AiController.BuildChatInstruction("vi", "hãy nói tiếng thái", "{}");
+    var firstTurnMalay = SportsCenterManagement.API.Controllers.Training.AiController.BuildChatInstruction("vi", "Apakah pakej-pakej yang ada di sini?", "{}");
+    var firstTurnUnlisted = SportsCenterManagement.API.Controllers.Training.AiController.BuildChatInstruction("vi", "Koji paketi postoje ovdje?", "{}");
+    var historyThai = SportsCenterManagement.API.Controllers.Training.AiController.BuildChatInstruction(
         "vi",
         "yoga",
         "{}",
         [
-            new SportsCenterManagement.BLL.Services.AiTurn("user", "hãy nói tiếng thái"),
-            new SportsCenterManagement.BLL.Services.AiTurn("model", "ได้เลยครับ"),
-            new SportsCenterManagement.BLL.Services.AiTurn("user", "yoga"),
+            new SportsCenterManagement.BLL.Services.Training.AiTurn("user", "hãy nói tiếng thái"),
+            new SportsCenterManagement.BLL.Services.Training.AiTurn("model", "ได้เลยครับ"),
+            new SportsCenterManagement.BLL.Services.Training.AiTurn("user", "yoga"),
         ]);
-    var fallback = SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("en", "yoga", "{}");
+    var fallback = SportsCenterManagement.API.Controllers.Training.AiController.BuildChatInstruction("en", "yoga", "{}");
     return instruction.EndsWith("Never say you can only answer in Vietnamese or any other single language.", StringComparison.Ordinal) &&
         instruction.Contains("written in English. Your ENTIRE reply MUST be in English", StringComparison.Ordinal) &&
         requestedThai.Contains("explicitly requested to communicate in Thai. Your ENTIRE reply MUST be in Thai", StringComparison.Ordinal) &&
@@ -491,7 +490,7 @@ if (Environment.GetEnvironmentVariable("AI_LIVE") == "1")
     string Ask(string question)
     {
         var turns = vietnameseHistory.Append(new AiTurn("user", question)).ToList();
-        var reply = gemini.GenerateAsync(SportsCenterManagement.API.Controllers.AiController.BuildChatInstruction("vi", question,
+        var reply = gemini.GenerateAsync(SportsCenterManagement.API.Controllers.Training.AiController.BuildChatInstruction("vi", question,
             """{"center":{"name":"Sports Center Quận 1","openingTime":"06:00","closingTime":"22:00"},"schedule":{"items":[{"className":"Yoga Cơ Bản","sessionDate":"2026-11-16","startTime":"15:00","endTime":"16:00"}]}}"""),
             turns, false, CancellationToken.None).GetAwaiter().GetResult();
         Console.WriteLine($"LIVE [{question}] => {reply.Replace('\n', ' ')[..Math.Min(reply.Length, 160)]}");
@@ -510,10 +509,10 @@ if (Environment.GetEnvironmentVariable("AI_LIVE") == "1")
 
 // ---- Chat language hint ----
 Check("ui language hint maps to a model-readable language with Vietnamese default", () =>
-    SportsCenterManagement.API.Controllers.AiController.PreferredLanguage("en") == "English" &&
-    SportsCenterManagement.API.Controllers.AiController.PreferredLanguage(" JA ") == "Japanese" &&
-    SportsCenterManagement.API.Controllers.AiController.PreferredLanguage(null) == "Vietnamese" &&
-    SportsCenterManagement.API.Controllers.AiController.PreferredLanguage("xx-evil") == "Vietnamese");
+    SportsCenterManagement.API.Controllers.Training.AiController.PreferredLanguage("en") == "English" &&
+    SportsCenterManagement.API.Controllers.Training.AiController.PreferredLanguage(" JA ") == "Japanese" &&
+    SportsCenterManagement.API.Controllers.Training.AiController.PreferredLanguage(null) == "Vietnamese" &&
+    SportsCenterManagement.API.Controllers.Training.AiController.PreferredLanguage("xx-evil") == "Vietnamese");
 
 Console.WriteLine($"RESULT {checks - failures.Count}/{checks} checks passed");
 if (failures.Count > 0)

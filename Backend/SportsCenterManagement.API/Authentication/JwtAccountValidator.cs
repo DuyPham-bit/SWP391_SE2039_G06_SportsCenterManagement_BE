@@ -2,7 +2,6 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using SportsCenterManagement.BLL.Services;
 using SportsCenterManagement.DAL.Context;
 
 namespace SportsCenterManagement.API.Authentication;

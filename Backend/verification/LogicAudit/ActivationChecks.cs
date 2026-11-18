@@ -7,7 +7,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using SportsCenterManagement.API.Authentication;
 using SportsCenterManagement.BLL.Common.Helpers;
-using SportsCenterManagement.BLL.Services;
 using SportsCenterManagement.DAL.Authorization;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;

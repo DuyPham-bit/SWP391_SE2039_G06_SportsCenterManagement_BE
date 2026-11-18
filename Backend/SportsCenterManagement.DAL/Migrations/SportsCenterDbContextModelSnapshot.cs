@@ -447,6 +447,132 @@ namespace SportsCenterManagement.DAL.Migrations
                     b.ToTable("audit_logs", "dbo");
                 });
 
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CampusZone", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AmenitiesJson")
+                        .IsRequired()
+                        .HasColumnType("citext")
+                        .HasColumnName("amenities_json");
+
+                    b.Property<double>("BuildingDepthM")
+                        .HasColumnType("double precision")
+                        .HasColumnName("building_depth_m");
+
+                    b.Property<double>("BuildingWidthM")
+                        .HasColumnType("double precision")
+                        .HasColumnName("building_width_m");
+
+                    b.Property<long>("CenterId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("center_id");
+
+                    b.Property<TimeOnly?>("CloseTime")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("close_time");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("citext")
+                        .HasColumnName("code");
+
+                    b.Property<string>("ColorHex")
+                        .IsRequired()
+                        .HasMaxLength(9)
+                        .HasColumnType("citext")
+                        .HasColumnName("color_hex");
+
+                    b.Property<double>("DepthM")
+                        .HasColumnType("double precision")
+                        .HasColumnName("depth_m");
+
+                    b.Property<string>("DescriptionEn")
+                        .HasMaxLength(500)
+                        .HasColumnType("citext")
+                        .HasColumnName("description_en");
+
+                    b.Property<string>("DescriptionVi")
+                        .HasMaxLength(500)
+                        .HasColumnType("citext")
+                        .HasColumnName("description_vi");
+
+                    b.Property<string>("FeaturesJson")
+                        .IsRequired()
+                        .HasColumnType("citext")
+                        .HasColumnName("features_json");
+
+                    b.Property<int>("Floors")
+                        .HasColumnType("integer")
+                        .HasColumnName("floors");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("citext")
+                        .HasColumnName("image_url");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("citext")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("NameEn")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("citext")
+                        .HasColumnName("name_en");
+
+                    b.Property<string>("NameVi")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("citext")
+                        .HasColumnName("name_vi");
+
+                    b.Property<TimeOnly?>("OpenTime")
+                        .HasColumnType("time without time zone")
+                        .HasColumnName("open_time");
+
+                    b.Property<double>("PosX")
+                        .HasColumnType("double precision")
+                        .HasColumnName("pos_x");
+
+                    b.Property<double>("PosZ")
+                        .HasColumnType("double precision")
+                        .HasColumnName("pos_z");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("sort_order");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("citext")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<double>("WidthM")
+                        .HasColumnType("double precision")
+                        .HasColumnName("width_m");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CenterId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("campus_zones", "dbo");
+                });
+
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.Center", b =>
                 {
                     b.Property<long>("Id")
@@ -2828,6 +2954,10 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<bool>("Bookable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("bookable");
+
                     b.Property<int>("Capacity")
                         .HasColumnType("integer")
                         .HasColumnName("capacity");
@@ -2840,16 +2970,54 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<int?>("FloorNo")
+                        .HasColumnType("integer")
+                        .HasColumnName("floor_no");
+
+                    b.Property<bool>("IsVisibleOnLanding")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_visible_on_landing");
+
                     b.Property<string>("LocationDescription")
                         .HasMaxLength(255)
                         .HasColumnType("citext")
                         .HasColumnName("location_description");
+
+                    b.Property<double?>("MapDepthM")
+                        .HasColumnType("double precision")
+                        .HasColumnName("map_depth_m");
+
+                    b.Property<string>("MapKind")
+                        .HasMaxLength(30)
+                        .HasColumnType("citext")
+                        .HasColumnName("map_kind");
+
+                    b.Property<double?>("MapRotationDeg")
+                        .HasColumnType("double precision")
+                        .HasColumnName("map_rotation_deg");
+
+                    b.Property<double?>("MapWidthM")
+                        .HasColumnType("double precision")
+                        .HasColumnName("map_width_m");
+
+                    b.Property<double?>("MapX")
+                        .HasColumnType("double precision")
+                        .HasColumnName("map_x");
+
+                    b.Property<double?>("MapZ")
+                        .HasColumnType("double precision")
+                        .HasColumnName("map_z");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("citext")
                         .HasColumnName("name");
+
+                    b.Property<string>("NameEn")
+                        .HasMaxLength(100)
+                        .HasColumnType("citext")
+                        .HasColumnName("name_en");
 
                     b.Property<string>("RoomType")
                         .HasMaxLength(100)
@@ -2862,9 +3030,15 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasColumnType("citext")
                         .HasColumnName("status");
 
+                    b.Property<long?>("ZoneId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("zone_id");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CenterId");
+
+                    b.HasIndex("ZoneId");
 
                     b.ToTable("rooms", "dbo");
                 });
@@ -2941,6 +3115,10 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("citext")
                         .HasColumnName("description");
+
+                    b.Property<bool>("IsVisibleOnLanding")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_visible_on_landing");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -3848,6 +4026,15 @@ namespace SportsCenterManagement.DAL.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CampusZone", b =>
+                {
+                    b.HasOne("SportsCenterManagement.DAL.Entities.Center", null)
+                        .WithMany()
+                        .HasForeignKey("CenterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.CenterCheckin", b =>
                 {
                     b.HasOne("SportsCenterManagement.DAL.Entities.Center", null)
@@ -4469,6 +4656,11 @@ namespace SportsCenterManagement.DAL.Migrations
                         .HasForeignKey("CenterId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("SportsCenterManagement.DAL.Entities.CampusZone", null)
+                        .WithMany()
+                        .HasForeignKey("ZoneId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("SportsCenterManagement.DAL.Entities.SessionBooking", b =>

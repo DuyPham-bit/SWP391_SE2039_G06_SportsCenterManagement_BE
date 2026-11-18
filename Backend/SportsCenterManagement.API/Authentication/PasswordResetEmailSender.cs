@@ -87,7 +87,7 @@ public sealed class PasswordResetEmailSender(
         };
         db.CommunicationDeliveries.Add(delivery);
         await db.SaveChangesAsync(ct);
-        var hours = (int)Math.Round(SportsCenterManagement.BLL.Services.MemberActivationService.LinkLifetime.TotalHours);
+        var hours = (int)Math.Round(SportsCenterManagement.BLL.Services.Members.MemberActivationService.LinkLifetime.TotalHours);
         var title = MemberActivationEmailTemplate.Subject;
         var message = MemberActivationEmailTemplate.BuildText(fullName, phone, email, verifyUrl, hours);
         var html = MemberActivationEmailTemplate.BuildHtml(fullName, phone, email, verifyUrl, hours);

@@ -91,7 +91,15 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                             && coach.CenterId == x.cls.CenterId && coach.Status == "Active"
                             && Db.Users.Any(user => user.Id == coach.UserId && user.Status == "Active"
                                 && (!user.LockedUntil.HasValue || user.LockedUntil.Value <= DateTime.UtcNow)))),
-                Booked = Db.SessionBookings.Count(b => b.SessionId == x.session.Id && b.Status == FlowStatuses.BookingBooked),
+                // Roster and schedule must use the same sources: a member can be enrolled
+                // at class level without having a separate session booking row.
+                Booked = Db.MemberProfiles.Count(m =>
+                    Db.Users.Any(user => user.Id == m.UserId && user.Status == "Active") &&
+                    (Db.SessionBookings.Any(b => b.SessionId == x.session.Id && b.MemberId == m.Id &&
+                        b.Status == FlowStatuses.BookingBooked) ||
+                     Db.ClassEnrollments.Any(e => e.ClassId == x.cls.Id && e.MemberId == m.Id &&
+                        (e.Status == FlowStatuses.EnrollmentConfirmed || e.Status == "Active" || e.Status == "Enrolled")))
+                ),
                 Waiting = Db.ClassWaitlists.Count(w => w.SessionId == x.session.Id && w.Status == FlowStatuses.WaitlistWaiting)
             })
             .ToListAsync(cancellationToken);
@@ -280,7 +288,15 @@ public sealed class ClassScheduleQueryService(IUnitOfWork unitOfWork) : IClassSc
                 session.SessionStatus,
                 ClassStatus = cls.Status,
                 cls.Capacity,
-                Booked = Db.SessionBookings.Count(b => b.SessionId == session.Id && b.Status == FlowStatuses.BookingBooked)
+                // Keep this count consistent with ClassRepository.GetSessionRosterAsync,
+                // which is also the source used by the attendance screen.
+                Booked = Db.MemberProfiles.Count(m =>
+                    Db.Users.Any(user => user.Id == m.UserId && user.Status == "Active") &&
+                    (Db.SessionBookings.Any(b => b.SessionId == session.Id && b.MemberId == m.Id &&
+                        b.Status == FlowStatuses.BookingBooked) ||
+                     Db.ClassEnrollments.Any(e => e.ClassId == cls.Id && e.MemberId == m.Id &&
+                        (e.Status == FlowStatuses.EnrollmentConfirmed || e.Status == "Active" || e.Status == "Enrolled")))
+                )
             }).ToListAsync(cancellationToken);
 
         return rows.Select(r => new TeachingScheduleItemResponse(

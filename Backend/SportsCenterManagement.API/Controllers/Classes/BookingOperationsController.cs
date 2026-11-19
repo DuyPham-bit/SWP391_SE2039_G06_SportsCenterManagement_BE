@@ -81,7 +81,7 @@ public sealed class BookingOperationsController(ISessionBookingService bookings)
     [Authorize(Roles = "COACH")]
     [HttpPut("coaches/me/sessions/{sessionId:long}/attendance")]
     [CenterCapability("take_attendance")]
-    public async Task<IActionResult> Attendance(long sessionId, AttendanceItem[] records, CancellationToken ct)
+    public async Task<IActionResult> Attendance(long sessionId, [FromBody] AttendanceItem[] records, CancellationToken ct)
     {
         var dtos = records.Select(r => new AttendanceRecordDto(r.MemberId, r.Status, r.Note)).ToList();
         var count = await bookings.RecordAttendanceAsync(CurrentUserId, sessionId, dtos, ct);

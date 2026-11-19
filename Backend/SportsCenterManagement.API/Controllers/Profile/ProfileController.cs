@@ -67,5 +67,7 @@ public sealed class ProfileController(IProfileService profileService) : Controll
             dto.Avatar,
             dto.AvatarKey,
             dto.MustChangePassword,
-            dto.IsEmailVerified);
+            dto.IsEmailVerified,
+            dto.StaffCode,
+            dto.CenterName);
 }

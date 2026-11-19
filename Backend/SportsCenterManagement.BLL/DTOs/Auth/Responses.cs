@@ -22,7 +22,9 @@ public static class Responses
         string? Avatar = null,
         string? AvatarKey = null,
         bool MustChangePassword = false,
-        bool IsEmailVerified = true);
+        bool IsEmailVerified = true,
+        string? StaffCode = null,
+        string? CenterName = null);
 
     /// <summary>Result of requesting a password reset code.</summary>
     public sealed record PasswordResetRequestResponse(string Message, string? DevelopmentOtp);

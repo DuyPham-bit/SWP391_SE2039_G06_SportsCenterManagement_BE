@@ -378,7 +378,8 @@ namespace SportsCenterManagement.DAL.Migrations
 
                     b.HasIndex("MemberId");
 
-                    b.HasIndex("SessionId");
+                    b.HasIndex("SessionId", "MemberId")
+                        .IsUnique();
 
                     b.ToTable("attendance", "dbo");
                 });

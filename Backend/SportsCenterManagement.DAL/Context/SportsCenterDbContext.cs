@@ -197,6 +197,9 @@ public sealed class SportsCenterDbContext(DbContextOptions<SportsCenterDbContext
         modelBuilder.Entity<ClassEnrollment>()
             .HasIndex(entity => new { entity.ClassId, entity.MemberId })
             .IsUnique();
+        modelBuilder.Entity<Attendance>()
+            .HasIndex(entity => new { entity.SessionId, entity.MemberId })
+            .IsUnique();
         modelBuilder.Entity<ClassWaitlist>()
             .HasIndex(entity => new { entity.SessionId, entity.MemberId })
             .IsUnique()

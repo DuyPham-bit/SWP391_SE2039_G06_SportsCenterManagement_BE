@@ -574,11 +574,14 @@ public sealed class PaymentService(
         var invoiceItems = await _unitOfWork.Context.InvoiceItems
             .Where(item => item.InvoiceId == invoice.Id && item.SubscriptionId != null)
             .ToListAsync(cancellationToken);
+        var subscriptionIds = invoiceItems.Select(item => item.SubscriptionId!.Value).Distinct().ToArray();
+        var subscriptions = await _unitOfWork.Context.MemberSubscriptions
+            .Where(subscription => subscriptionIds.Contains(subscription.Id))
+            .ToDictionaryAsync(subscription => subscription.Id, cancellationToken);
         foreach (var item in invoiceItems)
         {
-            var subscription = await _unitOfWork.Context.MemberSubscriptions
-                .SingleOrDefaultAsync(candidate => candidate.Id == item.SubscriptionId, cancellationToken);
-            if (subscription is not null && subscription.Status == "PendingPayment")
+            if (subscriptions.TryGetValue(item.SubscriptionId!.Value, out var subscription)
+                && subscription.Status == "PendingPayment")
             {
                 subscription.Status = "Cancelled";
                 subscription.UpdatedAt = now;
@@ -2350,11 +2353,14 @@ public sealed class PaymentService(
         var invoiceItems = await _unitOfWork.Context.InvoiceItems
             .Where(item => item.InvoiceId == invoice.Id && item.SubscriptionId != null)
             .ToListAsync(cancellationToken);
+        var subscriptionIds = invoiceItems.Select(item => item.SubscriptionId!.Value).Distinct().ToArray();
+        var subscriptions = await _unitOfWork.Context.MemberSubscriptions
+            .Where(subscription => subscriptionIds.Contains(subscription.Id))
+            .ToDictionaryAsync(subscription => subscription.Id, cancellationToken);
         foreach (var item in invoiceItems)
         {
-            var subscription = await _unitOfWork.Context.MemberSubscriptions
-                .SingleOrDefaultAsync(s => s.Id == item.SubscriptionId, cancellationToken);
-            if (subscription is not null && subscription.Status == "PendingPayment")
+            if (subscriptions.TryGetValue(item.SubscriptionId!.Value, out var subscription)
+                && subscription.Status == "PendingPayment")
             {
                 subscription.Status = "Cancelled";
                 subscription.UpdatedAt = now;

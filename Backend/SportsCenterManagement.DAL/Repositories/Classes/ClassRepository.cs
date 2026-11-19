@@ -172,24 +172,28 @@ public sealed class ClassRepository(SportsCenterDbContext db) : IClassRepository
 
     public async Task UpsertAttendancesAsync(long sessionId, long actorUserId, IReadOnlyList<(long MemberId, string Status, string? Note)> records, CancellationToken ct = default)
     {
-        var ids = records.Select(r => r.MemberId).ToArray();
-        var existing = await db.Attendances
-            .Where(a => a.SessionId == sessionId && ids.Contains(a.MemberId))
-            .ToDictionaryAsync(a => a.MemberId, ct);
-
+        // Use PostgreSQL's atomic upsert so concurrent saves never create duplicate
+        // attendance rows and a failed INSERT is never left tracked by this DbContext.
+        var now = DateTime.UtcNow;
         foreach (var r in records)
         {
-            if (!existing.TryGetValue(r.MemberId, out var row))
-            {
-                row = new Attendance { SessionId = sessionId, MemberId = r.MemberId, CreatedAt = DateTime.UtcNow };
-                db.Attendances.Add(row);
-            }
-            row.AttendanceStatus = r.Status;
-            row.Note = r.Note;
-            row.CheckedInBy = actorUserId;
-            row.CheckInTime = r.Status is "PRESENT" or "LATE" ? row.CheckInTime ?? DateTime.UtcNow : null;
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO dbo.attendance AS target
+                    (session_id, member_id, checked_in_by, attendance_status, check_in_time, note, created_at)
+                VALUES
+                    ({sessionId}, {r.MemberId}, {actorUserId}, {r.Status},
+                     CASE WHEN {r.Status} IN ('PRESENT', 'LATE') THEN {now} ELSE NULL END,
+                     {r.Note}, {now})
+                ON CONFLICT (session_id, member_id) DO UPDATE SET
+                    checked_in_by = EXCLUDED.checked_in_by,
+                    attendance_status = EXCLUDED.attendance_status,
+                    check_in_time = CASE
+                        WHEN EXCLUDED.attendance_status IN ('PRESENT', 'LATE')
+                            THEN COALESCE(target.check_in_time, EXCLUDED.check_in_time)
+                        ELSE NULL
+                    END,
+                    note = EXCLUDED.note
+                """, ct);
         }
-
-        await db.SaveChangesAsync(ct);
     }
 }

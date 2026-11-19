@@ -13,7 +13,8 @@ public static class WebApplicationExtensions
     /// <summary>Creates/seeds the database under a distributed lock when Database:AutoMigrateOnStartup is on.</summary>
     public static async Task InitializeDatabaseAsync(this WebApplication app)
     {
-        var autoMigrateOnStartup = app.Configuration.GetValue<bool>("Database:AutoMigrateOnStartup", true);
+        // Production deployments must run migrations as a separate, reviewed release step.
+        var autoMigrateOnStartup = app.Configuration.GetValue<bool>("Database:AutoMigrateOnStartup", false);
         if (autoMigrateOnStartup)
         {
             using var scope = app.Services.CreateScope();

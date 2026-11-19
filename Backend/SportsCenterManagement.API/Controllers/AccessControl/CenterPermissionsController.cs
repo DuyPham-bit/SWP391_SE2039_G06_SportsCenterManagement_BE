@@ -111,25 +111,45 @@ public sealed class CenterPermissionsController(SportsCenterDbContext db, Center
             where profile.CenterId == centerId && role.Name == "Coach"
             select new { UserId = user.Id, profile.FullName, role.Id, RoleName = role.Name, user.Status }).ToListAsync(ct);
 
+        var rows = memberRows.Concat(staffRows).Concat(coachRows).GroupBy(x => x.UserId).Select(g => g.First())
+            .OrderBy(x => x.RoleName).ThenBy(x => x.FullName).ToArray();
+        var roleIds = rows.Select(row => row.Id).Distinct().ToArray();
+        var userIds = rows.Select(row => row.UserId).ToArray();
+        var rolePermissions = await (from rp in db.RolePermissions.AsNoTracking()
+            join permission in db.Permissions.AsNoTracking() on rp.PermissionId equals permission.Id
+            where roleIds.Contains(rp.RoleId) && permission.Code != "roles.permissions.manage"
+            orderby permission.Name
+            select new { rp.RoleId, permission.Code, permission.Name, permission.Description }).ToListAsync(ct);
+        var settingKeys = roleIds.Select(roleId => CenterRolePolicy.Key(centerId, roleId))
+            .Concat(userIds.Select(userId => CenterRolePolicy.UserKey(centerId, userId)))
+            .Distinct()
+            .ToArray();
+        var settings = await db.SystemSettings.AsNoTracking()
+            .Where(setting => settingKeys.Contains(setting.SettingKey))
+            .Select(setting => new { setting.SettingKey, setting.SettingValue })
+            .ToListAsync(ct);
+        var settingsByKey = settings.ToDictionary(setting => setting.SettingKey, setting => setting.SettingValue);
+        var permissionsByRole = rolePermissions.ToLookup(permission => permission.RoleId);
+
         var result = new List<object>();
-        foreach (var row in memberRows.Concat(staffRows).Concat(coachRows).GroupBy(x => x.UserId).Select(g => g.First())
-                     .OrderBy(x => x.RoleName).ThenBy(x => x.FullName))
+        foreach (var row in rows)
         {
-            var availablePermissions = await (from rp in db.RolePermissions.AsNoTracking()
-                join permission in db.Permissions.AsNoTracking() on rp.PermissionId equals permission.Id
-                where rp.RoleId == row.Id && permission.Code != "roles.permissions.manage"
-                orderby permission.Name
-                select new { permission.Code, permission.Name, permission.Description }).ToArrayAsync(ct);
-            var rolePolicy = await CenterRolePolicy.Read(db, centerId, row.Id, ct);
+            var availablePermissions = permissionsByRole[row.Id].ToArray();
+            settingsByKey.TryGetValue(CenterRolePolicy.Key(centerId, row.Id), out var roleOverrideJson);
+            var rolePolicy = roleOverrideJson is null ? null : JsonSerializer.Deserialize<CenterRoleOverride>(roleOverrideJson);
             var roleCaps = CenterRolePolicy.Capabilities(row.RoleName);
             var effectiveRoleCaps = rolePolicy is null ? roleCaps : roleCaps.Intersect(rolePolicy.CapabilityIds).ToArray();
             var effectiveRoleCodes = rolePolicy is null
                 ? availablePermissions.Select(p => p.Code).ToArray()
                 : availablePermissions.Select(p => p.Code).Intersect(rolePolicy.PermissionCodes).ToArray();
-            var userPolicy = await CenterRolePolicy.ReadUser(db, centerId, row.UserId, ct);
+            settingsByKey.TryGetValue(CenterRolePolicy.UserKey(centerId, row.UserId), out var userOverrideJson);
+            var userPolicy = userOverrideJson is null ? null : JsonSerializer.Deserialize<CenterUserOverride>(userOverrideJson);
             result.Add(new { row.UserId, row.FullName, row.RoleName, row.Status,
                 AvailableCapabilities = effectiveRoleCaps, CapabilityIds = userPolicy is null ? effectiveRoleCaps : effectiveRoleCaps.Intersect(userPolicy.CapabilityIds).ToArray(),
-                AvailablePermissions = availablePermissions.Where(p => effectiveRoleCodes.Contains(p.Code)).ToArray(),
+                AvailablePermissions = availablePermissions
+                    .Where(p => effectiveRoleCodes.Contains(p.Code))
+                    .Select(p => new { p.Code, p.Name, p.Description })
+                    .ToArray(),
                 PermissionCodes = userPolicy is null ? effectiveRoleCodes : effectiveRoleCodes.Intersect(userPolicy.PermissionCodes).ToArray(),
                 HasCustomOverride = userPolicy is not null });
         }

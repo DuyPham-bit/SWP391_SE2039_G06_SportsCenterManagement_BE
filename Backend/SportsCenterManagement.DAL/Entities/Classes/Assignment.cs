@@ -1,7 +1,5 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
-using SportsCenterManagement.DAL.Entities.Common;
 
 namespace SportsCenterManagement.DAL.Entities;
 

@@ -6,9 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using SportsCenterManagement.API.Authorization;
 using SportsCenterManagement.DAL.Authorization;
 using AuthRequests = SportsCenterManagement.BLL.DTOs.Auth.Requests;
-using AuthResponses = SportsCenterManagement.BLL.DTOs.Auth.Responses;
 using MembersRequests = SportsCenterManagement.BLL.DTOs.Members.Requests;
-using MembersResponses = SportsCenterManagement.BLL.DTOs.Members.Responses;
 
 namespace SportsCenterManagement.API.Controllers.Members;
 

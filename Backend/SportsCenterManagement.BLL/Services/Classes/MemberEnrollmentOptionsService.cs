@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using SportsCenterManagement.BLL.Common;
 using SportsCenterManagement.BLL.DTOs.Classes;
 using SportsCenterManagement.DAL.Context;
 

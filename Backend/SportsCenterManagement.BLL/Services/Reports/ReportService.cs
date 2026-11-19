@@ -1,9 +1,7 @@
-using System.Globalization;
 using System.Data;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
-using SportsCenterManagement.BLL.Common;
 using SportsCenterManagement.BLL.DTOs.CoreFlows;
 
 namespace SportsCenterManagement.BLL.Services.Reports;

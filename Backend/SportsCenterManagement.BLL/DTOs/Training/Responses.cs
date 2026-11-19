@@ -1,5 +1,3 @@
-using System.ComponentModel.DataAnnotations;
-
 namespace SportsCenterManagement.BLL.DTOs.Training;
 
 

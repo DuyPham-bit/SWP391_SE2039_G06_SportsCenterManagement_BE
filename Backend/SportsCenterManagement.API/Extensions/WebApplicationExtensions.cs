@@ -1,23 +1,10 @@
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.OpenApi;
-using System.Security.Claims;
-using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.AspNetCore.StaticFiles;
 using SportsCenterManagement.API.Authentication;
-using SportsCenterManagement.API.Authorization;
-using SportsCenterManagement.API.BackgroundServices;
-using SportsCenterManagement.BLL.Common;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Seed;
-using SportsCenterManagement.API.Models;
-using SportsCenterManagement.API.Services;
 
 namespace SportsCenterManagement.API.Extensions;
 

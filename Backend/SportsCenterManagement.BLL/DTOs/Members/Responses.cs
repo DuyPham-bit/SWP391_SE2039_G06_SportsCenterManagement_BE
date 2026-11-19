@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-using System.ComponentModel.DataAnnotations;
 using MembersResponses = SportsCenterManagement.BLL.DTOs.Members.Responses;
 namespace SportsCenterManagement.BLL.DTOs.Members;
 

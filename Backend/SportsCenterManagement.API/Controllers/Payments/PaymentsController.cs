@@ -7,7 +7,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SportsCenterManagement.API.Authorization;
-using SportsCenterManagement.BLL.Common;
 using SportsCenterManagement.BLL.DTOs.Payments;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Authorization;

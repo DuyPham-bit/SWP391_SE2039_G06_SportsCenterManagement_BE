@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.API.Authentication;
-using static SportsCenterManagement.BLL.DTOs.Auth.Requests;
 using static SportsCenterManagement.BLL.DTOs.Auth.Responses;
 using SportsCenterManagement.BLL.Common.Helpers;
 using SportsCenterManagement.DAL.Context;

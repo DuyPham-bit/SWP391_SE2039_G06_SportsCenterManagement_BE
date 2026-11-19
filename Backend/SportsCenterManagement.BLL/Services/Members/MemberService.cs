@@ -1,9 +1,7 @@
-using SportsCenterManagement.BLL.Common;
 using Microsoft.EntityFrameworkCore;
 using System.ComponentModel.DataAnnotations;
 using System.Text.RegularExpressions;
 using AuthRequests = SportsCenterManagement.BLL.DTOs.Auth.Requests;
-using AuthResponses = SportsCenterManagement.BLL.DTOs.Auth.Responses;
 using MembersRequests = SportsCenterManagement.BLL.DTOs.Members.Requests;
 using MembersResponses = SportsCenterManagement.BLL.DTOs.Members.Responses;
 using SportsCenterManagement.BLL.Common.Helpers;

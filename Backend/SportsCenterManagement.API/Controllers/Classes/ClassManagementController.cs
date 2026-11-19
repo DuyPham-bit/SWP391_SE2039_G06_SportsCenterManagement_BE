@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SportsCenterManagement.BLL.DTOs.Classes;
 using SportsCenterManagement.API.Authorization;
-using SportsCenterManagement.DAL.Context;
 using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace SportsCenterManagement.API.Controllers.Classes;

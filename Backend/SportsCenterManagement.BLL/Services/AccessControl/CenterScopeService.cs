@@ -1,5 +1,3 @@
-using SportsCenterManagement.BLL.Common;
-
 namespace SportsCenterManagement.BLL.Services.AccessControl;
 
 public sealed class CenterScopeService(

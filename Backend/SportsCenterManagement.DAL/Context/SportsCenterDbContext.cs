@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.DAL.Entities;
-using SportsCenterManagement.DAL.Entities.Common;
 
 namespace SportsCenterManagement.DAL.Context;
 

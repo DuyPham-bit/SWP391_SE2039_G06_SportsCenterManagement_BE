@@ -5,8 +5,6 @@ using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;
 
-using Microsoft.Extensions.Logging;
-
 namespace SportsCenterManagement.API.Authentication;
 
 public sealed class PasswordResetEmailSender(

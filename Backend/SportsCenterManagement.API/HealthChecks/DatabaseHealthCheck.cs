@@ -1,5 +1,3 @@
-using SportsCenterManagement.DAL.Context;
-
 namespace SportsCenterManagement.API.HealthChecks;
 
 public sealed class DatabaseHealthCheck(SportsCenterManagement.BLL.Common.SystemHealthService health) : Microsoft.Extensions.Diagnostics.HealthChecks.IHealthCheck

@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using static SportsCenterManagement.BLL.DTOs.Auth.Requests;
 using static SportsCenterManagement.BLL.DTOs.Auth.Responses;
 
 namespace SportsCenterManagement.API.Authentication;

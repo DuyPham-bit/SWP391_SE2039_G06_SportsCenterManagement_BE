@@ -2,11 +2,8 @@ using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.API.Authorization;
-using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.BLL.DTOs.Payments;
-using SportsCenterManagement.BLL.Common;
 
 namespace SportsCenterManagement.API.Controllers.Payments;
 

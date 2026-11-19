@@ -1,6 +1,5 @@
 using System.Data;
 using Microsoft.EntityFrameworkCore;
-using SportsCenterManagement.BLL.Common;
 using SportsCenterManagement.BLL.DTOs.CoachProfessional;
 using SportsCenterManagement.DAL.Authorization;
 using SportsCenterManagement.DAL.Context;

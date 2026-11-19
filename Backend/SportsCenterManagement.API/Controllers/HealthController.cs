@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using SportsCenterManagement.DAL.Context;
 
 namespace SportsCenterManagement.API.Controllers;
 

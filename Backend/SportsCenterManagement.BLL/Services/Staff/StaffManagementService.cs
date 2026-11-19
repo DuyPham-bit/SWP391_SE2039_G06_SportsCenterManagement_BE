@@ -1,4 +1,3 @@
-using SportsCenterManagement.BLL.Common;
 using System.Data;
 using System.ComponentModel.DataAnnotations;
 using System.Text.RegularExpressions;

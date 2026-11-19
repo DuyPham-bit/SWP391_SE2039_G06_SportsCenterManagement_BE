@@ -61,13 +61,14 @@ public class HomeContentTests
         using var db = await SeededDbAsync();
         var service = Service(db);
         var admin = await service.GetAdminAsync(null, 1, default);
-        Assert.Equal(new VisibilityCount(3, 3), admin.Stats.Sports);
+        Assert.Equal(new VisibilityCount(10, 10), admin.Stats.Sports);
 
         var courses = JsonNode.Parse(admin.Content!.Value.GetRawText())!["coursesSection"]!;
         Card(courses.Root, "sportsList", "101")["isVisible"] = false;
+        Card(courses.Root, "sportsList", "yoga-pilates")["isVisible"] = false;
         var saved = await service.SaveSectionAsync("coursesSection", JsonSerializer.SerializeToElement(courses), 1, null, default);
 
-        Assert.Equal(new VisibilityCount(2, 3), saved.Stats.Sports);
+        Assert.Equal(new VisibilityCount(8, 10), saved.Stats.Sports);
         Assert.False((await db.Sports.SingleAsync(s => s.Id == 101)).IsVisibleOnLanding);
     }
 
@@ -81,12 +82,28 @@ public class HomeContentTests
         var service = Service(db);
 
         var withCards = (await service.GetAdminAsync(null, 1, default)).Stats;
-        Assert.Equal(new VisibilityCount(2, 2), withCards.Facilities); // rooms 201, 202 have cards; 299 does not
-        Assert.Equal(new VisibilityCount(3, 3), withCards.Sports);
+        Assert.Equal(new VisibilityCount(10, 10), withCards.Facilities); // all 10 facility cards count; unlinked room 299 does not
+        Assert.Equal(new VisibilityCount(10, 10), withCards.Sports);
 
-        // Catalog fallback (no cards linked to DB records): every active record counts.
+        // Catalog fallback (no cards and not custom): every active record counts.
         var noCards = await service.GetStatsAsync(null, new JsonObject(), default);
         Assert.Equal(new VisibilityCount(3, 3), noCards.Facilities);
+
+        // Adding a custom card increments visible & total; clearing custom cards yields 0/0.
+        var facilities = JsonNode.Parse((await service.GetAdminAsync(null, 1, default)).Content!.Value.GetRawText())!["facilitiesSection"]!;
+        facilities["facilitiesList"]!.AsArray().Add(new JsonObject
+        {
+            ["id"] = "facilities-custom-1",
+            ["name"] = new JsonObject { ["vi"] = "Sân mới", ["en"] = "New court" },
+            ["isVisible"] = true
+        });
+        var added = await service.SaveSectionAsync("facilitiesSection", JsonSerializer.SerializeToElement(facilities), 1, null, default);
+        Assert.Equal(new VisibilityCount(11, 11), added.Stats.Facilities);
+
+        facilities["facilitiesList"] = new JsonArray();
+        facilities["catalogSource"] = "custom";
+        var cleared = await service.SaveSectionAsync("facilitiesSection", JsonSerializer.SerializeToElement(facilities), 1, null, default);
+        Assert.Equal(new VisibilityCount(0, 0), cleared.Stats.Facilities);
     }
 
     [Fact]

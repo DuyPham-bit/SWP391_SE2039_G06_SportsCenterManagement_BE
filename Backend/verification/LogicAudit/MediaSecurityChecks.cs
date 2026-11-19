@@ -6,8 +6,6 @@ using Amazon.Runtime;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
 using SportsCenterManagement.API.Authentication;
 using SportsCenterManagement.DAL.Context;
 using SportsCenterManagement.DAL.Entities;

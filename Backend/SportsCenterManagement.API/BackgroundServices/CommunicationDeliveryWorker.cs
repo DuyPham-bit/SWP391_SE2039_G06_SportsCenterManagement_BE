@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
 using SportsCenterManagement.DAL.Context;
 
